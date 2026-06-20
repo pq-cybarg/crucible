@@ -416,3 +416,43 @@ export async function runLmEval(modelId: string, tasks: readonly string[], limit
   const out = (await resp.json()) as { results: readonly LmEvalRow[] };
   return { kind: "results", rows: out.results };
 }
+
+export interface TensorInfo {
+  readonly name: string;
+  readonly shape: readonly number[];
+  readonly dtype: string;
+  readonly n_params: number;
+  readonly offset: number;
+}
+
+export interface WeightSummary {
+  readonly n_tensors: number;
+  readonly total_params: number;
+  readonly n_layers: number;
+  readonly dtypes: Readonly<Record<string, number>>;
+  readonly architecture: string | null;
+}
+
+export interface WeightsView {
+  readonly summary: WeightSummary;
+  readonly tensors: readonly TensorInfo[];
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
+export type WeightsResult =
+  | { readonly kind: "view"; readonly view: WeightsView }
+  | { readonly kind: "no-file" }
+  | { readonly kind: "no-model" }
+  | { readonly kind: "offline" };
+
+export async function getWeights(modelId: string): Promise<WeightsResult> {
+  let resp: Response;
+  try {
+    resp = await fetch(`/api/weights/${encodeURIComponent(modelId)}`);
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 404) return { kind: "no-file" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "view", view: (await resp.json()) as WeightsView };
+}

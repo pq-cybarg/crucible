@@ -18,6 +18,8 @@ from crucible.evals.published import PUBLISHED
 from crucible.evals.runner import format_mc_prompt, run_mc_benchmark
 from crucible.evals.lmeval import run_lmeval
 from crucible.evals.suite import CANONICAL_SUITE
+from crucible.weights.explorer import summarize as weight_summary
+from crucible.weights.gguf_reader import parse_gguf
 from crucible.evals.scoring import extract_choice, mc_accuracy
 from crucible.guardrails import GuardrailConfig, GuardrailsEngine
 from crucible.guardrails.base import GuardrailResult
@@ -254,6 +256,19 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 detail="model has no endpoint - launch llama-server and register its endpoint")
         rows = run_lmeval(m.endpoint, req.tasks, req.limit)
         return {"model_id": req.model_id, "results": rows}
+
+    @app.get("/api/weights/{model_id}")
+    def weights(model_id: str) -> dict:
+        try:
+            m = reg.get(model_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="model not found")
+        if not Path(m.path).exists():
+            raise HTTPException(status_code=404, detail="model file not found on disk")
+        parsed = parse_gguf(m.path)
+        return {"summary": weight_summary(parsed),
+                "tensors": parsed["tensors"][:6000],
+                "metadata": {k: v for k, v in parsed["metadata"].items() if not isinstance(v, list)}}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):

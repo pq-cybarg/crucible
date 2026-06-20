@@ -6,7 +6,7 @@ import ModelsPanel from "./components/ModelsPanel";
 import GuardrailsPanel from "./components/GuardrailsPanel";
 import UncensorPanel from "./components/UncensorPanel";
 import BenchmarksPanel from "./components/BenchmarksPanel";
-import { WeightsPanel } from "./components/Panels";
+import WeightsPanel from "./components/WeightsPanel";
 import { getHealth, getModels } from "./api";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";
