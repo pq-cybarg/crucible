@@ -64,6 +64,14 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class RuntimeSteerRequest(BaseModel):
+    base_id: str
+    layer: int | None = None
+    rank: int = 1
+    coefficient: float = 1.0
+    max_new_tokens: int = 30
+
+
 class SweepRequest(BaseModel):
     base_id: str
     layer: int | None = None
@@ -255,6 +263,36 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         strengths = req.strengths or [0.25, 0.5, 0.75, 1.0]
         return strength_sweep(abliteration_adapter, DEFAULT_HARMFUL, DEFAULT_HARMLESS,
                               layer, strengths, req.max_new_tokens)
+
+    @app.post("/api/abliteration/runtime-steer")
+    def abl_runtime_steer(req: RuntimeSteerRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.detection import refusal_rate
+        from crucible.abliteration.subspace import refusal_subspace
+        a = abliteration_adapter
+        layers = list(range(getattr(a, "num_layers", 1)))
+        profile = layer_refusal_profile(a, DEFAULT_HARMFUL, DEFAULT_HARMLESS, layers)
+        layer = req.layer if req.layer is not None else best_layer(profile)
+        dirs, ev = refusal_subspace(a.activations(DEFAULT_HARMFUL, layer),
+                                    a.activations(DEFAULT_HARMLESS, layer), req.rank)
+        n = req.max_new_tokens
+        before_h = [a.generate(p, n) for p in DEFAULT_HARMFUL]
+        before_b = [a.generate(p, n) for p in DEFAULT_HARMLESS]
+        during_h = [a.ablate_generate(p, dirs, req.coefficient, n) for p in DEFAULT_HARMFUL]
+        during_b = [a.ablate_generate(p, dirs, req.coefficient, n) for p in DEFAULT_HARMLESS]
+        after_h = [a.generate(p, n) for p in DEFAULT_HARMFUL]
+        return {"layer": layer, "rank": req.rank, "coefficient": req.coefficient,
+                "explained_variance": ev, "weights_modified": False,
+                "harmful_refusal": {"hooks_off": refusal_rate(before_h),
+                                    "hooks_on": refusal_rate(during_h),
+                                    "after_detach": refusal_rate(after_h)},
+                "benign_over_refusal": {"hooks_off": refusal_rate(before_b),
+                                        "hooks_on": refusal_rate(during_b)},
+                "sample": {"prompt": DEFAULT_HARMFUL[0],
+                           "hooks_off": before_h[0], "hooks_on": during_h[0]}}
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:

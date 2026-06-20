@@ -78,6 +78,32 @@ class TorchModelAdapter:
         with torch.no_grad():
             p.copy_(torch.tensor(np.asarray(W), dtype=p.dtype, device=p.device))
 
+    def decoder_layers(self):
+        # Qwen2/Llama-style: model.model.layers
+        return self.model.model.layers
+
+    def ablate_generate(self, prompt: str, directions, coefficient: float = 1.0,
+                        max_new_tokens: int = 40) -> str:
+        """Generate while projecting the refusal subspace out of every layer's residual
+        via forward hooks. NONDESTRUCTIVE: weights are never modified; hooks are removed
+        afterwards, so this is fully reversible (detach == swap back)."""
+        import torch
+        D = torch.tensor(np.asarray(directions), dtype=torch.float32, device=self.device)
+
+        def hook(module, inp, out):
+            is_tuple = isinstance(out, tuple)
+            h = out[0] if is_tuple else out
+            proj = (h.to(torch.float32) @ D.T) @ D
+            h2 = (h - coefficient * proj.to(h.dtype))
+            return (h2,) + tuple(out[1:]) if is_tuple else h2
+
+        handles = [layer.register_forward_hook(hook) for layer in self.decoder_layers()]
+        try:
+            return self.generate(prompt, max_new_tokens)
+        finally:
+            for hd in handles:
+                hd.remove()
+
     def generate(self, prompt: str, max_new_tokens: int = 48) -> str:
         import torch
         ids = self._encode(prompt).to(self.device)
