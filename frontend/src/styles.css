@@ -364,3 +364,72 @@ body::after {
 ::-webkit-scrollbar-track { background: var(--void); }
 ::-webkit-scrollbar-thumb { background: var(--steel-700); border-radius: 5px; border: 2px solid var(--void); }
 ::-webkit-scrollbar-thumb:hover { background: var(--steel-600); }
+
+/* ---------- Guardrails bench -------------------------------------------- */
+.gr-toggle-row { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
+.toggle {
+  display: inline-flex; align-items: center; gap: 10px; cursor: pointer;
+  background: none; border: none; padding: 0; color: var(--ash);
+  font-family: var(--font-display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.toggle .knob {
+  width: 38px; height: 20px; border-radius: 11px; background: var(--steel-700);
+  border: 1px solid var(--line-bright); position: relative; transition: all 0.2s;
+}
+.toggle .knob::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--ash); transition: all 0.2s;
+}
+.toggle.on .knob { background: rgba(255, 106, 26, 0.25); border-color: var(--amber); }
+.toggle.on .knob::after { left: 18px; background: var(--amber-bright); box-shadow: var(--glow-amber); }
+.toggle.on .toggle-label { color: var(--amber-bright); }
+
+.preset-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.preset {
+  text-align: left; cursor: pointer; padding: 14px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--steel-900);
+  display: flex; flex-direction: column; gap: 7px; transition: all 0.18s;
+}
+.preset:hover { border-color: var(--line-bright); }
+.preset.on { border-color: var(--amber); background: linear-gradient(180deg, rgba(255, 106, 26, 0.08), transparent); }
+.preset-name { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--bone); }
+.preset-int { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ash); }
+.preset-bar { height: 4px; border-radius: 2px; background: var(--steel-700); overflow: hidden; }
+.preset-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--flux), var(--amber), var(--ember)); }
+.preset-sys { font-size: 11px; color: var(--ash); line-height: 1.4; min-height: 30px; }
+
+.rules { display: flex; flex-direction: column; gap: 8px; }
+.rule { display: flex; gap: 8px; align-items: center; }
+.rule-empty { color: var(--ash); font-size: 12px; padding: 6px 0; }
+.in {
+  background: var(--steel-900); color: var(--bone); border: 1px solid var(--line-bright);
+  border-radius: 3px; padding: 9px 11px; font-family: var(--font-mono); font-size: 12px; outline: none;
+  transition: border-color 0.15s;
+}
+.in:focus { border-color: var(--amber); }
+.in.mono { flex: 1; }
+.rule .x {
+  background: none; border: 1px solid var(--line-bright); color: var(--ash); cursor: pointer;
+  width: 32px; height: 32px; border-radius: 3px; transition: all 0.15s;
+}
+.rule .x:hover { color: var(--ember); border-color: rgba(255, 59, 47, 0.4); }
+
+.constitution { display: flex; flex-direction: column; gap: 10px; }
+.constitution textarea { resize: vertical; width: 100%; }
+
+.bench { display: flex; flex-direction: column; gap: 12px; }
+.bench-controls { display: flex; gap: 10px; align-items: center; }
+.bench-controls .in { flex: 1; }
+.bench-out { border: 1px solid var(--line); border-radius: 4px; padding: 14px; background: var(--steel-900); }
+.bench-text { color: var(--steel-text); white-space: pre-wrap; margin-bottom: 12px; }
+.bench-text .blocked { color: var(--ember); font-family: var(--font-display); font-weight: 700; letter-spacing: 0.1em; }
+.actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 2px; border: 1px solid var(--line-bright); color: var(--ash);
+}
+.chip.block { color: var(--ember); border-color: rgba(255, 59, 47, 0.4); }
+.chip.redact { color: var(--amber-bright); border-color: rgba(255, 106, 26, 0.4); }
+.chip.revise { color: var(--flux); border-color: var(--flux-dim); }
+.chip.pass { color: var(--ash); }
+.chip.inject { color: var(--steel-text); }

@@ -42,21 +42,6 @@ function Placeholder({ heading, accent, blurb, specs }: PlaceholderProps): JSX.E
   );
 }
 
-export function GuardrailsPanel(): JSX.Element {
-  return (
-    <Placeholder
-      heading="guardrail"
-      accent="bench"
-      blurb="Stack, tune, and watch each safety layer act on a turn — system-prompt presets, regex/classifier filters, and a constitutional self-critique you edit live."
-      specs={[
-        { title: "Prompt presets", body: "Swap between safe and unrestricted system prompts; diff them side by side.", fill: 20 },
-        { title: "Filter stack", body: "Regex + classifier gates on input and output, toggled independently per turn.", fill: 12 },
-        { title: "Constitution", body: "An editable constitution drives model self-critique-and-revise (Constitutional-AI).", fill: 8 },
-      ]}
-    />
-  );
-}
-
 export function UncensorPanel(): JSX.Element {
   return (
     <Placeholder

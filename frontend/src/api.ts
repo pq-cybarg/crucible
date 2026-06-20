@@ -3,6 +3,9 @@
 // SSE is read over fetch(POST) because EventSource cannot send a request body.
 
 export type ModelKind = "base" | "abliterated" | "steered";
+export type Stage = "input" | "output";
+export type PermissionMode = "allow" | "ask" | "deny";
+export type FilterMode = "block" | "redact";
 
 export interface ModelRow {
   readonly id: string;
@@ -17,11 +20,45 @@ export interface ModelRow {
 }
 
 export type ChatMessage = { readonly role: "user" | "assistant"; readonly content: string };
-export type PermissionMode = "allow" | "ask" | "deny";
 
 export interface PermissionConfig {
   readonly default: PermissionMode;
   readonly modes: Readonly<Record<string, PermissionMode>>;
+}
+
+export interface SystemPromptPreset {
+  readonly id: string;
+  readonly name: string;
+  readonly intensity: number;
+  readonly system_prompt: string;
+}
+
+export interface RegexRule {
+  readonly pattern: string;
+  readonly mode: FilterMode;
+  readonly label: string;
+  readonly stages: readonly Stage[];
+}
+
+export interface GuardrailConfig {
+  readonly enabled: boolean;
+  readonly preset_id: string;
+  readonly regex_rules: readonly RegexRule[];
+  readonly constitution: string;
+  readonly constitution_enabled: boolean;
+}
+
+export interface GuardrailAction {
+  readonly layer: string;
+  readonly stage: Stage;
+  readonly action: "inject" | "block" | "redact" | "revise" | "pass";
+  readonly detail: string;
+}
+
+export interface GuardrailResult {
+  readonly text: string;
+  readonly blocked: boolean;
+  readonly actions: readonly GuardrailAction[];
 }
 
 export type AgentEvent =
@@ -33,13 +70,7 @@ export type AgentEvent =
 
 export type RunStatus = "ok" | "no-model" | "offline";
 
-const EVENT_TYPES: ReadonlySet<string> = new Set([
-  "assistant",
-  "tool_call",
-  "tool_result",
-  "done",
-  "error",
-]);
+const EVENT_TYPES: ReadonlySet<string> = new Set(["assistant", "tool_call", "tool_result", "done", "error"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -56,7 +87,6 @@ function parseEvent(raw: string): AgentEvent | null {
   const type = parsed["type"];
   const data = parsed["data"];
   if (typeof type !== "string" || !EVENT_TYPES.has(type) || !isRecord(data)) return null;
-  // Shape is validated by the backend contract; the guard above gates the union tag.
   return { type, data } as AgentEvent;
 }
 
@@ -76,6 +106,39 @@ export async function getModels(): Promise<readonly ModelRow[]> {
   if (!r.ok) throw new Error(`GET /api/models -> ${r.status}`);
   const body: unknown = await r.json();
   return Array.isArray(body) ? (body as readonly ModelRow[]) : [];
+}
+
+export async function getPresets(): Promise<readonly SystemPromptPreset[]> {
+  const r = await fetch("/api/guardrails/presets");
+  if (!r.ok) throw new Error(`GET /api/guardrails/presets -> ${r.status}`);
+  const body: unknown = await r.json();
+  return Array.isArray(body) ? (body as readonly SystemPromptPreset[]) : [];
+}
+
+export async function getGuardrailConfig(): Promise<GuardrailConfig> {
+  const r = await fetch("/api/guardrails/config");
+  if (!r.ok) throw new Error(`GET /api/guardrails/config -> ${r.status}`);
+  return (await r.json()) as GuardrailConfig;
+}
+
+export async function putGuardrailConfig(config: GuardrailConfig): Promise<GuardrailConfig> {
+  const r = await fetch("/api/guardrails/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) throw new Error(`PUT /api/guardrails/config -> ${r.status}`);
+  return (await r.json()) as GuardrailConfig;
+}
+
+export async function previewGuardrail(stage: Stage, text: string, config: GuardrailConfig): Promise<GuardrailResult> {
+  const r = await fetch("/api/guardrails/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage, text, config }),
+  });
+  if (!r.ok) throw new Error(`POST /api/guardrails/apply -> ${r.status}`);
+  return (await r.json()) as GuardrailResult;
 }
 
 export interface RunOpts {
