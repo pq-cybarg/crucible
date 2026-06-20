@@ -88,6 +88,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     preset_store = PresetStore(settings.data_dir / "presets.json")
     gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
+    if abliteration_adapter is None:
+        import os
+        hf = os.environ.get("CRUCIBLE_HF_MODEL")
+        if hf:
+            from crucible.abliteration.torch_adapter import TorchModelAdapter
+            abliteration_adapter = TorchModelAdapter.load(hf)
     abl = (AbliterationPipeline(abliteration_adapter, reg)
            if abliteration_adapter is not None else None)
     app = FastAPI(title="Crucible")
