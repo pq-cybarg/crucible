@@ -64,6 +64,13 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class SweepRequest(BaseModel):
+    base_id: str
+    layer: int | None = None
+    strengths: list[float] | None = None
+    max_new_tokens: int = 36
+
+
 class VerifyRequest(BaseModel):
     base_id: str
     variant_id: str
@@ -234,6 +241,20 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             del base_ad, var_ad
             gc.collect()
         return res
+
+    @app.post("/api/abliteration/sweep")
+    def abl_sweep(req: SweepRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.sweep import strength_sweep
+        layers = list(range(getattr(abliteration_adapter, "num_layers", 1)))
+        profile = layer_refusal_profile(abliteration_adapter, DEFAULT_HARMFUL, DEFAULT_HARMLESS, layers)
+        layer = req.layer if req.layer is not None else best_layer(profile)
+        strengths = req.strengths or [0.25, 0.5, 0.75, 1.0]
+        return strength_sweep(abliteration_adapter, DEFAULT_HARMFUL, DEFAULT_HARMLESS,
+                              layer, strengths, req.max_new_tokens)
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:
