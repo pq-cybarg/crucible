@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import AgentConsole from "./components/AgentConsole";
 import ModelsPanel from "./components/ModelsPanel";
 import GuardrailsPanel from "./components/GuardrailsPanel";
-import { BenchmarksPanel, UncensorPanel, WeightsPanel } from "./components/Panels";
+import UncensorPanel from "./components/UncensorPanel";
+import { BenchmarksPanel, WeightsPanel } from "./components/Panels";
 import { getHealth, getModels } from "./api";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";

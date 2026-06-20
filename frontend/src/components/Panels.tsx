@@ -42,21 +42,6 @@ function Placeholder({ heading, accent, blurb, specs }: PlaceholderProps): JSX.E
   );
 }
 
-export function UncensorPanel(): JSX.Element {
-  return (
-    <Placeholder
-      heading="abliteration"
-      accent="forge"
-      blurb="Compute the refusal direction, orthogonalize it out of the residual stream, and export a new variant — reversibly, with an A/B preview against the original and one-click revert."
-      specs={[
-        { title: "Refusal direction", body: "Derived from harmful/harmless prompt-pair sets; visualized per layer.", fill: 14 },
-        { title: "Abliterate + export", body: "Adjustable strength, immutable original, lineage-tracked GGUF output.", fill: 10 },
-        { title: "Activation steering", body: "Reversible runtime add/subtract of direction vectors — no weight edit.", fill: 6 },
-      ]}
-    />
-  );
-}
-
 export function WeightsPanel(): JSX.Element {
   return (
     <Placeholder

@@ -463,3 +463,41 @@ body::after {
 .preset-editor input[type="range"] { accent-color: var(--amber); }
 .editor-err { color: var(--ember); font-size: 12px; margin-bottom: 10px; }
 .editor-buttons { display: flex; gap: 10px; }
+
+/* ---------- Abliteration forge ----------------------------------------- */
+.abl-controls { display: flex; gap: 14px; align-items: flex-end; margin-bottom: 8px; }
+.fld { display: flex; flex-direction: column; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ash); }
+.fld select.in, .fld input.in { min-width: 200px; }
+.fld input[type="range"] { accent-color: var(--amber); min-width: 160px; }
+
+.abl-note {
+  border: 1px dashed rgba(255, 106, 26, 0.4); background: rgba(255, 106, 26, 0.05);
+  color: var(--amber-bright); padding: 11px 14px; border-radius: 3px; font-size: 12px; margin: 14px 0;
+}
+.abl-note.err { border-color: rgba(255, 59, 47, 0.45); background: rgba(255, 59, 47, 0.05); color: var(--ember); }
+
+.verdict { display: flex; align-items: center; gap: 14px; margin: 18px 0 4px; color: var(--steel-text); }
+.verdict-badge {
+  font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: 0.16em;
+  padding: 5px 12px; border-radius: 3px;
+}
+.verdict-badge.ok { color: var(--flux); border: 1px solid var(--flux-dim); box-shadow: 0 0 12px rgba(47, 209, 166, 0.25); }
+.verdict-badge.warn { color: var(--ember); border: 1px solid rgba(255, 59, 47, 0.45); box-shadow: 0 0 12px rgba(255, 59, 47, 0.25); }
+
+.layer-chart { display: flex; flex-direction: column; gap: 5px; }
+.layer-row { display: flex; align-items: center; gap: 10px; }
+.layer-lbl { width: 34px; font-family: var(--font-mono); font-size: 11px; color: var(--ash); }
+.layer-bar { flex: 1; height: 12px; background: var(--steel-900); border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.layer-bar i { display: block; height: 100%; background: var(--steel-600); }
+.layer-bar i.peak { background: linear-gradient(90deg, var(--amber-dim), var(--amber-bright)); box-shadow: var(--glow-amber); }
+.layer-val { width: 56px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--steel-text); }
+
+.mech { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.mech-card {
+  border: 1px solid var(--line); border-left: 2px solid var(--amber); border-radius: 4px;
+  padding: 16px; background: var(--steel-900);
+}
+.mech-card h4 { font-family: var(--font-display); font-size: 12px; letter-spacing: 0.18em; color: var(--amber-bright); margin-bottom: 8px; }
+.mech-card p { color: var(--steel-text); font-size: 12px; line-height: 1.55; }
+
+.abl-run { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }

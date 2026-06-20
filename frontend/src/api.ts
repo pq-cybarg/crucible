@@ -211,3 +211,94 @@ export async function resetPresets(): Promise<readonly SystemPromptPreset[]> {
   if (!r.ok) throw new Error(`POST /api/guardrails/presets/reset -> ${r.status}`);
   return (await r.json()) as readonly SystemPromptPreset[];
 }
+
+export interface LayerProfile {
+  readonly layer: number;
+  readonly separation: number;
+  readonly margin: number;
+}
+
+export interface AblationImpact {
+  readonly total_norm: number;
+  readonly removed_norm: number;
+  readonly removed_fraction: number;
+}
+
+export interface DiagnosisReport {
+  readonly base_id: string;
+  readonly best_layer: number;
+  readonly layer_profile: readonly LayerProfile[];
+  readonly components: Readonly<Record<string, AblationImpact>>;
+  readonly heaviest_component: string | null;
+  readonly mean_removed_fraction: number;
+  readonly surgical: boolean;
+  readonly collateral_risk: string;
+  readonly why: string;
+  readonly how: string;
+  readonly removal: string;
+}
+
+export interface ModelCard {
+  readonly variant_id: string;
+  readonly base_id: string;
+  readonly method: string;
+  readonly layer: number;
+  readonly strength: number;
+  readonly hidden_size: number;
+  readonly repro_hash: string;
+  readonly eval_delta: number | null;
+}
+
+export type DiagnoseResult =
+  | { readonly kind: "report"; readonly report: DiagnosisReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "no-base" }
+  | { readonly kind: "offline" };
+
+export async function diagnoseCensorship(baseId: string): Promise<DiagnoseResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/diagnose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "no-base" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as DiagnosisReport };
+}
+
+export interface AbliterateRequestBody {
+  readonly base_id: string;
+  readonly variant_id: string;
+  readonly layer: number;
+  readonly strength: number;
+}
+
+export type AbliterateResult =
+  | { readonly kind: "done"; readonly variant: ModelRow; readonly card: ModelCard }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "no-base" }
+  | { readonly kind: "offline" };
+
+export async function abliterate(body: AbliterateRequestBody): Promise<AbliterateResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "no-base" };
+  if (!resp.ok) return { kind: "offline" };
+  const out = (await resp.json()) as { variant: ModelRow; card: ModelCard };
+  return { kind: "done", variant: out.variant, card: out.card };
+}
