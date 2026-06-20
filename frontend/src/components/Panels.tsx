@@ -57,17 +57,3 @@ export function WeightsPanel(): JSX.Element {
   );
 }
 
-export function BenchmarksPanel(): JSX.Element {
-  return (
-    <Placeholder
-      heading="benchmark"
-      accent="bay"
-      blurb="Real measured local scores (HumanEval · GPQA · MMLU · SWE-bench-lite) plus safety deltas before/after uncensoring — tabled against published GLM-5.2 / Opus numbers and a live head-to-head."
-      specs={[
-        { title: "Capability suite", body: "Run standard evals on the local model and record real, reproducible scores.", fill: 11 },
-        { title: "Safety delta", body: "Refusal, over-refusal and harmful-compliance measured before vs after abliteration.", fill: 9 },
-        { title: "Head-to-head", body: "Same prompt set scored across the local model and the assistant, calibration included.", fill: 4 },
-      ]}
-    />
-  );
-}

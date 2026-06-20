@@ -302,3 +302,73 @@ export async function abliterate(body: AbliterateRequestBody): Promise<Abliterat
   const out = (await resp.json()) as { variant: ModelRow; card: ModelCard };
   return { kind: "done", variant: out.variant, card: out.card };
 }
+
+export interface MCResult {
+  readonly id: string;
+  readonly predicted: string;
+  readonly answer: string;
+  readonly correct: boolean;
+}
+
+export interface BenchScore {
+  readonly accuracy: number;
+  readonly n: number;
+  readonly results: readonly MCResult[];
+}
+
+export interface HHItem {
+  readonly id: string;
+  readonly prompt: string;
+}
+
+export type PublishedTable = Readonly<Record<string, Readonly<Record<string, { readonly value: number | null; readonly source: string }>>>>;
+
+export async function getBenchmarks(): Promise<Readonly<Record<string, number>>> {
+  const r = await fetch("/api/evals/benchmarks");
+  if (!r.ok) throw new Error(`benchmarks ${r.status}`);
+  return (await r.json()) as Readonly<Record<string, number>>;
+}
+
+export async function getPublished(): Promise<PublishedTable> {
+  const r = await fetch("/api/evals/published");
+  if (!r.ok) throw new Error(`published ${r.status}`);
+  return (await r.json()) as PublishedTable;
+}
+
+export type EvalRunResult =
+  | { readonly kind: "score"; readonly score: BenchScore }
+  | { readonly kind: "no-model" }
+  | { readonly kind: "offline" };
+
+export async function runLocalEval(benchmark: string): Promise<EvalRunResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/evals/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ benchmark }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-model" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "score", score: (await resp.json()) as BenchScore };
+}
+
+export async function exportHeadToHead(benchmark: string): Promise<readonly HHItem[]> {
+  const r = await fetch("/api/evals/headtohead/export", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ benchmark }),
+  });
+  if (!r.ok) throw new Error(`export ${r.status}`);
+  return ((await r.json()) as { items: readonly HHItem[] }).items;
+}
+
+export async function scoreHeadToHead(benchmark: string, answers: Readonly<Record<string, string>>): Promise<BenchScore> {
+  const r = await fetch("/api/evals/headtohead/score", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ benchmark, answers }),
+  });
+  if (!r.ok) throw new Error(`score ${r.status}`);
+  return (await r.json()) as BenchScore;
+}

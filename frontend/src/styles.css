@@ -501,3 +501,13 @@ body::after {
 .mech-card p { color: var(--steel-text); font-size: 12px; line-height: 1.55; }
 
 .abl-run { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+
+/* ---------- Benchmark head-to-head ------------------------------------- */
+.hh { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.hh-item { display: flex; gap: 12px; align-items: stretch; }
+.hh-prompt {
+  flex: 1; background: var(--steel-900); border: 1px solid var(--line);
+  border-radius: 3px; padding: 11px 13px; font-size: 11.5px; color: var(--steel-text);
+  white-space: pre-wrap; margin: 0;
+}
+.hh-item .in { width: 60px; text-align: center; font-size: 18px; align-self: center; }
