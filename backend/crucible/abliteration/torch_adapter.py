@@ -34,10 +34,18 @@ class TorchModelAdapter:
 
     def _encode(self, prompt: str):
         if getattr(self.tok, "chat_template", None):
-            return self.tok.apply_chat_template(
+            enc = self.tok.apply_chat_template(
                 [{"role": "user", "content": prompt}],
                 add_generation_prompt=True, return_tensors="pt")
-        return self.tok(prompt, return_tensors="pt").input_ids
+        else:
+            enc = self.tok(prompt, return_tensors="pt")
+        # Normalize to a plain input_ids tensor (apply_chat_template may return a
+        # BatchEncoding/dict in transformers >=5, or a bare tensor in older versions).
+        if hasattr(enc, "input_ids"):
+            return enc.input_ids
+        if isinstance(enc, dict):
+            return enc["input_ids"]
+        return enc
 
     def hidden_at(self, input_ids, layer: int) -> np.ndarray:
         import torch
