@@ -8,7 +8,7 @@ class SystemPromptPreset(BaseModel):
     system_prompt: str
 
 
-PRESETS: list[SystemPromptPreset] = [
+DEFAULT_PRESETS: list[SystemPromptPreset] = [
     SystemPromptPreset(id="unrestricted", name="Unrestricted", intensity=0,
                        system_prompt=""),
     SystemPromptPreset(id="balanced", name="Balanced", intensity=50,
@@ -19,7 +19,9 @@ PRESETS: list[SystemPromptPreset] = [
                                      "or unethical requests and explain why."),
 ]
 
-_BY_ID = {p.id: p for p in PRESETS}
+# Backward-compatible alias for callers that want the shipped defaults.
+PRESETS = DEFAULT_PRESETS
+_BY_ID = {p.id: p for p in DEFAULT_PRESETS}
 
 
 def get_preset(id: str) -> SystemPromptPreset:

@@ -433,3 +433,33 @@ body::after {
 .chip.revise { color: var(--flux); border-color: var(--flux-dim); }
 .chip.pass { color: var(--ash); }
 .chip.inject { color: var(--steel-text); }
+
+/* ---------- Preset editorial controls ---------------------------------- */
+.preset { padding: 0; overflow: hidden; }
+.preset-pick {
+  width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 14px; display: flex; flex-direction: column; gap: 7px; color: inherit;
+}
+.preset-actions { display: flex; border-top: 1px solid var(--line); }
+.preset-actions .mini {
+  flex: 1; background: none; border: none; color: var(--ash); cursor: pointer;
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 8px; transition: all 0.15s;
+}
+.preset-actions .mini:hover { color: var(--amber-bright); background: rgba(255, 106, 26, 0.06); }
+.preset-actions .mini.danger:hover { color: var(--ember); background: rgba(255, 59, 47, 0.06); }
+.preset-actions .mini + .mini { border-left: 1px solid var(--line); }
+.preset-tools { display: flex; gap: 10px; margin-top: 12px; }
+
+.preset-editor {
+  margin-top: 14px; border: 1px solid var(--amber); border-radius: 4px; padding: 16px;
+  background: linear-gradient(180deg, rgba(255, 106, 26, 0.05), transparent);
+}
+.editor-title { font-family: var(--font-display); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber-bright); margin-bottom: 14px; }
+.editor-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.preset-editor label { display: flex; flex-direction: column; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ash); }
+.editor-prompt { margin-bottom: 12px; }
+.editor-prompt textarea { width: 100%; resize: vertical; }
+.preset-editor input[type="range"] { accent-color: var(--amber); }
+.editor-err { color: var(--ember); font-size: 12px; margin-bottom: 10px; }
+.editor-buttons { display: flex; gap: 10px; }

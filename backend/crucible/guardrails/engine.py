@@ -1,17 +1,28 @@
+from typing import Callable
+
 from crucible.guardrails.base import GuardrailAction, GuardrailConfig, GuardrailResult, Stage
 from crucible.guardrails.constitution import ConstitutionalCritic, Critic
 from crucible.guardrails.filters import RegexFilter
 from crucible.guardrails.presets import get_preset
 
 
+def _default_resolver(preset_id: str) -> str:
+    try:
+        return get_preset(preset_id).system_prompt
+    except KeyError:
+        return ""
+
+
 class GuardrailsEngine:
-    def __init__(self, critic: Critic | None = None):
+    def __init__(self, critic: Critic | None = None,
+                 preset_resolver: Callable[[str], str] | None = None):
         self.critic = critic
+        self._resolve = preset_resolver or _default_resolver
 
     def system_prompt(self, config: GuardrailConfig) -> str:
         if not config.enabled:
             return ""
-        return get_preset(config.preset_id).system_prompt
+        return self._resolve(config.preset_id)
 
     def apply(self, stage: Stage, text: str, config: GuardrailConfig) -> GuardrailResult:
         if not config.enabled:

@@ -179,3 +179,35 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
   }
   return "ok";
 }
+
+export async function createPreset(preset: SystemPromptPreset): Promise<SystemPromptPreset> {
+  const r = await fetch("/api/guardrails/presets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(preset),
+  });
+  if (r.status === 409) throw new Error("a preset with that id already exists");
+  if (!r.ok) throw new Error(`POST /api/guardrails/presets -> ${r.status}`);
+  return (await r.json()) as SystemPromptPreset;
+}
+
+export async function updatePreset(id: string, preset: SystemPromptPreset): Promise<SystemPromptPreset> {
+  const r = await fetch(`/api/guardrails/presets/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(preset),
+  });
+  if (!r.ok) throw new Error(`PUT /api/guardrails/presets/${id} -> ${r.status}`);
+  return (await r.json()) as SystemPromptPreset;
+}
+
+export async function deletePreset(id: string): Promise<void> {
+  const r = await fetch(`/api/guardrails/presets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok && r.status !== 204) throw new Error(`DELETE /api/guardrails/presets/${id} -> ${r.status}`);
+}
+
+export async function resetPresets(): Promise<readonly SystemPromptPreset[]> {
+  const r = await fetch("/api/guardrails/presets/reset", { method: "POST" });
+  if (!r.ok) throw new Error(`POST /api/guardrails/presets/reset -> ${r.status}`);
+  return (await r.json()) as readonly SystemPromptPreset[];
+}

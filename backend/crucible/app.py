@@ -10,8 +10,8 @@ from crucible.audit import AuditLog
 from crucible.config import get_settings
 from crucible.guardrails import GuardrailConfig, GuardrailsEngine
 from crucible.guardrails.base import GuardrailResult
-from crucible.guardrails.presets import PRESETS, SystemPromptPreset
-from crucible.guardrails.store import GuardrailStore
+from crucible.guardrails.presets import SystemPromptPreset
+from crucible.guardrails.store import GuardrailStore, PresetStore
 from crucible.permissions import PermissionPolicy
 from crucible.registry import Model, Registry
 from crucible.tools import default_registry
@@ -39,7 +39,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     settings = get_settings()
     reg = registry or Registry(settings.registry_path)
     root = Path(agent_root or ".")
-    gr_engine = guardrails or GuardrailsEngine()
+    preset_store = PresetStore(settings.data_dir / "presets.json")
+    gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
     app = FastAPI(title="Crucible")
 
@@ -65,10 +66,37 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
 
+    # ---- Guardrail presets: full editorial CRUD over a persisted library ----
     @app.get("/api/guardrails/presets")
     def guardrail_presets() -> list[SystemPromptPreset]:
-        return PRESETS
+        return preset_store.list()
 
+    @app.post("/api/guardrails/presets", status_code=201)
+    def guardrail_preset_create(preset: SystemPromptPreset) -> SystemPromptPreset:
+        try:
+            return preset_store.create(preset)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+    @app.post("/api/guardrails/presets/reset")
+    def guardrail_preset_reset() -> list[SystemPromptPreset]:
+        return preset_store.reset()
+
+    @app.put("/api/guardrails/presets/{preset_id}")
+    def guardrail_preset_update(preset_id: str, preset: SystemPromptPreset) -> SystemPromptPreset:
+        try:
+            return preset_store.update(preset_id, preset)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="preset not found")
+
+    @app.delete("/api/guardrails/presets/{preset_id}", status_code=204)
+    def guardrail_preset_delete(preset_id: str) -> None:
+        try:
+            preset_store.delete(preset_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="preset not found")
+
+    # ---- Guardrail config + preview ----
     @app.get("/api/guardrails/config")
     def guardrail_config_get() -> GuardrailConfig:
         return gr_store.load()
