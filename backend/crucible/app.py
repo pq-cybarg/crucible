@@ -16,6 +16,8 @@ from crucible.config import get_settings
 from crucible.evals.datasets import BENCHMARKS
 from crucible.evals.published import PUBLISHED
 from crucible.evals.runner import format_mc_prompt, run_mc_benchmark
+from crucible.evals.lmeval import run_lmeval
+from crucible.evals.suite import CANONICAL_SUITE
 from crucible.evals.scoring import extract_choice, mc_accuracy
 from crucible.guardrails import GuardrailConfig, GuardrailsEngine
 from crucible.guardrails.base import GuardrailResult
@@ -67,6 +69,12 @@ class EvalRunRequest(BaseModel):
 class HeadToHeadScoreRequest(BaseModel):
     benchmark: str
     answers: dict[str, str]
+
+
+class LmEvalRequest(BaseModel):
+    model_id: str
+    tasks: list[str]
+    limit: int | None = None
 
 
 def create_app(registry: Registry | None = None, agent_root: Path | None = None,
@@ -230,6 +238,22 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             preds.append(predicted)
             golds.append(it["answer"])
         return {"accuracy": mc_accuracy(preds, golds), "n": len(items), "results": results}
+
+    @app.get("/api/evals/suite")
+    def evals_suite() -> list[dict]:
+        return CANONICAL_SUITE
+
+    @app.post("/api/evals/lmeval")
+    def evals_lmeval(req: LmEvalRequest) -> dict:
+        try:
+            m = reg.get(req.model_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="model not found")
+        if not m.endpoint:
+            raise HTTPException(status_code=409,
+                detail="model has no endpoint - launch llama-server and register its endpoint")
+        rows = run_lmeval(m.endpoint, req.tasks, req.limit)
+        return {"model_id": req.model_id, "results": rows}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):

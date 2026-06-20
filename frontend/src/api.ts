@@ -372,3 +372,47 @@ export async function scoreHeadToHead(benchmark: string, answers: Readonly<Recor
   if (!r.ok) throw new Error(`score ${r.status}`);
   return (await r.json()) as BenchScore;
 }
+
+export interface SuiteTask {
+  readonly task: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly primary: string;
+}
+
+export interface LmEvalRow {
+  readonly task: string;
+  readonly metric: string;
+  readonly filter: string | null;
+  readonly value: number;
+  readonly stderr: number | null;
+}
+
+export async function getSuite(): Promise<readonly SuiteTask[]> {
+  const r = await fetch("/api/evals/suite");
+  if (!r.ok) throw new Error(`suite ${r.status}`);
+  return (await r.json()) as readonly SuiteTask[];
+}
+
+export type LmEvalResult =
+  | { readonly kind: "results"; readonly rows: readonly LmEvalRow[] }
+  | { readonly kind: "no-model" }
+  | { readonly kind: "no-endpoint" }
+  | { readonly kind: "offline" };
+
+export async function runLmEval(modelId: string, tasks: readonly string[], limit: number | null): Promise<LmEvalResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/evals/lmeval", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_id: modelId, tasks, limit }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 404) return { kind: "no-model" };
+  if (resp.status === 409) return { kind: "no-endpoint" };
+  if (!resp.ok) return { kind: "offline" };
+  const out = (await resp.json()) as { results: readonly LmEvalRow[] };
+  return { kind: "results", rows: out.results };
+}

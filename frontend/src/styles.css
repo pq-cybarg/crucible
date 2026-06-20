@@ -511,3 +511,16 @@ body::after {
   white-space: pre-wrap; margin: 0;
 }
 .hh-item .in { width: 60px; text-align: center; font-size: 18px; align-self: center; }
+
+/* ---------- Benchmark suite selector ----------------------------------- */
+.suite-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.suite-chip {
+  text-align: left; cursor: pointer; padding: 11px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--steel-900); display: flex; flex-direction: column;
+  gap: 4px; transition: all 0.15s;
+}
+.suite-chip:hover { border-color: var(--line-bright); }
+.suite-chip.on { border-color: var(--amber); background: linear-gradient(180deg, rgba(255, 106, 26, 0.1), transparent); }
+.suite-name { font-family: var(--font-display); font-weight: 600; font-size: 13px; color: var(--bone); text-transform: uppercase; letter-spacing: 0.04em; }
+.suite-detail { font-size: 11px; color: var(--ash); }
+.suite-task { font-size: 10px; color: var(--amber-dim); }
