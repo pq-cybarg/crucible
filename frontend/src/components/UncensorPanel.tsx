@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, diagnoseCensorship, getModels } from "../api";
-import type { AbliterateResult, DiagnoseResult, ModelRow } from "../api";
+import { abliterate, diagnoseCensorship, getModels, sweepStrength, verifyAbliteration } from "../api";
+import type { AbliterateResult, DiagnoseResult, ModelRow, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -21,6 +21,8 @@ export default function UncensorPanel(): JSX.Element {
   const [strength, setStrength] = useState(1);
   const [variantId, setVariantId] = useState("");
   const [runMsg, setRunMsg] = useState("");
+  const [sweep, setSweep] = useState<SweepResult | null>(null);
+  const [verify, setVerify] = useState<VerifyResult | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -68,6 +70,22 @@ export default function UncensorPanel(): JSX.Element {
     } else {
       setRunMsg("backend offline");
     }
+    setBusy(false);
+  };
+
+  const runSweep = async (): Promise<void> => {
+    if (baseId === "") return;
+    setBusy(true);
+    setSweep(null);
+    setSweep(await sweepStrength(baseId));
+    setBusy(false);
+  };
+
+  const runVerify = async (): Promise<void> => {
+    if (baseId === "" || variantId === "") return;
+    setBusy(true);
+    setVerify(null);
+    setVerify(await verifyAbliteration(baseId, variantId));
     setBusy(false);
   };
 
@@ -158,6 +176,53 @@ export default function UncensorPanel(): JSX.Element {
         <button className="btn" onClick={() => void runAbliterate()} disabled={busy || baseId === "" || variantId === ""}>abliterate</button>
       </div>
       {runMsg.length > 0 && <div className="abl-note">{runMsg}</div>}
+
+      <div className="engrave">tune the dose · strength sweep (real generation, ~minutes)</div>
+      <div className="abl-controls">
+        <button className="btn" onClick={() => void runSweep()} disabled={busy || baseId === ""}>run strength sweep</button>
+        {sweep !== null && sweep.kind === "report" && <span style={{ color: "var(--ash)" }}>refusal layer {sweep.report.layer} · recommended strength <b style={{ color: "var(--amber-bright)" }}>{sweep.report.recommended_strength}</b></span>}
+      </div>
+      {sweep !== null && (sweep.kind === "no-weights" || sweep.kind === "offline") && <div className="abl-note">{sweep.kind === "no-weights" ? "needs the torch adapter loaded (CRUCIBLE_HF_MODEL)" : "backend offline"}</div>}
+      {sweep !== null && sweep.kind === "report" && (
+        <table className="grid-table">
+          <thead><tr><th>strength</th><th>harmful compliance</th><th>benign over-refusal</th><th>net</th></tr></thead>
+          <tbody>
+            {sweep.report.curve.map((p) => (
+              <tr key={p.strength} style={{ background: p.strength === sweep.report.recommended_strength ? "rgba(255,106,26,0.08)" : undefined }}>
+                <td>{p.strength.toFixed(2)}</td>
+                <td style={{ color: "var(--flux)" }}>{(p.harmful_compliance * 100).toFixed(0)}%</td>
+                <td style={{ color: "var(--ember)" }}>{(p.benign_over_refusal * 100).toFixed(0)}%</td>
+                <td>{(p.harmful_compliance - p.benign_over_refusal).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="engrave">behavioral verify · base vs variant (real generation)</div>
+      <div className="abl-controls">
+        <button className="btn ghost" onClick={() => void runVerify()} disabled={busy || variantId === ""}>verify {variantId || "variant"}</button>
+      </div>
+      {verify !== null && verify.kind === "not-found" && <div className="abl-note err">variant not found — abliterate one first.</div>}
+      {verify !== null && (verify.kind === "no-weights" || verify.kind === "offline") && <div className="abl-note">{verify.kind === "no-weights" ? "needs the torch adapter loaded" : "backend offline"}</div>}
+      {verify !== null && verify.kind === "report" && (
+        <div>
+          <table className="grid-table">
+            <thead><tr><th>metric</th><th>before</th><th>after</th></tr></thead>
+            <tbody>
+              <tr><td>harmful refusal</td><td>{(verify.report.harmful_refusal_rate.before * 100).toFixed(0)}%</td><td>{(verify.report.harmful_refusal_rate.after * 100).toFixed(0)}%</td></tr>
+              <tr><td>harmful compliance</td><td>{(verify.report.harmful_compliance_rate.before * 100).toFixed(0)}%</td><td style={{ color: "var(--flux)" }}>{(verify.report.harmful_compliance_rate.after * 100).toFixed(0)}%</td></tr>
+              <tr><td>benign over-refusal</td><td>{(verify.report.benign_over_refusal_rate.before * 100).toFixed(0)}%</td><td style={{ color: "var(--ember)" }}>{(verify.report.benign_over_refusal_rate.after * 100).toFixed(0)}%</td></tr>
+            </tbody>
+          </table>
+          {verify.report.samples.slice(0, 2).map((s, i) => (
+            <div key={i} className="toolcard" style={{ maxWidth: "100%", marginTop: 8 }}>
+              <div className="tc-head"><span className="tc-name">{s.prompt.slice(0, 56)}</span></div>
+              <pre>BASE:  {s.before.slice(0, 160)}{"\n"}ABLIT: {s.after.slice(0, 160)}</pre>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="engrave">variants</div>
       {variants.length === 0

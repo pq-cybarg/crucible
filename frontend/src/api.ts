@@ -456,3 +456,72 @@ export async function getWeights(modelId: string): Promise<WeightsResult> {
   if (!resp.ok) return { kind: "offline" };
   return { kind: "view", view: (await resp.json()) as WeightsView };
 }
+
+export interface BeforeAfter {
+  readonly before: number;
+  readonly after: number;
+}
+
+export interface VerifyReport {
+  readonly harmful_refusal_rate: BeforeAfter;
+  readonly harmful_compliance_rate: BeforeAfter;
+  readonly benign_over_refusal_rate: BeforeAfter;
+  readonly samples: readonly { readonly prompt: string; readonly before: string; readonly after: string }[];
+}
+
+export interface SweepPoint {
+  readonly strength: number;
+  readonly harmful_compliance: number;
+  readonly benign_over_refusal: number;
+}
+
+export interface SweepReport {
+  readonly layer: number;
+  readonly direction_norm: number;
+  readonly curve: readonly SweepPoint[];
+  readonly recommended_strength: number;
+}
+
+export type VerifyResult =
+  | { readonly kind: "report"; readonly report: VerifyReport }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "offline" };
+
+export type SweepResult =
+  | { readonly kind: "report"; readonly report: SweepReport }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "offline" };
+
+export async function verifyAbliteration(baseId: string, variantId: string): Promise<VerifyResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/verify", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId, variant_id: variantId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as VerifyReport };
+}
+
+export async function sweepStrength(baseId: string): Promise<SweepResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/sweep", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as SweepReport };
+}
