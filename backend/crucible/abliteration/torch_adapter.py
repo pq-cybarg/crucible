@@ -78,6 +78,16 @@ class TorchModelAdapter:
         with torch.no_grad():
             p.copy_(torch.tensor(np.asarray(W), dtype=p.dtype, device=p.device))
 
+    def generate(self, prompt: str, max_new_tokens: int = 48) -> str:
+        import torch
+        ids = self._encode(prompt).to(self.device)
+        eos = getattr(self.tok, "eos_token_id", None)
+        with torch.no_grad():
+            out = self.model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False,
+                                      pad_token_id=eos)
+        new = out[0, ids.shape[1]:]
+        return self.tok.decode(new, skip_special_tokens=True)
+
     def save(self, path: str) -> None:
         self.model.save_pretrained(path)
         self.tok.save_pretrained(path)

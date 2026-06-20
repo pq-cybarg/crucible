@@ -64,6 +64,14 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class VerifyRequest(BaseModel):
+    base_id: str
+    variant_id: str
+    harmful: list[str] | None = None
+    benign: list[str] | None = None
+    max_new_tokens: int = 48
+
+
 class EvalRunRequest(BaseModel):
     benchmark: str
 
@@ -201,6 +209,31 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         variant, card, _ = abl.abliterate(
             base, harmful, harmless, req.layer, out_path, req.variant_id, req.strength)
         return {"variant": variant.model_dump(), "card": card}
+
+    @app.post("/api/abliteration/verify")
+    def abl_verify(req: VerifyRequest) -> dict:
+        try:
+            base = reg.get(req.base_id)
+            variant = reg.get(req.variant_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="base or variant not found")
+        try:
+            from crucible.abliteration.torch_adapter import TorchModelAdapter
+            from crucible.abliteration.verify import behavioral_compare
+        except Exception:
+            raise HTTPException(status_code=503, detail="torch/transformers not available")
+        import gc
+        base_ad = TorchModelAdapter.load(base.path)
+        var_ad = TorchModelAdapter.load(variant.path)
+        try:
+            res = behavioral_compare(
+                lambda p: base_ad.generate(p, req.max_new_tokens),
+                lambda p: var_ad.generate(p, req.max_new_tokens),
+                req.harmful or DEFAULT_HARMFUL, req.benign or DEFAULT_HARMLESS)
+        finally:
+            del base_ad, var_ad
+            gc.collect()
+        return res
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:
