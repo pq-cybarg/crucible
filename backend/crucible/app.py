@@ -13,6 +13,10 @@ from crucible.abliteration.prompts import DEFAULT_HARMFUL, DEFAULT_HARMLESS
 from crucible.agent import Agent
 from crucible.audit import AuditLog
 from crucible.config import get_settings
+from crucible.evals.datasets import BENCHMARKS
+from crucible.evals.published import PUBLISHED
+from crucible.evals.runner import format_mc_prompt, run_mc_benchmark
+from crucible.evals.scoring import extract_choice, mc_accuracy
 from crucible.guardrails import GuardrailConfig, GuardrailsEngine
 from crucible.guardrails.base import GuardrailResult
 from crucible.guardrails.presets import SystemPromptPreset
@@ -56,6 +60,15 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class EvalRunRequest(BaseModel):
+    benchmark: str
+
+
+class HeadToHeadScoreRequest(BaseModel):
+    benchmark: str
+    answers: dict[str, str]
+
+
 def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                model=None, guardrails: GuardrailsEngine | None = None,
                abliteration_adapter=None) -> FastAPI:
@@ -91,7 +104,6 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
 
-    # ---- Guardrail presets: full editorial CRUD ----
     @app.get("/api/guardrails/presets")
     def guardrail_presets() -> list[SystemPromptPreset]:
         return preset_store.list()
@@ -134,7 +146,6 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     def guardrail_apply(req: ApplyRequest) -> GuardrailResult:
         return gr_engine.apply(req.stage, req.text, req.config)
 
-    # ---- Abliteration / uncensoring ----
     @app.get("/api/abliteration/promptsets")
     def abl_promptsets() -> dict:
         return {"harmful": DEFAULT_HARMFUL, "harmless": DEFAULT_HARMLESS}
@@ -174,6 +185,51 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         variant, card, _ = abl.abliterate(
             base, harmful, harmless, req.layer, out_path, req.variant_id, req.strength)
         return {"variant": variant.model_dump(), "card": card}
+
+    @app.get("/api/evals/benchmarks")
+    def evals_benchmarks() -> dict:
+        return {name: len(items) for name, items in BENCHMARKS.items()}
+
+    @app.get("/api/evals/published")
+    def evals_published() -> dict:
+        return PUBLISHED
+
+    @app.post("/api/evals/run")
+    def evals_run(req: EvalRunRequest) -> dict:
+        if model is None:
+            raise HTTPException(status_code=503, detail="no model configured")
+        if req.benchmark not in BENCHMARKS:
+            raise HTTPException(status_code=404, detail="unknown benchmark")
+
+        def solver(prompt: str) -> str:
+            msg = model([{"role": "user", "content": prompt}], [])
+            return msg.get("content") or ""
+
+        return run_mc_benchmark(BENCHMARKS[req.benchmark], solver)
+
+    @app.post("/api/evals/headtohead/export")
+    def evals_export(req: EvalRunRequest) -> dict:
+        if req.benchmark not in BENCHMARKS:
+            raise HTTPException(status_code=404, detail="unknown benchmark")
+        return {"items": [{"id": it["id"], "prompt": format_mc_prompt(it)}
+                          for it in BENCHMARKS[req.benchmark]]}
+
+    @app.post("/api/evals/headtohead/score")
+    def evals_score(req: HeadToHeadScoreRequest) -> dict:
+        if req.benchmark not in BENCHMARKS:
+            raise HTTPException(status_code=404, detail="unknown benchmark")
+        items = BENCHMARKS[req.benchmark]
+        results = []
+        preds: list[str] = []
+        golds: list[str] = []
+        for it in items:
+            raw = req.answers.get(it["id"], "")
+            predicted = extract_choice(raw) or ""
+            results.append({"id": it["id"], "predicted": predicted,
+                            "answer": it["answer"], "correct": predicted == it["answer"]})
+            preds.append(predicted)
+            golds.append(it["answer"])
+        return {"accuracy": mc_accuracy(preds, golds), "n": len(items), "results": results}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
