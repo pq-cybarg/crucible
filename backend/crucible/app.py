@@ -5,6 +5,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from crucible.abliteration.diagnosis import (
+    ablation_impact, best_layer, explain_mechanism, layer_refusal_profile)
+from crucible.abliteration.direction import compute_refusal_direction
+from crucible.abliteration.pipeline import AbliterationPipeline
+from crucible.abliteration.prompts import DEFAULT_HARMFUL, DEFAULT_HARMLESS
 from crucible.agent import Agent
 from crucible.audit import AuditLog
 from crucible.config import get_settings
@@ -34,14 +39,34 @@ class ApplyRequest(BaseModel):
     config: GuardrailConfig = Field(default_factory=GuardrailConfig)
 
 
+class DiagnoseRequest(BaseModel):
+    base_id: str
+    layers: list[int] | None = None
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
+class AbliterateRequest(BaseModel):
+    base_id: str
+    variant_id: str
+    layer: int = 0
+    strength: float = 1.0
+    out_path: str | None = None
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
 def create_app(registry: Registry | None = None, agent_root: Path | None = None,
-               model=None, guardrails: GuardrailsEngine | None = None) -> FastAPI:
+               model=None, guardrails: GuardrailsEngine | None = None,
+               abliteration_adapter=None) -> FastAPI:
     settings = get_settings()
     reg = registry or Registry(settings.registry_path)
     root = Path(agent_root or ".")
     preset_store = PresetStore(settings.data_dir / "presets.json")
     gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
+    abl = (AbliterationPipeline(abliteration_adapter, reg)
+           if abliteration_adapter is not None else None)
     app = FastAPI(title="Crucible")
 
     @app.get("/api/health")
@@ -66,7 +91,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
 
-    # ---- Guardrail presets: full editorial CRUD over a persisted library ----
+    # ---- Guardrail presets: full editorial CRUD ----
     @app.get("/api/guardrails/presets")
     def guardrail_presets() -> list[SystemPromptPreset]:
         return preset_store.list()
@@ -96,7 +121,6 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except KeyError:
             raise HTTPException(status_code=404, detail="preset not found")
 
-    # ---- Guardrail config + preview ----
     @app.get("/api/guardrails/config")
     def guardrail_config_get() -> GuardrailConfig:
         return gr_store.load()
@@ -109,6 +133,47 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     @app.post("/api/guardrails/apply")
     def guardrail_apply(req: ApplyRequest) -> GuardrailResult:
         return gr_engine.apply(req.stage, req.text, req.config)
+
+    # ---- Abliteration / uncensoring ----
+    @app.get("/api/abliteration/promptsets")
+    def abl_promptsets() -> dict:
+        return {"harmful": DEFAULT_HARMFUL, "harmless": DEFAULT_HARMLESS}
+
+    @app.post("/api/abliteration/diagnose")
+    def abl_diagnose(req: DiagnoseRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503,
+                detail="no model adapter loaded - diagnosis needs the HF weights + torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        harmful = req.harmful or DEFAULT_HARMFUL
+        harmless = req.harmless or DEFAULT_HARMLESS
+        layers = (req.layers if req.layers is not None
+                  else list(range(getattr(abliteration_adapter, "num_layers", 1))))
+        profile = layer_refusal_profile(abliteration_adapter, harmful, harmless, layers)
+        bl = best_layer(profile)
+        direction = compute_refusal_direction(
+            abliteration_adapter.activations(harmful, bl),
+            abliteration_adapter.activations(harmless, bl))
+        impacts = {name: ablation_impact(abliteration_adapter.get_matrix(name), direction)
+                   for name in abliteration_adapter.writing_matrices()}
+        return explain_mechanism(profile, impacts, req.base_id)
+
+    @app.post("/api/abliteration/run")
+    def abl_run(req: AbliterateRequest) -> dict:
+        if abl is None:
+            raise HTTPException(status_code=503,
+                detail="no model adapter loaded - abliteration needs the HF weights + torch")
+        try:
+            base = reg.get(req.base_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="base model not found")
+        harmful = req.harmful or DEFAULT_HARMFUL
+        harmless = req.harmless or DEFAULT_HARMLESS
+        out_path = req.out_path or f"models/{req.variant_id}.gguf"
+        variant, card, _ = abl.abliterate(
+            base, harmful, harmless, req.layer, out_path, req.variant_id, req.strength)
+        return {"variant": variant.model_dump(), "card": card}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
