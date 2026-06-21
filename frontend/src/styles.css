@@ -533,3 +533,20 @@ body::after {
 .dtype-bar { display: flex; height: 22px; border-radius: 3px; overflow: hidden; border: 1px solid var(--line); }
 .dtype-seg { display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--void); font-family: var(--font-display); letter-spacing: 0.05em; min-width: 0; overflow: hidden; }
 .w-filter { display: flex; gap: 12px; align-items: flex-end; margin: 6px 0 12px; }
+
+/* ---------- Manual control cockpit ------------------------------------- */
+.layer-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.layer-chip {
+  width: 34px; height: 30px; border: 1px solid var(--line-bright); border-radius: 3px;
+  background: var(--steel-900); color: var(--ash); cursor: pointer; font-family: var(--font-mono);
+  font-size: 11px; transition: all 0.12s; position: relative;
+}
+.layer-chip:hover { color: var(--bone); border-color: var(--amber); }
+.layer-chip.on { background: linear-gradient(180deg, var(--amber-bright), var(--amber)); color: var(--void); border-color: var(--amber); font-weight: 600; box-shadow: var(--glow-amber); }
+.layer-chip .m { position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; }
+.recipe-bar { display: flex; gap: 10px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap; }
+.recipe-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.recipe-item { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 3px; background: var(--steel-900); }
+.recipe-item .rname { font-family: var(--font-display); color: var(--bone); letter-spacing: 0.05em; }
+.recipe-item .rmeta { color: var(--ash); }
+.recipe-item button { margin-left: auto; }

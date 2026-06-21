@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, diagnoseCensorship, getModels, runtimeSteer, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, ModelRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -27,6 +27,13 @@ export default function UncensorPanel(): JSX.Element {
   const [rank, setRank] = useState(2);
   const [coef, setCoef] = useState(1);
   const [tune, setTune] = useState<AutotuneResult | null>(null);
+  const [selectedLayers, setSelectedLayers] = useState<ReadonlySet<number>>(new Set());
+  const [manualRank, setManualRank] = useState(1);
+  const [manualCoef, setManualCoef] = useState(1);
+  const [testPrompt, setTestPrompt] = useState("");
+  const [manual, setManual] = useState<ManualResult | null>(null);
+  const [recipes, setRecipes] = useState<readonly RecipeRow[]>([]);
+  const [recipeName, setRecipeName] = useState("");
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -40,10 +47,61 @@ export default function UncensorPanel(): JSX.Element {
     }
   };
 
+  const loadRecipes = async (): Promise<void> => {
+    setRecipes(await getRecipes());
+  };
+
   useEffect(() => {
     void reload();
+    void loadRecipes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const toggleLayer = (l: number): void => {
+    const next = new Set(selectedLayers);
+    if (next.has(l)) next.delete(l);
+    else next.add(l);
+    setSelectedLayers(next);
+  };
+
+  const quickSelect = (mode: "all" | "late" | "quarter" | "none"): void => {
+    if (report === null) {
+      return;
+    }
+    const ls = report.layer_profile.map((p) => p.layer);
+    const n = ls.length;
+    if (mode === "none") setSelectedLayers(new Set());
+    else if (mode === "all") setSelectedLayers(new Set(ls));
+    else if (mode === "late") setSelectedLayers(new Set(ls.filter((l) => l >= Math.floor(n / 2))));
+    else setSelectedLayers(new Set(ls.filter((l) => l >= Math.floor((3 * n) / 4))));
+  };
+
+  const runManual = async (): Promise<void> => {
+    if (baseId === "" || selectedLayers.size === 0) return;
+    setBusy(true);
+    setManual(null);
+    setManual(await manualSteer(baseId, [...selectedLayers], manualRank, manualCoef, testPrompt));
+    setBusy(false);
+  };
+
+  const saveCurrentRecipe = async (): Promise<void> => {
+    if (recipeName === "" || selectedLayers.size === 0) return;
+    const hash = manual !== null && manual.kind === "report" ? manual.report.recipe_hash : "";
+    await saveRecipe({ name: recipeName, base_id: baseId, layers: [...selectedLayers], rank: manualRank, coefficient: manualCoef, recipe_hash: hash });
+    setRecipeName("");
+    await loadRecipes();
+  };
+
+  const applyRecipe = (r: RecipeRow): void => {
+    setSelectedLayers(new Set(r.layers));
+    setManualRank(r.rank);
+    setManualCoef(r.coefficient);
+  };
+
+  const removeRecipe = async (name: string): Promise<void> => {
+    await deleteRecipe(name);
+    await loadRecipes();
+  };
 
   const bases = useMemo(() => models.filter((m) => m.kind === "base"), [models]);
   const variants = useMemo(() => models.filter((m) => m.kind !== "base"), [models]);
@@ -242,6 +300,66 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      <div className="engrave">manual control · craft the recipe by hand</div>
+      {report === null ? (
+        <div className="abl-note">run "diagnose censorship" above to load the per-layer map, then hand-pick layers here.</div>
+      ) : (
+        <>
+          <div className="layer-grid">
+            {report.layer_profile.map((p) => {
+              const intensity = Math.min(1, Math.abs(p.margin) / maxMargin);
+              return (
+                <button key={p.layer} type="button" className={`layer-chip ${selectedLayers.has(p.layer) ? "on" : ""}`}
+                  onClick={() => toggleLayer(p.layer)} title={`layer ${p.layer} · refusal margin ${p.margin.toFixed(2)}`}>
+                  {p.layer}
+                  <span className="m" style={{ background: `rgba(255,106,26,${intensity})` }} />
+                </button>
+              );
+            })}
+          </div>
+          <div className="abl-controls">
+            <button className="btn ghost" onClick={() => quickSelect("all")}>all</button>
+            <button className="btn ghost" onClick={() => quickSelect("late")}>late half</button>
+            <button className="btn ghost" onClick={() => quickSelect("quarter")}>last quarter</button>
+            <button className="btn ghost" onClick={() => quickSelect("none")}>none</button>
+            <label className="fld">rank<input className="in" type="number" min={1} max={8} value={manualRank} onChange={(e) => setManualRank(Number(e.target.value))} style={{ minWidth: 70 }} /></label>
+            <label className="fld">coefficient {manualCoef.toFixed(2)}<input type="range" min={0} max={2} step={0.1} value={manualCoef} onChange={(e) => setManualCoef(Number(e.target.value))} /></label>
+          </div>
+          <div className="abl-controls">
+            <input className="in mono" style={{ flex: 1 }} placeholder="test prompt (optional — compare base vs ablated)" value={testPrompt} onChange={(e) => setTestPrompt(e.target.value)} />
+            <button className="btn" onClick={() => void runManual()} disabled={busy || selectedLayers.size === 0}>apply &amp; measure · {selectedLayers.size} layers</button>
+          </div>
+          {manual !== null && (manual.kind === "no-weights" || manual.kind === "offline") && <div className="abl-note">{manual.kind === "no-weights" ? "needs the torch adapter loaded" : "backend offline"}</div>}
+          {manual !== null && manual.kind === "report" && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="abl-note">harmful refusal <b>{(manual.report.harmful_refusal * 100).toFixed(0)}%</b> · benign over-refusal <b>{(manual.report.benign_over_refusal * 100).toFixed(0)}%</b> · hash {manual.report.recipe_hash} · weights modified: {String(manual.report.weights_modified)}</div>
+              {manual.report.test && (
+                <div className="toolcard" style={{ maxWidth: "100%" }}>
+                  <div className="tc-head"><span className="tc-name">{manual.report.test.prompt}</span></div>
+                  <pre>BASE:    {manual.report.test.base}{"\n"}ABLATED: {manual.report.test.ablated}</pre>
+                </div>
+              )}
+              <div className="recipe-bar">
+                <label className="fld">save as<input className="in" value={recipeName} onChange={(e) => setRecipeName(e.target.value)} placeholder="recipe name" /></label>
+                <button className="btn ghost" onClick={() => void saveCurrentRecipe()} disabled={recipeName === ""}>save recipe</button>
+              </div>
+            </motion.div>
+          )}
+          {recipes.length > 0 && (
+            <div className="recipe-list">
+              {recipes.map((r) => (
+                <div className="recipe-item" key={r.name}>
+                  <span className="rname">{r.name}</span>
+                  <span className="rmeta">layers [{r.layers.join(",")}] · rank {r.rank} · coef {r.coefficient} · {r.recipe_hash}</span>
+                  <button className="btn ghost" onClick={() => applyRecipe(r)}>load</button>
+                  <button className="x" onClick={() => void removeRecipe(r.name)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <div className="engrave">auto-tune the recipe · per-layer banded search (real generation, ~3 min)</div>

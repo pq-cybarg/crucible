@@ -598,3 +598,63 @@ export async function autotuneAbliteration(baseId: string): Promise<AutotuneResu
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: (await resp.json()) as AutotuneReport };
 }
+
+export interface ManualReport {
+  readonly layers: readonly number[];
+  readonly rank: number;
+  readonly coefficient: number;
+  readonly explained_variance: Readonly<Record<string, readonly number[]>>;
+  readonly weights_modified: boolean;
+  readonly harmful_refusal: number;
+  readonly benign_over_refusal: number;
+  readonly recipe_hash: string;
+  readonly test?: { readonly prompt: string; readonly base: string; readonly ablated: string };
+}
+
+export type ManualResult =
+  | { readonly kind: "report"; readonly report: ManualReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export interface RecipeRow {
+  readonly name: string;
+  readonly base_id: string;
+  readonly layers: readonly number[];
+  readonly rank: number;
+  readonly coefficient: number;
+  readonly recipe_hash: string;
+}
+
+export async function manualSteer(baseId: string, layers: readonly number[], rank: number, coefficient: number, testPrompt: string): Promise<ManualResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/manual", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId, layers, rank, coefficient, test_prompt: testPrompt || null }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as ManualReport };
+}
+
+export async function getRecipes(): Promise<readonly RecipeRow[]> {
+  const r = await fetch("/api/abliteration/recipes");
+  if (!r.ok) return [];
+  return (await r.json()) as readonly RecipeRow[];
+}
+
+export async function saveRecipe(recipe: RecipeRow): Promise<void> {
+  await fetch("/api/abliteration/recipes", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(recipe),
+  });
+}
+
+export async function deleteRecipe(name: string): Promise<void> {
+  await fetch(`/api/abliteration/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
