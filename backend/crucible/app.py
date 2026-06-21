@@ -84,6 +84,10 @@ class InsertRequest(BaseModel):
     max_new_tokens: int = 28
 
 
+class FlowRequest(BaseModel):
+    base_id: str
+
+
 class FeatureCardRequest(BaseModel):
     base_id: str
 
@@ -603,6 +607,30 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         after = a.inject_generate(req.test_prompt, direction, req.coefficient, layers, req.max_new_tokens)
         return {"layers": layers, "coefficient": req.coefficient, "copied": False,
                 "test": {"prompt": req.test_prompt, "before": before, "after": after}}
+
+    @app.post("/api/abliteration/flow")
+    def abl_flow(req: FlowRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.lens import decode_direction
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        a = abliteration_adapter
+        layers = list(range(getattr(a, "num_layers", 1)))
+        profile = layer_refusal_profile(a, EVAL_HARMFUL, EVAL_BENIGN, layers)
+        bl = best_layer(profile)
+        direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, bl), a.activations(EVAL_BENIGN, bl))
+        carriers = []
+        for name in a.writing_matrices():
+            parts = name.split(".")
+            imp = ablation_impact(a.get_matrix(name), direction)
+            carriers.append({"layer": int(parts[2]), "component": parts[4], "mass": imp["removed_fraction"]})
+        carriers = sorted(carriers, key=lambda c: -c["mass"])[:8]
+        decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, top_k=6)
+        outputs = [t["token"].strip() for t in decoded["promoted"] if t["token"].strip()][:6]
+        return {"input": "harmful request", "best_layer": bl,
+                "carriers": sorted(carriers, key=lambda c: c["layer"]), "outputs": outputs}
 
     @app.post("/api/abliteration/feature-card")
     def abl_feature_card(req: FeatureCardRequest) -> dict:
