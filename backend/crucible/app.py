@@ -65,6 +65,10 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class FeatureCardRequest(BaseModel):
+    base_id: str
+
+
 class HeatmapRequest(BaseModel):
     base_id: str
     prompt: str
@@ -533,6 +537,26 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         serve["band_dirs"] = None
         serve["coefficient"] = 1.0
         return {"active": None}
+
+    @app.post("/api/abliteration/feature-card")
+    def abl_feature_card(req: FeatureCardRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.feature_card import build_feature_card
+        from crucible.abliteration.lens import decode_direction
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        a = abliteration_adapter
+        layers = list(range(getattr(a, "num_layers", 1)))
+        profile = layer_refusal_profile(a, EVAL_HARMFUL, EVAL_BENIGN, layers)
+        layer = best_layer(profile)
+        direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, layer),
+                                              a.activations(EVAL_BENIGN, layer))
+        decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, top_k=8)
+        words = [t["token"].strip() for t in decoded["promoted"] if t["token"].strip()][:8]
+        samples = [{"prompt": p, "refusal": a.generate(p, 24)} for p in EVAL_HARMFUL[:3]]
+        return build_feature_card(profile, words, samples)
 
     @app.post("/api/abliteration/heatmap")
     def abl_heatmap(req: HeatmapRequest) -> dict:
