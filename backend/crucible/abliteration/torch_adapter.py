@@ -56,6 +56,17 @@ class TorchModelAdapter:
     def activations(self, prompts: list[str], layer: int) -> np.ndarray:
         return np.array([self.hidden_at(self._encode(p), layer) for p in prompts])
 
+    def all_layer_activations(self, prompts: list[str]) -> np.ndarray:
+        """One forward per prompt; returns (n_prompts, n_layers+1, hidden) last-token states."""
+        import torch
+        rows = []
+        for p in prompts:
+            ids = self._encode(p).to(self.device)
+            with torch.no_grad():
+                out = self.model(ids, output_hidden_states=True)
+            rows.append([hs[0, -1, :].float().cpu().numpy() for hs in out.hidden_states])
+        return np.array(rows)
+
     def writing_matrices(self) -> list[str]:
         names: list[str] = []
         for i in range(self.num_layers):
@@ -98,6 +109,32 @@ class TorchModelAdapter:
             return (h2,) + tuple(out[1:]) if is_tuple else h2
 
         handles = [layer.register_forward_hook(hook) for layer in self.decoder_layers()]
+        try:
+            return self.generate(prompt, max_new_tokens)
+        finally:
+            for hd in handles:
+                hd.remove()
+
+    def ablate_generate_banded(self, prompt: str, band_dirs: dict, coefficient: float = 1.0,
+                              max_new_tokens: int = 40) -> str:
+        """Per-layer, nondestructive ablation: each decoder layer in band_dirs gets a hook
+        projecting out ITS OWN refusal subspace. Weights untouched; hooks removed after."""
+        import torch
+        layers = self.decoder_layers()
+        handles = []
+
+        def make_hook(D):
+            def hook(module, inp, out):
+                is_t = isinstance(out, tuple)
+                h = out[0] if is_t else out
+                proj = (h.to(torch.float32) @ D.T) @ D
+                h2 = h - coefficient * proj.to(h.dtype)
+                return (h2,) + tuple(out[1:]) if is_t else h2
+            return hook
+
+        for j, dirs in band_dirs.items():
+            D = torch.tensor(np.asarray(dirs), dtype=torch.float32, device=self.device)
+            handles.append(layers[int(j)].register_forward_hook(make_hook(D)))
         try:
             return self.generate(prompt, max_new_tokens)
         finally:

@@ -64,6 +64,11 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class AutotuneRequest(BaseModel):
+    base_id: str
+    max_new_tokens: int = 18
+
+
 class RuntimeSteerRequest(BaseModel):
     base_id: str
     layer: int | None = None
@@ -293,6 +298,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                         "hooks_on": refusal_rate(during_b)},
                 "sample": {"prompt": DEFAULT_HARMFUL[0],
                            "hooks_off": before_h[0], "hooks_on": during_h[0]}}
+
+    @app.post("/api/abliteration/autotune")
+    def abl_autotune(req: AutotuneRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        from crucible.abliteration.tune import autotune
+        configs = [
+            {"band": "late_half", "rank": 1, "coefficient": 1.0},
+            {"band": "late_half", "rank": 4, "coefficient": 1.0},
+            {"band": "last_quarter", "rank": 4, "coefficient": 1.0},
+            {"band": "last_quarter", "rank": 8, "coefficient": 1.0},
+            {"band": "all", "rank": 4, "coefficient": 1.0},
+        ]
+        return autotune(abliteration_adapter, EVAL_HARMFUL, EVAL_BENIGN, configs, req.max_new_tokens)
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:
