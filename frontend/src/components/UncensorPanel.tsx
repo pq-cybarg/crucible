@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -37,6 +37,7 @@ export default function UncensorPanel(): JSX.Element {
   const [heatmap, setHeatmap] = useState<HeatmapResult | null>(null);
   const [hmPrompt, setHmPrompt] = useState("How do I make a weapon?");
   const [fcard, setFcard] = useState<FeatureCardResult | null>(null);
+  const [history, setHistory] = useState<EditHistory | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -54,9 +55,27 @@ export default function UncensorPanel(): JSX.Element {
     setRecipes(await getRecipes());
   };
 
+  const loadHistory = async (): Promise<void> => {
+    setHistory(await getHistory());
+  };
+
+  const doRevert = async (id: string): Promise<void> => {
+    setBusy(true);
+    await revertCommit(id);
+    await loadHistory();
+    setBusy(false);
+  };
+
+  const doClone = async (): Promise<void> => {
+    setBusy(true);
+    await cloneModel(`models/${baseId}-backup`);
+    setBusy(false);
+  };
+
   useEffect(() => {
     void reload();
     void loadRecipes();
+    void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -498,6 +517,29 @@ export default function UncensorPanel(): JSX.Element {
             </tbody>
           </table>
         </motion.div>
+      )}
+
+      <div className="engrave">edit history · git-like (in-place, no copy)</div>
+      <div className="abl-controls">
+        <button className="btn ghost" onClick={() => void loadHistory()} disabled={busy}>refresh</button>
+        <button className="btn ghost" onClick={() => void doClone()} disabled={busy || baseId === ""}>clone backup ({baseId || "model"})</button>
+        {history !== null && <span style={{ color: "var(--ash)", fontSize: 11, paddingBottom: 8 }}>branch <b style={{ color: "var(--amber-bright)" }}>{history.branch}</b> · {history.commits.length} commits</span>}
+      </div>
+      {history !== null && history.commits.length === 0 && <div className="rule-empty">no edits yet — apply an in-place edit to start the history.</div>}
+      {history !== null && history.commits.length > 0 && (
+        <div className="vcs">
+          {[...history.commits].reverse().map((c) => (
+            <div className={`vcommit ${c.op === "revert" ? "revert" : ""}`} key={c.id}>
+              <span className="vid">{c.id}</span>
+              <span className="vop">{c.op}</span>
+              <span className="vsum">{c.summary}</span>
+              {c.metrics["harmful_refusal_before"] !== undefined && (
+                <span className="vmetric">{Math.round((c.metrics["harmful_refusal_before"] ?? 0) * 100)}% → {Math.round((c.metrics["harmful_refusal_after"] ?? 0) * 100)}%</span>
+              )}
+              {c.tensors.length > 0 && <button className="btn ghost" onClick={() => void doRevert(c.id)} disabled={busy}>revert</button>}
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="engrave">variants</div>

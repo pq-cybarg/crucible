@@ -720,3 +720,34 @@ export async function getFeatureCard(baseId: string): Promise<FeatureCardResult>
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", card: (await resp.json()) as FeatureCard };
 }
+
+export interface EditCommit {
+  readonly id: string;
+  readonly parent: string | null;
+  readonly branch: string;
+  readonly op: string;
+  readonly summary: string;
+  readonly metrics: Readonly<Record<string, number>>;
+  readonly tensors: readonly string[];
+}
+
+export interface EditHistory { readonly branch: string; readonly commits: readonly EditCommit[] }
+
+export async function getHistory(): Promise<EditHistory> {
+  const r = await fetch("/api/inference/history");
+  if (!r.ok) return { branch: "main", commits: [] };
+  return (await r.json()) as EditHistory;
+}
+
+export async function revertCommit(id: string): Promise<boolean> {
+  const r = await fetch(`/api/inference/revert/${encodeURIComponent(id)}`, { method: "POST" });
+  return r.ok;
+}
+
+export async function cloneModel(outPath: string): Promise<boolean> {
+  const r = await fetch("/api/inference/clone", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ out_path: outPath }),
+  });
+  return r.ok;
+}

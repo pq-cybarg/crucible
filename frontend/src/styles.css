@@ -576,3 +576,13 @@ body::after {
 .ftrigger { border-top: 1px solid var(--line); padding: 9px 0; font-size: 12px; }
 .ftrigger .fp { color: var(--bone); }
 .ftrigger .fr { color: var(--ash); font-style: italic; }
+
+/* ---------- Edit history (git-like) ------------------------------------ */
+.vcs { display: flex; flex-direction: column; gap: 0; border-left: 2px solid var(--line-bright); margin: 4px 0 8px 6px; padding-left: 14px; }
+.vcommit { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); position: relative; }
+.vcommit::before { content: ""; position: absolute; left: -20px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber); }
+.vcommit.revert::before { background: var(--flux); box-shadow: 0 0 8px rgba(47,209,166,0.5); }
+.vid { font-family: var(--font-mono); font-size: 11px; color: var(--amber-bright); width: 28px; }
+.vop { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--line-bright); border-radius: 2px; color: var(--steel-text); }
+.vsum { color: var(--steel-text); font-size: 12px; flex: 1; }
+.vmetric { color: var(--ash); font-size: 11px; }
