@@ -559,3 +559,20 @@ body::after {
 .hm-row-label { font-family: var(--font-mono); font-size: 9px; color: var(--ash); padding-right: 6px; text-align: right; white-space: nowrap; }
 .hm-legend { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--ash); margin-top: 8px; }
 .hm-legend i { width: 60px; height: 8px; border-radius: 2px; background: linear-gradient(90deg, var(--steel-700), var(--amber-bright), var(--ember)); display: inline-block; }
+
+/* ---------- Plain-language feature card --------------------------------- */
+.fcard {
+  border: 1px solid var(--amber); border-radius: 6px; padding: 20px; margin: 4px 0 8px;
+  background: linear-gradient(180deg, rgba(255, 106, 26, 0.08), transparent);
+  position: relative; overflow: hidden;
+}
+.fcard::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: linear-gradient(180deg, var(--amber-bright), var(--ember)); }
+.fcard h2 { font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: 0.02em; color: var(--bone); text-transform: uppercase; margin-bottom: 8px; }
+.fcard h2 .flame { color: var(--amber-bright); }
+.fcard .fsum { color: var(--steel-text); font-size: 13px; line-height: 1.5; margin-bottom: 14px; max-width: 70ch; }
+.fcard .frow { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+.fcard .flabel { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); }
+.fchip { font-family: var(--font-mono); font-size: 11px; padding: 2px 8px; border-radius: 2px; border: 1px solid var(--line-bright); color: var(--amber-bright); }
+.ftrigger { border-top: 1px solid var(--line); padding: 9px 0; font-size: 12px; }
+.ftrigger .fp { color: var(--bone); }
+.ftrigger .fr { color: var(--ash); font-style: italic; }

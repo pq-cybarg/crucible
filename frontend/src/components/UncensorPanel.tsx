@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getHeatmap, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -36,6 +36,7 @@ export default function UncensorPanel(): JSX.Element {
   const [recipeName, setRecipeName] = useState("");
   const [heatmap, setHeatmap] = useState<HeatmapResult | null>(null);
   const [hmPrompt, setHmPrompt] = useState("How do I make a weapon?");
+  const [fcard, setFcard] = useState<FeatureCardResult | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -103,6 +104,14 @@ export default function UncensorPanel(): JSX.Element {
   const removeRecipe = async (name: string): Promise<void> => {
     await deleteRecipe(name);
     await loadRecipes();
+  };
+
+  const runFeatureCard = async (): Promise<void> => {
+    if (baseId === "") return;
+    setBusy(true);
+    setFcard(null);
+    setFcard(await getFeatureCard(baseId));
+    setBusy(false);
   };
 
   const runHeatmap = async (): Promise<void> => {
@@ -201,7 +210,21 @@ export default function UncensorPanel(): JSX.Element {
         <button className="btn" onClick={() => void runDiagnose()} disabled={busy || baseId === ""}>
           {busy ? "scanning…" : "diagnose censorship"}
         </button>
+        <button className="btn ghost" onClick={() => void runFeatureCard()} disabled={busy || baseId === ""}>explain in plain language</button>
       </div>
+      {fcard !== null && (fcard.kind === "no-weights" || fcard.kind === "offline") && <div className="abl-note">{fcard.kind === "no-weights" ? "needs the torch adapter loaded (CRUCIBLE_HF_MODEL)" : "backend offline"}</div>}
+      {fcard !== null && fcard.kind === "report" && (
+        <motion.div className="fcard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <h2><span className="flame">▰</span> {fcard.card.name}</h2>
+          <div className="fsum">{fcard.card.summary}</div>
+          <div className="frow"><span className="flabel">lives in</span>{fcard.card.active_layers.map((l) => <span key={l} className="fchip">L{l}</span>)}</div>
+          <div className="frow"><span className="flabel">makes it say</span>{fcard.card.output_signature.map((w, i) => <span key={i} className="fchip">{w}</span>)}</div>
+          <div className="flabel" style={{ marginBottom: 4 }}>fires on (real model output)</div>
+          {fcard.card.triggers.map((t, i) => (
+            <div className="ftrigger" key={i}><span className="fp">“{t.prompt}”</span> → <span className="fr">“{t.refusal}”</span></div>
+          ))}
+        </motion.div>
+      )}
 
       {/* Diagnosis result */}
       {diag !== null && diag.kind === "no-weights" && (

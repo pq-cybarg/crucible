@@ -686,3 +686,37 @@ export async function getHeatmap(baseId: string, prompt: string): Promise<Heatma
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: (await resp.json()) as HeatmapReport };
 }
+
+export interface FeatureTrigger { readonly prompt: string; readonly refusal: string }
+
+export interface FeatureCard {
+  readonly name: string;
+  readonly summary: string;
+  readonly peak_layer: number;
+  readonly active_layers: readonly number[];
+  readonly strength: number;
+  readonly output_signature: readonly string[];
+  readonly triggers: readonly FeatureTrigger[];
+}
+
+export type FeatureCardResult =
+  | { readonly kind: "report"; readonly card: FeatureCard }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function getFeatureCard(baseId: string): Promise<FeatureCardResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/feature-card", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", card: (await resp.json()) as FeatureCard };
+}
