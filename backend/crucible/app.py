@@ -10,6 +10,7 @@ from crucible.abliteration.diagnosis import (
 from crucible.abliteration.direction import compute_refusal_direction
 from crucible.abliteration.pipeline import AbliterationPipeline
 from crucible.abliteration.prompts import DEFAULT_HARMFUL, DEFAULT_HARMLESS
+from crucible.abliteration.recipes import Recipe, RecipeStore
 from crucible.agent import Agent
 from crucible.audit import AuditLog
 from crucible.config import get_settings
@@ -64,6 +65,17 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class ManualSteerRequest(BaseModel):
+    base_id: str
+    layers: list[int]
+    rank: int = 1
+    coefficient: float = 1.0
+    harmful: list[str] | None = None
+    benign: list[str] | None = None
+    test_prompt: str | None = None
+    max_new_tokens: int = 18
+
+
 class AutotuneRequest(BaseModel):
     base_id: str
     max_new_tokens: int = 18
@@ -116,6 +128,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     preset_store = PresetStore(settings.data_dir / "presets.json")
     gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
+    recipe_store = RecipeStore(settings.data_dir / "recipes.json")
     if abliteration_adapter is None:
         import os
         hf = os.environ.get("CRUCIBLE_HF_MODEL")
@@ -389,6 +402,54 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         return {"summary": weight_summary(parsed),
                 "tensors": parsed["tensors"][:6000],
                 "metadata": {k: v for k, v in parsed["metadata"].items() if not isinstance(v, list)}}
+
+    @app.post("/api/abliteration/manual")
+    def abl_manual(req: ManualSteerRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.detection import refusal_rate
+        from crucible.abliteration.subspace import refusal_subspace
+        from crucible.abliteration.tune import recipe_hash
+        a = abliteration_adapter
+        harmful = req.harmful or list(__import__("crucible.abliteration.prompts", fromlist=["EVAL_HARMFUL"]).EVAL_HARMFUL)
+        benign = req.benign or list(__import__("crucible.abliteration.prompts", fromlist=["EVAL_BENIGN"]).EVAL_BENIGN)
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        ah = a.all_layer_activations(harmful)
+        al = a.all_layer_activations(benign)
+        subs, ev = {}, {}
+        for j in layers:
+            d, e = refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)
+            subs[j] = d
+            ev[str(j)] = e
+        gh = [a.ablate_generate_banded(p, subs, req.coefficient, req.max_new_tokens) for p in harmful]
+        gb = [a.ablate_generate_banded(p, subs, req.coefficient, req.max_new_tokens) for p in benign]
+        out = {"layers": layers, "rank": req.rank, "coefficient": req.coefficient,
+               "explained_variance": ev, "weights_modified": False,
+               "harmful_refusal": refusal_rate(gh), "benign_over_refusal": refusal_rate(gb),
+               "recipe_hash": recipe_hash({"layers": layers, "rank": req.rank, "coefficient": req.coefficient})}
+        if req.test_prompt:
+            out["test"] = {"prompt": req.test_prompt,
+                           "base": a.generate(req.test_prompt, req.max_new_tokens),
+                           "ablated": a.ablate_generate_banded(req.test_prompt, subs, req.coefficient, req.max_new_tokens)}
+        return out
+
+    @app.get("/api/abliteration/recipes")
+    def list_recipes() -> list[Recipe]:
+        return recipe_store.list()
+
+    @app.post("/api/abliteration/recipes", status_code=201)
+    def save_recipe(recipe: Recipe) -> Recipe:
+        return recipe_store.save(recipe)
+
+    @app.delete("/api/abliteration/recipes/{name}", status_code=204)
+    def delete_recipe(name: str) -> None:
+        try:
+            recipe_store.delete(name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="recipe not found")
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
