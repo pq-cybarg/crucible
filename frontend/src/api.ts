@@ -658,3 +658,31 @@ export async function saveRecipe(recipe: RecipeRow): Promise<void> {
 export async function deleteRecipe(name: string): Promise<void> {
   await fetch(`/api/abliteration/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
+
+export interface HeatmapReport {
+  readonly direction_layer: number;
+  readonly matrix: readonly (readonly number[])[];
+  readonly tokens: readonly string[];
+}
+
+export type HeatmapResult =
+  | { readonly kind: "report"; readonly report: HeatmapReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function getHeatmap(baseId: string, prompt: string): Promise<HeatmapResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/heatmap", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId, prompt }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as HeatmapReport };
+}

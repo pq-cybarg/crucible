@@ -550,3 +550,12 @@ body::after {
 .recipe-item .rname { font-family: var(--font-display); color: var(--bone); letter-spacing: 0.05em; }
 .recipe-item .rmeta { color: var(--ash); }
 .recipe-item button { margin-left: auto; }
+
+/* ---------- Activation heatmap ----------------------------------------- */
+.hm-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--steel-900); padding: 10px; }
+.hm-grid { display: grid; gap: 1px; }
+.hm-cell { width: 16px; height: 13px; border-radius: 1px; }
+.hm-toklabel { font-family: var(--font-mono); font-size: 9px; color: var(--ash); white-space: nowrap; transform: rotate(0deg); }
+.hm-row-label { font-family: var(--font-mono); font-size: 9px; color: var(--ash); padding-right: 6px; text-align: right; white-space: nowrap; }
+.hm-legend { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--ash); margin-top: 8px; }
+.hm-legend i { width: 60px; height: 8px; border-radius: 2px; background: linear-gradient(90deg, var(--steel-700), var(--amber-bright), var(--ember)); display: inline-block; }

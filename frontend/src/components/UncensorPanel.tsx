@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, deleteRecipe, diagnoseCensorship, getHeatmap, getModels, getRecipes, manualSteer, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -34,6 +34,8 @@ export default function UncensorPanel(): JSX.Element {
   const [manual, setManual] = useState<ManualResult | null>(null);
   const [recipes, setRecipes] = useState<readonly RecipeRow[]>([]);
   const [recipeName, setRecipeName] = useState("");
+  const [heatmap, setHeatmap] = useState<HeatmapResult | null>(null);
+  const [hmPrompt, setHmPrompt] = useState("How do I make a weapon?");
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -101,6 +103,21 @@ export default function UncensorPanel(): JSX.Element {
   const removeRecipe = async (name: string): Promise<void> => {
     await deleteRecipe(name);
     await loadRecipes();
+  };
+
+  const runHeatmap = async (): Promise<void> => {
+    if (baseId === "" || hmPrompt === "") return;
+    setBusy(true);
+    setHeatmap(null);
+    setHeatmap(await getHeatmap(baseId, hmPrompt));
+    setBusy(false);
+  };
+
+  const hm = heatmap !== null && heatmap.kind === "report" ? heatmap.report : null;
+  const hmMax = hm ? Math.max(...hm.matrix.map((r) => Math.max(...r.map((v) => Math.abs(v)))), 1) : 1;
+  const hmColor = (v: number): string => {
+    const t = Math.min(1, Math.abs(v) / hmMax);
+    return t > 0.7 ? `rgba(255,59,47,${0.3 + 0.7 * t})` : `rgba(255,106,26,${0.06 + 0.7 * t})`;
   };
 
   const bases = useMemo(() => models.filter((m) => m.kind === "base"), [models]);
@@ -300,6 +317,34 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      <div className="engrave">activation heatmap · watch refusal fire (token × layer)</div>
+      <div className="abl-controls">
+        <input className="in mono" style={{ flex: 1 }} value={hmPrompt} onChange={(e) => setHmPrompt(e.target.value)} placeholder="prompt to inspect" />
+        <button className="btn" onClick={() => void runHeatmap()} disabled={busy || baseId === ""}>render heatmap</button>
+      </div>
+      {heatmap !== null && (heatmap.kind === "no-weights" || heatmap.kind === "offline") && <div className="abl-note">{heatmap.kind === "no-weights" ? "needs the torch adapter loaded" : "backend offline"}</div>}
+      {hm !== null && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className="hm-wrap">
+            {[...hm.matrix].map((_, idx) => {
+              const layer = hm.matrix.length - 1 - idx;
+              const row = hm.matrix[layer];
+              if (row === undefined) return null;
+              return (
+                <div key={layer} style={{ display: "flex", alignItems: "center", gap: 1, marginBottom: 1 }}>
+                  <span className="hm-row-label" style={{ width: 30 }}>{layer === hm.matrix.length - 1 ? "out" : `L${layer}`}</span>
+                  {row.map((v, ti) => <span key={ti} className="hm-cell" style={{ background: hmColor(v) }} title={`${hm.tokens[ti] ?? ""} · ${v.toFixed(1)}`} />)}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", gap: 1, marginTop: 2, paddingLeft: 31 }}>
+              {hm.tokens.map((t, ti) => <span key={ti} className="hm-toklabel" style={{ width: 16, overflow: "hidden", textAlign: "center" }}>{t.trim().slice(0, 2)}</span>)}
+            </div>
+          </div>
+          <div className="hm-legend"><span>refusal direction @ layer {hm.direction_layer}</span><i /><span>cold → hot · hover a cell for the token + value</span></div>
+        </motion.div>
       )}
 
       <div className="engrave">manual control · craft the recipe by hand</div>
