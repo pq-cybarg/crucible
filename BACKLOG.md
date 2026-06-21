@@ -5,9 +5,9 @@ Deferred / planned work, captured so nothing is lost.
 ## In progress
 - [x] Git-like edit version control (history / revert / branch) with per-tensor delta snapshots
 - [x] Clone-before-edit (pristine backup + active copy)
-- [ ] GUI changelog view (history timeline, revert/branch buttons)
+- [x] GUI changelog view (history timeline, revert/clone buttons)
 
-## Understandable visualization (2 of 4 done)
+## Understandable visualization (4 of 4 DONE)
 - [x] Live activation heatmap (token × layer)
 - [x] Plain-language feature cards (auto-named mechanism + trigger/output/location)
 - [x] Causal flow graph (input concepts → carrier components → output tokens)
