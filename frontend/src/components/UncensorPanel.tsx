@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runProbe, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, ProbeResult, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getFlow, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runProbe, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, FlowResult, HeatmapResult, ManualResult, ModelRow, ProbeResult, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -39,6 +39,7 @@ export default function UncensorPanel(): JSX.Element {
   const [fcard, setFcard] = useState<FeatureCardResult | null>(null);
   const [history, setHistory] = useState<EditHistory | null>(null);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
+  const [flow, setFlow] = useState<FlowResult | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -149,6 +150,15 @@ export default function UncensorPanel(): JSX.Element {
     setHeatmap(await getHeatmap(baseId, hmPrompt));
     setBusy(false);
   };
+
+  const runFlow = async (): Promise<void> => {
+    if (baseId === "") return;
+    setBusy(true);
+    setFlow(null);
+    setFlow(await getFlow(baseId));
+    setBusy(false);
+  };
+  const flowMax = flow !== null && flow.kind === "report" ? Math.max(...flow.report.carriers.map((c) => c.mass), 0.0001) : 1;
 
   const hm = heatmap !== null && heatmap.kind === "report" ? heatmap.report : null;
   const hmMax = hm ? Math.max(...hm.matrix.map((r) => Math.max(...r.map((v) => Math.abs(v)))), 1) : 1;
@@ -395,6 +405,37 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           </div>
           <div className="hm-legend"><span>refusal direction @ layer {hm.direction_layer}</span><i /><span>cold → hot · hover a cell for the token + value</span></div>
+        </motion.div>
+      )}
+
+      <div className="engrave">causal flow · input → carriers → output</div>
+      <div className="abl-controls">
+        <button className="btn" onClick={() => void runFlow()} disabled={busy || baseId === ""}>trace the pathway</button>
+        {flow !== null && flow.kind === "report" && <span style={{ color: "var(--ash)", fontSize: 11, paddingBottom: 8 }}>refusal decided @ layer <b style={{ color: "var(--amber-bright)" }}>{flow.report.best_layer}</b></span>}
+      </div>
+      {flow !== null && (flow.kind === "no-weights" || flow.kind === "offline") && <div className="abl-note">{flow.kind === "no-weights" ? "needs the torch adapter loaded" : "backend offline"}</div>}
+      {flow !== null && flow.kind === "report" && (
+        <motion.div className="flow" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className="flow-col">
+            <div className="flow-title">input</div>
+            <div className="flow-node input">{flow.report.input}</div>
+          </div>
+          <div className="flow-arrow">→</div>
+          <div className="flow-col mid">
+            <div className="flow-title">carriers (weight that holds refusal)</div>
+            {flow.report.carriers.map((c, i) => (
+              <div className="flow-carrier" key={i}>
+                <span className="cl">L{c.layer} {c.component}</span>
+                <span className="cbar"><i style={{ width: `${(c.mass / flowMax) * 100}%` }} /></span>
+                <span className="cv">{(c.mass * 100).toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+          <div className="flow-arrow">→</div>
+          <div className="flow-col">
+            <div className="flow-title">output it forces</div>
+            {flow.report.outputs.map((w, i) => <div className="flow-node output" key={i}>{w}</div>)}
+          </div>
         </motion.div>
       )}
 

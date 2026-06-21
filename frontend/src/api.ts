@@ -782,3 +782,32 @@ export async function runProbe(baseId: string, layers: readonly number[], rank: 
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", rows: ((await resp.json()) as { rows: readonly ProbeRow[] }).rows };
 }
+
+export interface FlowCarrier { readonly layer: number; readonly component: string; readonly mass: number }
+export interface FlowReport {
+  readonly input: string;
+  readonly best_layer: number;
+  readonly carriers: readonly FlowCarrier[];
+  readonly outputs: readonly string[];
+}
+export type FlowResult =
+  | { readonly kind: "report"; readonly report: FlowReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function getFlow(baseId: string): Promise<FlowResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/flow", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as FlowReport };
+}

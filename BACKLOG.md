@@ -10,8 +10,8 @@ Deferred / planned work, captured so nothing is lost.
 ## Understandable visualization (2 of 4 done)
 - [x] Live activation heatmap (token × layer)
 - [x] Plain-language feature cards (auto-named mechanism + trigger/output/location)
-- [ ] Causal flow graph (input concepts → carrier components → output tokens)
-- [ ] Before/after behavior diff (multi-probe results assessment)
+- [x] Causal flow graph (input concepts → carrier components → output tokens)
+- [x] Before/after behavior diff (multi-probe results assessment)
 
 ## Modification styles
 - [x] Single-layer / multi-layer banded ablation
