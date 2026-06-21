@@ -65,6 +65,15 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class ProbeRequest(BaseModel):
+    base_id: str
+    layers: list[int]
+    rank: int = 1
+    coefficient: float = 1.0
+    probes: list[dict] | None = None
+    max_new_tokens: int = 22
+
+
 class InsertRequest(BaseModel):
     base_id: str
     layers: list[int]
@@ -549,6 +558,31 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         serve["band_dirs"] = None
         serve["coefficient"] = 1.0
         return {"active": None}
+
+    @app.post("/api/abliteration/probe")
+    def abl_probe(req: ProbeRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.detection import is_refusal
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL, PROBE_PANEL
+        from crucible.abliteration.subspace import refusal_subspace
+        a = abliteration_adapter
+        panel = req.probes or PROBE_PANEL
+        ah = a.all_layer_activations(EVAL_HARMFUL)
+        al = a.all_layer_activations(EVAL_BENIGN)
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        band = {j: refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0] for j in layers}
+        rows = []
+        for pr in panel:
+            base = a.generate(pr["prompt"], req.max_new_tokens)
+            steered = a.ablate_generate_banded(pr["prompt"], band, req.coefficient, req.max_new_tokens)
+            rows.append({"category": pr["category"], "prompt": pr["prompt"],
+                         "base": base, "steered": steered,
+                         "base_refused": is_refusal(base), "steered_refused": is_refusal(steered)})
+        return {"rows": rows}
 
     @app.post("/api/abliteration/insert")
     def abl_insert(req: InsertRequest) -> dict:
