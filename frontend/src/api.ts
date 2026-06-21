@@ -525,3 +525,36 @@ export async function sweepStrength(baseId: string): Promise<SweepResult> {
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: (await resp.json()) as SweepReport };
 }
+
+export interface RuntimeSteerReport {
+  readonly layer: number;
+  readonly rank: number;
+  readonly coefficient: number;
+  readonly explained_variance: readonly number[];
+  readonly weights_modified: boolean;
+  readonly harmful_refusal: { readonly hooks_off: number; readonly hooks_on: number; readonly after_detach: number };
+  readonly benign_over_refusal: { readonly hooks_off: number; readonly hooks_on: number };
+  readonly sample: { readonly prompt: string; readonly hooks_off: string; readonly hooks_on: string };
+}
+
+export type RuntimeSteerResult =
+  | { readonly kind: "report"; readonly report: RuntimeSteerReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function runtimeSteer(baseId: string, rank: number, coefficient: number): Promise<RuntimeSteerResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/runtime-steer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId, rank, coefficient }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as RuntimeSteerReport };
+}

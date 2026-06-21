@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, diagnoseCensorship, getModels, sweepStrength, verifyAbliteration } from "../api";
-import type { AbliterateResult, DiagnoseResult, ModelRow, SweepResult, VerifyResult } from "../api";
+import { abliterate, diagnoseCensorship, getModels, runtimeSteer, sweepStrength, verifyAbliteration } from "../api";
+import type { AbliterateResult, DiagnoseResult, ModelRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -23,6 +23,9 @@ export default function UncensorPanel(): JSX.Element {
   const [runMsg, setRunMsg] = useState("");
   const [sweep, setSweep] = useState<SweepResult | null>(null);
   const [verify, setVerify] = useState<VerifyResult | null>(null);
+  const [rsteer, setRsteer] = useState<RuntimeSteerResult | null>(null);
+  const [rank, setRank] = useState(2);
+  const [coef, setCoef] = useState(1);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -86,6 +89,14 @@ export default function UncensorPanel(): JSX.Element {
     setBusy(true);
     setVerify(null);
     setVerify(await verifyAbliteration(baseId, variantId));
+    setBusy(false);
+  };
+
+  const runRsteer = async (): Promise<void> => {
+    if (baseId === "") return;
+    setBusy(true);
+    setRsteer(null);
+    setRsteer(await runtimeSteer(baseId, rank, coef));
     setBusy(false);
   };
 
@@ -222,6 +233,43 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      <div className="engrave">reversible unhinge · runtime ablation (nondestructive — weights untouched)</div>
+      <div className="abl-controls">
+        <label className="fld">rank
+          <input className="in" type="number" min={1} max={8} value={rank} onChange={(e) => setRank(Number(e.target.value))} />
+        </label>
+        <label className="fld">coefficient {coef.toFixed(2)}
+          <input type="range" min={0} max={2} step={0.1} value={coef} onChange={(e) => setCoef(Number(e.target.value))} />
+        </label>
+        <button className="btn" onClick={() => void runRsteer()} disabled={busy || baseId === ""}>unhinge (hooks)</button>
+      </div>
+      {rsteer !== null && (rsteer.kind === "no-weights" || rsteer.kind === "offline") && <div className="abl-note">{rsteer.kind === "no-weights" ? "needs the torch adapter loaded (CRUCIBLE_HF_MODEL)" : "backend offline"}</div>}
+      {rsteer !== null && rsteer.kind === "report" && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className="verdict">
+            <span className="verdict-badge ok">NONDESTRUCTIVE</span>
+            <span>layer {rsteer.report.layer} · rank {rsteer.report.rank} · explained variance [{rsteer.report.explained_variance.map((v) => v.toFixed(2)).join(", ")}] · weights modified: {String(rsteer.report.weights_modified)}</span>
+          </div>
+          <table className="grid-table">
+            <thead><tr><th>metric</th><th>hooks off</th><th>hooks on</th><th>after detach</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>harmful refusal</td>
+                <td>{(rsteer.report.harmful_refusal.hooks_off * 100).toFixed(0)}%</td>
+                <td style={{ color: "var(--flux)" }}>{(rsteer.report.harmful_refusal.hooks_on * 100).toFixed(0)}%</td>
+                <td>{(rsteer.report.harmful_refusal.after_detach * 100).toFixed(0)}% {rsteer.report.harmful_refusal.hooks_off === rsteer.report.harmful_refusal.after_detach ? "↺ restored" : ""}</td>
+              </tr>
+              <tr>
+                <td>benign over-refusal</td>
+                <td>{(rsteer.report.benign_over_refusal.hooks_off * 100).toFixed(0)}%</td>
+                <td style={{ color: "var(--ember)" }}>{(rsteer.report.benign_over_refusal.hooks_on * 100).toFixed(0)}%</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </motion.div>
       )}
 
       <div className="engrave">variants</div>
