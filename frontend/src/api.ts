@@ -558,3 +558,43 @@ export async function runtimeSteer(baseId: string, rank: number, coefficient: nu
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: (await resp.json()) as RuntimeSteerReport };
 }
+
+export interface AutotuneConfigResult {
+  readonly band: string;
+  readonly rank: number;
+  readonly coefficient: number;
+  readonly harmful_refusal: number;
+  readonly benign_over_refusal: number;
+  readonly score: number;
+}
+
+export interface AutotuneReport {
+  readonly baseline: { readonly harmful_refusal: number; readonly benign_over_refusal: number };
+  readonly results: readonly AutotuneConfigResult[];
+  readonly best: AutotuneConfigResult;
+  readonly recipe: { readonly band: string; readonly rank: number; readonly coefficient: number };
+  readonly recipe_hash: string;
+  readonly weights_modified: boolean;
+}
+
+export type AutotuneResult =
+  | { readonly kind: "report"; readonly report: AutotuneReport }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function autotuneAbliteration(baseId: string): Promise<AutotuneResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/autotune", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: (await resp.json()) as AutotuneReport };
+}

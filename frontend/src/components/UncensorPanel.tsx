@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, diagnoseCensorship, getModels, runtimeSteer, sweepStrength, verifyAbliteration } from "../api";
-import type { AbliterateResult, DiagnoseResult, ModelRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, diagnoseCensorship, getModels, runtimeSteer, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, ModelRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -26,6 +26,7 @@ export default function UncensorPanel(): JSX.Element {
   const [rsteer, setRsteer] = useState<RuntimeSteerResult | null>(null);
   const [rank, setRank] = useState(2);
   const [coef, setCoef] = useState(1);
+  const [tune, setTune] = useState<AutotuneResult | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -97,6 +98,14 @@ export default function UncensorPanel(): JSX.Element {
     setBusy(true);
     setRsteer(null);
     setRsteer(await runtimeSteer(baseId, rank, coef));
+    setBusy(false);
+  };
+
+  const runTune = async (): Promise<void> => {
+    if (baseId === "") return;
+    setBusy(true);
+    setTune(null);
+    setTune(await autotuneAbliteration(baseId));
     setBusy(false);
   };
 
@@ -233,6 +242,39 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      <div className="engrave">auto-tune the recipe · per-layer banded search (real generation, ~3 min)</div>
+      <div className="abl-controls">
+        <button className="btn" onClick={() => void runTune()} disabled={busy || baseId === ""}>auto-tune recipe</button>
+        {tune !== null && tune.kind === "report" && (
+          <span style={{ color: "var(--ash)" }}>
+            recipe <b style={{ color: "var(--amber-bright)" }}>band={tune.report.recipe.band} rank={tune.report.recipe.rank} coef={tune.report.recipe.coefficient}</b> · hash {tune.report.recipe_hash}
+          </span>
+        )}
+      </div>
+      {tune !== null && (tune.kind === "no-weights" || tune.kind === "offline") && <div className="abl-note">{tune.kind === "no-weights" ? "needs the torch adapter loaded (CRUCIBLE_HF_MODEL)" : "backend offline"}</div>}
+      {tune !== null && tune.kind === "report" && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div className="abl-note">
+            harmful refusal <b>{(tune.report.baseline.harmful_refusal * 100).toFixed(0)}% → {(tune.report.best.harmful_refusal * 100).toFixed(0)}%</b> · benign over-refusal <b>{(tune.report.best.benign_over_refusal * 100).toFixed(0)}%</b> · weights modified: {String(tune.report.weights_modified)}
+          </div>
+          <table className="grid-table">
+            <thead><tr><th>band</th><th>rank</th><th>coef</th><th>refusal</th><th>over-refusal</th><th>score</th></tr></thead>
+            <tbody>
+              {tune.report.results.map((r, i) => (
+                <tr key={i} style={{ background: r.score === tune.report.best.score ? "rgba(255,106,26,0.08)" : undefined }}>
+                  <td style={{ color: "var(--bone)" }}>{r.band}</td>
+                  <td>{r.rank}</td>
+                  <td>{r.coefficient.toFixed(1)}</td>
+                  <td style={{ color: "var(--flux)" }}>{(r.harmful_refusal * 100).toFixed(0)}%</td>
+                  <td style={{ color: "var(--ember)" }}>{(r.benign_over_refusal * 100).toFixed(0)}%</td>
+                  <td>{r.score.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </motion.div>
       )}
 
       <div className="engrave">reversible unhinge · runtime ablation (nondestructive — weights untouched)</div>
