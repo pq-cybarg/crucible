@@ -65,6 +65,16 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class InsertRequest(BaseModel):
+    base_id: str
+    layers: list[int]
+    coefficient: float = 6.0
+    positive: list[str] | None = None
+    negative: list[str] | None = None
+    test_prompt: str
+    max_new_tokens: int = 28
+
+
 class FeatureCardRequest(BaseModel):
     base_id: str
 
@@ -537,6 +547,26 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         serve["band_dirs"] = None
         serve["coefficient"] = 1.0
         return {"active": None}
+
+    @app.post("/api/abliteration/insert")
+    def abl_insert(req: InsertRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        a = abliteration_adapter
+        pos = req.positive or list(EVAL_BENIGN)
+        neg = req.negative or list(EVAL_HARMFUL)
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        ref_layer = max(layers) if layers else 0
+        direction = compute_refusal_direction(a.activations(pos, ref_layer + 1),
+                                              a.activations(neg, ref_layer + 1))
+        before = a.generate(req.test_prompt, req.max_new_tokens)
+        after = a.inject_generate(req.test_prompt, direction, req.coefficient, layers, req.max_new_tokens)
+        return {"layers": layers, "coefficient": req.coefficient, "copied": False,
+                "test": {"prompt": req.test_prompt, "before": before, "after": after}}
 
     @app.post("/api/abliteration/feature-card")
     def abl_feature_card(req: FeatureCardRequest) -> dict:

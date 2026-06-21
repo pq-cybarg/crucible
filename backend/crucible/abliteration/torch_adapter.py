@@ -109,6 +109,31 @@ class TorchModelAdapter:
             for hd in handles:
                 hd.remove()
 
+    def inject_generate(self, prompt: str, direction, coefficient: float, layers,
+                       max_new_tokens: int = 40) -> str:
+        """Feature INSERTION (restoration): ADD coefficient*direction to the residual at
+        the given layers — the additive complement of ablation. Nondestructive (hooks)."""
+        import torch
+        D = torch.tensor(np.asarray(direction), dtype=torch.float32, device=self.device)
+        if D.ndim == 2:
+            D = D.sum(0)
+        decoders = self.decoder_layers()
+        handles = []
+
+        def hook(module, inp, out):
+            is_t = isinstance(out, tuple)
+            h = out[0] if is_t else out
+            h2 = h + coefficient * D.to(h.dtype)
+            return (h2,) + tuple(out[1:]) if is_t else h2
+
+        for j in layers:
+            handles.append(decoders[int(j)].register_forward_hook(hook))
+        try:
+            return self.generate(prompt, max_new_tokens)
+        finally:
+            for hd in handles:
+                hd.remove()
+
     def token_layer_activations(self, prompt: str, direction) -> dict:
         """For one forward pass, project every token's residual at every layer onto the
         refusal direction -> a (n_layers+1 x n_tokens) heatmap of WHERE/WHEN refusal fires."""
