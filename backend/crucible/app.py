@@ -65,6 +65,12 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class HeatmapRequest(BaseModel):
+    base_id: str
+    prompt: str
+    layer: int | None = None
+
+
 class DecodeRequest(BaseModel):
     base_id: str
     layer: int | None = None
@@ -527,6 +533,22 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         serve["band_dirs"] = None
         serve["coefficient"] = 1.0
         return {"active": None}
+
+    @app.post("/api/abliteration/heatmap")
+    def abl_heatmap(req: HeatmapRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        a = abliteration_adapter
+        layers = list(range(getattr(a, "num_layers", 1)))
+        profile = layer_refusal_profile(a, EVAL_HARMFUL, EVAL_BENIGN, layers)
+        layer = req.layer if req.layer is not None else best_layer(profile)
+        direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, layer),
+                                              a.activations(EVAL_BENIGN, layer))
+        hm = a.token_layer_activations(req.prompt, direction)
+        return {"direction_layer": layer, **hm}
 
     @app.post("/api/abliteration/decode")
     def abl_decode(req: DecodeRequest) -> dict:

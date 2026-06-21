@@ -109,6 +109,18 @@ class TorchModelAdapter:
             for hd in handles:
                 hd.remove()
 
+    def token_layer_activations(self, prompt: str, direction) -> dict:
+        """For one forward pass, project every token's residual at every layer onto the
+        refusal direction -> a (n_layers+1 x n_tokens) heatmap of WHERE/WHEN refusal fires."""
+        import torch
+        ids = self._encode(prompt).to(self.device)
+        with torch.no_grad():
+            out = self.model(ids, output_hidden_states=True)
+        D = torch.tensor(np.asarray(direction), dtype=torch.float32, device=self.device)
+        matrix = [(hs[0].to(torch.float32) @ D).detach().cpu().numpy().tolist() for hs in out.hidden_states]
+        tokens = [self.tok.decode([int(t)]) for t in ids[0].tolist()]
+        return {"matrix": matrix, "tokens": tokens}
+
     def unembed_matrix(self) -> np.ndarray:
         return self.model.get_output_embeddings().weight.detach().float().cpu().numpy()
 
