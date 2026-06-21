@@ -181,6 +181,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     abl = (AbliterationPipeline(abliteration_adapter, reg)
            if abliteration_adapter is not None else None)
     serve = {"recipe": None, "band_dirs": None, "coefficient": 1.0}
+    from crucible.abliteration.ledger import EditLedger
+    ledger = EditLedger()
     app = FastAPI(title="Crucible")
 
     @app.get("/api/health")
@@ -639,18 +641,55 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         al = a.all_layer_activations(benign)
         n = getattr(a, "num_layers", 1)
         layers = [j for j in req.layers if 0 <= j < n]
+        deltas = {}
         for j in layers:
             dirs = refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0]
             for mat in (f"model.layers.{j}.self_attn.o_proj.weight",
                         f"model.layers.{j}.mlp.down_proj.weight"):
                 W = a.get_matrix(mat)
+                deltas[mat] = W.copy()  # pre-edit snapshot (delta) for git-like revert
                 for r in dirs:
                     W = W - req.coefficient * np.outer(r, r @ W)
                 a.set_matrix(mat, W)
         after = refusal_rate([a.generate(p, req.max_new_tokens) for p in harmful])
+        commit = ledger.record("inplace",
+                               {"layers": layers, "rank": req.rank, "coefficient": req.coefficient},
+                               f"in-place ablation, {len(layers)} layers",
+                               {"harmful_refusal_before": before, "harmful_refusal_after": after},
+                               deltas)
         return {"layers": layers, "rank": req.rank, "coefficient": req.coefficient,
-                "copied": False, "saved_to_disk": False,
+                "copied": False, "saved_to_disk": False, "commit": commit["id"],
                 "harmful_refusal": {"before": before, "after": after}}
+
+    @app.get("/api/inference/history")
+    def edit_history() -> dict:
+        return {"branch": ledger.branch_name, "commits": ledger.log()}
+
+    @app.post("/api/inference/revert/{commit_id}")
+    def edit_revert(commit_id: str) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        try:
+            deltas = ledger.get_deltas(commit_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="commit not found")
+        for name, W in deltas.items():
+            abliteration_adapter.set_matrix(name, W)
+        rc = ledger.record("revert", {"of": commit_id},
+                           f"revert {commit_id} ({len(deltas)} tensors restored)", {}, {})
+        return {"reverted": commit_id, "restored_tensors": len(deltas), "commit": rc["id"]}
+
+    @app.post("/api/inference/branch")
+    def edit_branch(body: dict) -> dict:
+        return {"branch": ledger.set_branch(body.get("name", "main"))}
+
+    @app.post("/api/inference/clone")
+    def edit_clone(body: dict) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        out = body.get("out_path") or "models/clone-backup"
+        abliteration_adapter.save(out)
+        return {"cloned_to": out, "note": "pristine backup; the loaded copy stays active for in-place edits"}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
