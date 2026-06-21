@@ -67,6 +67,48 @@ class TorchModelAdapter:
             rows.append([hs[0, -1, :].float().cpu().numpy() for hs in out.hidden_states])
         return np.array(rows)
 
+    def _encode_messages(self, messages: list[dict]):
+        if getattr(self.tok, "chat_template", None):
+            enc = self.tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+        else:
+            enc = self.tok("\n".join(m.get("content", "") for m in messages), return_tensors="pt")
+        if hasattr(enc, "input_ids"):
+            return enc.input_ids
+        if isinstance(enc, dict):
+            return enc["input_ids"]
+        return enc
+
+    def generate_chat(self, messages: list[dict], max_new_tokens: int = 128,
+                     band_dirs: dict | None = None, coefficient: float = 1.0) -> str:
+        """Chat-format generation with an OPTIONAL runtime steering recipe (per-layer
+        banded ablation via hooks). Nondestructive: hooks removed after the call."""
+        import torch
+        ids = self._encode_messages(messages).to(self.device)
+        handles = []
+        if band_dirs:
+            layers = self.decoder_layers()
+
+            def make_hook(D):
+                def hook(module, inp, out):
+                    is_t = isinstance(out, tuple)
+                    h = out[0] if is_t else out
+                    proj = (h.to(torch.float32) @ D.T) @ D
+                    h2 = h - coefficient * proj.to(h.dtype)
+                    return (h2,) + tuple(out[1:]) if is_t else h2
+                return hook
+
+            for j, d in band_dirs.items():
+                D = torch.tensor(np.asarray(d), dtype=torch.float32, device=self.device)
+                handles.append(layers[int(j)].register_forward_hook(make_hook(D)))
+        try:
+            with torch.no_grad():
+                out = self.model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False,
+                                          pad_token_id=getattr(self.tok, "eos_token_id", None))
+            return self.tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+        finally:
+            for hd in handles:
+                hd.remove()
+
     def writing_matrices(self) -> list[str]:
         names: list[str] = []
         for i in range(self.num_layers):
@@ -150,6 +192,44 @@ class TorchModelAdapter:
                                       pad_token_id=eos)
         new = out[0, ids.shape[1]:]
         return self.tok.decode(new, skip_special_tokens=True)
+
+    def generate_chat(self, messages: list[dict], max_new_tokens: int = 128,
+                     band_dirs=None, coefficient: float = 1.0) -> str:
+        """OpenAI-style chat generation. If band_dirs is set, applies reversible runtime
+        ablation via forward hooks (nondestructive) to every served token."""
+        import torch
+        if getattr(self.tok, "chat_template", None):
+            enc = self.tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+            ids = enc.input_ids if hasattr(enc, "input_ids") else enc
+        else:
+            text = "\n".join(m.get("content", "") for m in messages)
+            ids = self.tok(text, return_tensors="pt").input_ids
+        ids = ids.to(self.device)
+
+        handles = []
+        if band_dirs:
+            layers = self.decoder_layers()
+
+            def make_hook(D):
+                def hook(module, inp, out):
+                    is_t = isinstance(out, tuple)
+                    h = out[0] if is_t else out
+                    proj = (h.to(torch.float32) @ D.T) @ D
+                    h2 = h - coefficient * proj.to(h.dtype)
+                    return (h2,) + tuple(out[1:]) if is_t else h2
+                return hook
+
+            for j, dirs in band_dirs.items():
+                D = torch.tensor(np.asarray(dirs), dtype=torch.float32, device=self.device)
+                handles.append(layers[int(j)].register_forward_hook(make_hook(D)))
+        try:
+            with torch.no_grad():
+                out = self.model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False,
+                                          pad_token_id=getattr(self.tok, "eos_token_id", None))
+            return self.tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+        finally:
+            for hd in handles:
+                hd.remove()
 
     def save(self, path: str) -> None:
         self.model.save_pretrained(path)

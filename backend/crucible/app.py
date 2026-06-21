@@ -113,6 +113,13 @@ class HeadToHeadScoreRequest(BaseModel):
     answers: dict[str, str]
 
 
+class CapabilityRequest(BaseModel):
+    base_id: str
+    variant_id: str
+    task: str = "gsm8k"
+    limit: int = 16
+
+
 class LmEvalRequest(BaseModel):
     model_id: str
     tasks: list[str]
@@ -137,6 +144,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             abliteration_adapter = TorchModelAdapter.load(hf)
     abl = (AbliterationPipeline(abliteration_adapter, reg)
            if abliteration_adapter is not None else None)
+    serve = {"recipe": None, "band_dirs": None, "coefficient": 1.0}
     app = FastAPI(title="Crucible")
 
     @app.get("/api/health")
@@ -450,6 +458,59 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             recipe_store.delete(name)
         except KeyError:
             raise HTTPException(status_code=404, detail="recipe not found")
+
+    @app.post("/api/abliteration/capability")
+    def abl_capability(req: CapabilityRequest) -> dict:
+        try:
+            base = reg.get(req.base_id)
+            variant = reg.get(req.variant_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="base or variant not found")
+        from crucible.evals.capability import capability_delta
+        return capability_delta(base.path, variant.path, req.task, req.limit)
+
+    @app.get("/v1/models")
+    def v1_models() -> dict:
+        return {"object": "list", "data": [{"id": "crucible", "object": "model", "owned_by": "crucible"}]}
+
+    @app.post("/v1/chat/completions")
+    def v1_chat(body: dict) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        messages = body.get("messages", [])
+        max_tokens = int(body.get("max_tokens") or 256)
+        content = abliteration_adapter.generate_chat(
+            messages, max_tokens, serve["band_dirs"], serve["coefficient"])
+        return {"id": "chatcmpl-crucible", "object": "chat.completion", "model": "crucible",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
+                             "finish_reason": "stop"}]}
+
+    @app.get("/api/inference/recipe")
+    def get_serve_recipe() -> dict:
+        return {"active": serve["recipe"]}
+
+    @app.post("/api/inference/recipe")
+    def set_serve_recipe(req: ManualSteerRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        from crucible.abliteration.subspace import refusal_subspace
+        a = abliteration_adapter
+        ah = a.all_layer_activations(req.harmful or list(EVAL_HARMFUL))
+        al = a.all_layer_activations(req.benign or list(EVAL_BENIGN))
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        serve["band_dirs"] = {j: refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0] for j in layers}
+        serve["coefficient"] = req.coefficient
+        serve["recipe"] = {"layers": layers, "rank": req.rank, "coefficient": req.coefficient}
+        return {"active": serve["recipe"]}
+
+    @app.delete("/api/inference/recipe")
+    def clear_serve_recipe() -> dict:
+        serve["recipe"] = None
+        serve["band_dirs"] = None
+        serve["coefficient"] = 1.0
+        return {"active": None}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
