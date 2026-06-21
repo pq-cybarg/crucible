@@ -109,6 +109,12 @@ class TorchModelAdapter:
             for hd in handles:
                 hd.remove()
 
+    def unembed_matrix(self) -> np.ndarray:
+        return self.model.get_output_embeddings().weight.detach().float().cpu().numpy()
+
+    def token_decode(self, token_id: int) -> str:
+        return self.tok.decode([int(token_id)])
+
     def writing_matrices(self) -> list[str]:
         names: list[str] = []
         for i in range(self.num_layers):

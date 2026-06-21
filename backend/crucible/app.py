@@ -65,6 +65,22 @@ class AbliterateRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class DecodeRequest(BaseModel):
+    base_id: str
+    layer: int | None = None
+    top_k: int = 15
+
+
+class InPlaceRequest(BaseModel):
+    base_id: str
+    layers: list[int]
+    rank: int = 1
+    coefficient: float = 1.0
+    harmful: list[str] | None = None
+    benign: list[str] | None = None
+    max_new_tokens: int = 16
+
+
 class ManualSteerRequest(BaseModel):
     base_id: str
     layers: list[int]
@@ -511,6 +527,54 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         serve["band_dirs"] = None
         serve["coefficient"] = 1.0
         return {"active": None}
+
+    @app.post("/api/abliteration/decode")
+    def abl_decode(req: DecodeRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.lens import decode_direction
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        a = abliteration_adapter
+        layers = list(range(getattr(a, "num_layers", 1)))
+        profile = layer_refusal_profile(a, EVAL_HARMFUL, EVAL_BENIGN, layers)
+        layer = req.layer if req.layer is not None else best_layer(profile)
+        direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, layer),
+                                              a.activations(EVAL_BENIGN, layer))
+        decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, req.top_k)
+        return {"layer": layer, **decoded}
+
+    @app.post("/api/abliteration/apply-inplace")
+    def abl_inplace(req: InPlaceRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        import numpy as np
+        from crucible.abliteration.detection import refusal_rate
+        from crucible.abliteration.prompts import EVAL_BENIGN, EVAL_HARMFUL
+        from crucible.abliteration.subspace import refusal_subspace
+        a = abliteration_adapter
+        harmful = req.harmful or list(EVAL_HARMFUL)
+        benign = req.benign or list(EVAL_BENIGN)
+        before = refusal_rate([a.generate(p, req.max_new_tokens) for p in harmful])
+        ah = a.all_layer_activations(harmful)
+        al = a.all_layer_activations(benign)
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        for j in layers:
+            dirs = refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0]
+            for mat in (f"model.layers.{j}.self_attn.o_proj.weight",
+                        f"model.layers.{j}.mlp.down_proj.weight"):
+                W = a.get_matrix(mat)
+                for r in dirs:
+                    W = W - req.coefficient * np.outer(r, r @ W)
+                a.set_matrix(mat, W)
+        after = refusal_rate([a.generate(p, req.max_new_tokens) for p in harmful])
+        return {"layers": layers, "rank": req.rank, "coefficient": req.coefficient,
+                "copied": False, "saved_to_disk": False,
+                "harmful_refusal": {"before": before, "after": after}}
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
