@@ -751,3 +751,34 @@ export async function cloneModel(outPath: string): Promise<boolean> {
   });
   return r.ok;
 }
+
+export interface ProbeRow {
+  readonly category: string;
+  readonly prompt: string;
+  readonly base: string;
+  readonly steered: string;
+  readonly base_refused: boolean;
+  readonly steered_refused: boolean;
+}
+
+export type ProbeResult =
+  | { readonly kind: "report"; readonly rows: readonly ProbeRow[] }
+  | { readonly kind: "no-weights" }
+  | { readonly kind: "not-found" }
+  | { readonly kind: "offline" };
+
+export async function runProbe(baseId: string, layers: readonly number[], rank: number, coefficient: number): Promise<ProbeResult> {
+  let resp: Response;
+  try {
+    resp = await fetch("/api/abliteration/probe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_id: baseId, layers, rank, coefficient }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 404) return { kind: "not-found" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", rows: ((await resp.json()) as { rows: readonly ProbeRow[] }).rows };
+}

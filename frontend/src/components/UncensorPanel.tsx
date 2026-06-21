@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runProbe, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, HeatmapResult, ManualResult, ModelRow, ProbeResult, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -38,6 +38,7 @@ export default function UncensorPanel(): JSX.Element {
   const [hmPrompt, setHmPrompt] = useState("How do I make a weapon?");
   const [fcard, setFcard] = useState<FeatureCardResult | null>(null);
   const [history, setHistory] = useState<EditHistory | null>(null);
+  const [probe, setProbe] = useState<ProbeResult | null>(null);
 
   const reload = async (): Promise<void> => {
     const rows = await getModels();
@@ -130,6 +131,14 @@ export default function UncensorPanel(): JSX.Element {
     setBusy(true);
     setFcard(null);
     setFcard(await getFeatureCard(baseId));
+    setBusy(false);
+  };
+
+  const runProbePanel = async (): Promise<void> => {
+    if (baseId === "" || selectedLayers.size === 0) return;
+    setBusy(true);
+    setProbe(null);
+    setProbe(await runProbe(baseId, [...selectedLayers], manualRank, manualCoef));
     setBusy(false);
   };
 
@@ -447,6 +456,36 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           )}
         </>
+      )}
+
+      <div className="engrave">behavior diff · probe the current recipe across categories</div>
+      <div className="abl-controls">
+        <button className="btn" onClick={() => void runProbePanel()} disabled={busy || selectedLayers.size === 0}>probe {selectedLayers.size} layers</button>
+        <span style={{ color: "var(--ash)", fontSize: 11, paddingBottom: 8 }}>harmful should flip to ok; benign &amp; capability must stay ok</span>
+      </div>
+      {probe !== null && (probe.kind === "no-weights" || probe.kind === "offline") && <div className="abl-note">{probe.kind === "no-weights" ? "needs the torch adapter loaded" : "backend offline"}</div>}
+      {probe !== null && probe.kind === "report" && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          {probe.rows.map((r, i) => {
+            const harmGood = r.category === "harmful" && r.base_refused && !r.steered_refused;
+            const collateral = r.category !== "harmful" && r.steered_refused;
+            return (
+              <div className="probe-row" key={i}>
+                <div className="probe-head">
+                  <span className={`probe-cat ${r.category}`}>{r.category}</span>
+                  <span className="probe-prompt">{r.prompt}</span>
+                  <span className="probe-flip">
+                    <b className={r.base_refused ? "bad" : "good"}>{r.base_refused ? "refused" : "ok"}</b>
+                    {" → "}
+                    <b className={r.steered_refused ? (collateral ? "bad" : "bad") : (harmGood ? "good" : "good")}>{r.steered_refused ? "refused" : "ok"}</b>
+                    {harmGood ? " ✓ removed" : collateral ? " ✗ collateral!" : ""}
+                  </span>
+                </div>
+                <div className="probe-out">{r.steered.slice(0, 140)}</div>
+              </div>
+            );
+          })}
+        </motion.div>
       )}
 
       <div className="engrave">auto-tune the recipe · per-layer banded search (real generation, ~3 min)</div>

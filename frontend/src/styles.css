@@ -586,3 +586,16 @@ body::after {
 .vop { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--line-bright); border-radius: 2px; color: var(--steel-text); }
 .vsum { color: var(--steel-text); font-size: 12px; flex: 1; }
 .vmetric { color: var(--ash); font-size: 11px; }
+
+/* ---------- Behavior-diff probe panel ---------------------------------- */
+.probe-row { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin-bottom: 8px; background: var(--steel-900); }
+.probe-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.probe-cat { font-family: var(--font-display); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 8px; border-radius: 2px; border: 1px solid var(--line-bright); }
+.probe-cat.harmful { color: var(--ember); border-color: rgba(255,59,47,0.4); }
+.probe-cat.benign { color: var(--flux); border-color: var(--flux-dim); }
+.probe-cat.capability { color: var(--amber-bright); border-color: rgba(255,106,26,0.4); }
+.probe-flip { font-family: var(--font-mono); font-size: 11px; color: var(--ash); }
+.probe-flip b.bad { color: var(--ember); }
+.probe-flip b.good { color: var(--flux); }
+.probe-prompt { color: var(--bone); font-size: 12px; flex: 1; }
+.probe-out { font-size: 11px; color: var(--ash); white-space: pre-wrap; }
