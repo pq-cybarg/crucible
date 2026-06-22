@@ -16,6 +16,7 @@ from crucible.agent import Agent
 from crucible.audit import AuditLog
 from crucible.permissions import PermissionPolicy
 from crucible.tools import default_registry
+from crucible.mcp import load_mcp
 
 BANNER = "crucible — local agentic coding harness"
 DEFAULTS = {"endpoint": "http://127.0.0.1:8400/v1", "control": "http://127.0.0.1:8400", "perm": "ask"}
@@ -122,10 +123,14 @@ def main(argv=None) -> int:
           "control": a.control, "perm": a.perm,
           "convo": load_session(a.session) if a.session else [], "session": a.session}
     audit = AuditLog(home() / "cli-audit.jsonl")
+    registry = default_registry(Path.cwd())
+    mcp_clients, mcp_tools = load_mcp(cfg.get("mcp", {}))
+    for _t in mcp_tools:
+        registry.register(_t)
 
     def run_turn(text: str) -> None:
         st["convo"].append({"role": "user", "content": text})
-        agent = Agent(make_model(st["chat"]), default_registry(Path.cwd()),
+        agent = Agent(make_model(st["chat"]), registry,
                       PermissionPolicy(default=st["perm"], asker=_ask), audit)
         final = ""
         for ev in agent.run(st["convo"]):
@@ -152,7 +157,9 @@ def main(argv=None) -> int:
             st["perm"] = parts[1]
             print(f"  permission → {parts[1]}")
         elif cmd == "/tools":
-            print("  " + ", ".join(t.name for t in default_registry(Path.cwd()).all()))
+            print("  " + ", ".join(t.name for t in registry.all()))
+        elif cmd == "/mcp":
+            print(f"  {len(mcp_clients)} MCP server(s), {len(mcp_tools)} tool(s): " + ", ".join(t.name for t in mcp_tools))
         elif cmd == "/save" and len(parts) > 1:
             st["session"] = parts[1]
             save_session(parts[1], st["convo"])
