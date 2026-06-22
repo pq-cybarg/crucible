@@ -455,6 +455,14 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             m = reg.get(req.model_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
+        if req.backend == "hf":
+            # In-process HF backend: handles loglikelihood MC (mmlu/arc/hellaswag) on the
+            # model's local path. For the remote 1.5TB model this runs on the node itself.
+            from crucible.evals.capability import lm_eval_hf
+            rows = []
+            for task in req.tasks:
+                rows.extend(lm_eval_hf(m.path, task, req.limit or 100))
+            return {"model_id": req.model_id, "results": rows}
         if not m.endpoint:
             raise HTTPException(status_code=409,
                 detail="model has no endpoint - launch llama-server and register its endpoint")

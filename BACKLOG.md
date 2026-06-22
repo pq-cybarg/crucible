@@ -25,7 +25,7 @@ Deferred / planned work, captured so nothing is lost.
 - [x] Functional CLI (agent loop, remote-aware --endpoint, slash commands)
 - [x] Persistent sessions
 - [x] Settings file (~/.crucible/settings.json)
-- [ ] MCP server support
+- [x] MCP server support (stdio client, tool wrapping, /mcp command)
 - [x] Full slash-command set + status line + config
 
 ## Remote Windows orchestration
@@ -34,4 +34,4 @@ Deferred / planned work, captured so nothing is lost.
 
 ## Benchmarks
 - [x] lm-eval integration (canonical suite, capability retention)
-- [ ] loglikelihood MC tasks via the completions backend (MMLU/ARC/HellaSwag)
+- [x] loglikelihood MC tasks via HF backend (MMLU/ARC/HellaSwag)
