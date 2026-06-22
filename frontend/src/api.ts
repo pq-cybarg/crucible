@@ -8,6 +8,16 @@ export function setApiBase(url: string): void {
 }
 export function getApiBase(): string { return API_BASE; }
 
+import { demoRespond, isDemo } from "./demo";
+async function cfetch(input: string, init?: RequestInit): Promise<Response> {
+  if (isDemo()) {
+    const path = input.startsWith(API_BASE) ? input.slice(API_BASE.length) : input;
+    const r = demoRespond(path, init);
+    if (r) return r;
+  }
+  return fetch(input, init);
+}
+
 // Thin, fully-typed client for the Crucible backend. The agent stream is a
 // discriminated union so every consumer narrows event payloads exhaustively.
 // SSE is read over fetch(POST) because EventSource cannot send a request body.
@@ -102,7 +112,7 @@ function parseEvent(raw: string): AgentEvent | null {
 
 export async function getHealth(): Promise<boolean> {
   try {
-    const r = await fetch(API_BASE + "/api/health");
+    const r = await cfetch(API_BASE + "/api/health");
     if (!r.ok) return false;
     const body: unknown = await r.json();
     return isRecord(body) && body["ok"] === true;
@@ -112,27 +122,27 @@ export async function getHealth(): Promise<boolean> {
 }
 
 export async function getModels(): Promise<readonly ModelRow[]> {
-  const r = await fetch(API_BASE + "/api/models");
+  const r = await cfetch(API_BASE + "/api/models");
   if (!r.ok) throw new Error(`GET /api/models -> ${r.status}`);
   const body: unknown = await r.json();
   return Array.isArray(body) ? (body as readonly ModelRow[]) : [];
 }
 
 export async function getPresets(): Promise<readonly SystemPromptPreset[]> {
-  const r = await fetch(API_BASE + "/api/guardrails/presets");
+  const r = await cfetch(API_BASE + "/api/guardrails/presets");
   if (!r.ok) throw new Error(`GET /api/guardrails/presets -> ${r.status}`);
   const body: unknown = await r.json();
   return Array.isArray(body) ? (body as readonly SystemPromptPreset[]) : [];
 }
 
 export async function getGuardrailConfig(): Promise<GuardrailConfig> {
-  const r = await fetch(API_BASE + "/api/guardrails/config");
+  const r = await cfetch(API_BASE + "/api/guardrails/config");
   if (!r.ok) throw new Error(`GET /api/guardrails/config -> ${r.status}`);
   return (await r.json()) as GuardrailConfig;
 }
 
 export async function putGuardrailConfig(config: GuardrailConfig): Promise<GuardrailConfig> {
-  const r = await fetch(API_BASE + "/api/guardrails/config", {
+  const r = await cfetch(API_BASE + "/api/guardrails/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
@@ -142,7 +152,7 @@ export async function putGuardrailConfig(config: GuardrailConfig): Promise<Guard
 }
 
 export async function previewGuardrail(stage: Stage, text: string, config: GuardrailConfig): Promise<GuardrailResult> {
-  const r = await fetch(API_BASE + "/api/guardrails/apply", {
+  const r = await cfetch(API_BASE + "/api/guardrails/apply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ stage, text, config }),
@@ -158,9 +168,14 @@ export interface RunOpts {
 }
 
 export async function runAgent(opts: RunOpts): Promise<RunStatus> {
+  if (isDemo()) {
+    opts.onEvent({ type: "assistant", data: { content: "This is the static Crucible demo. The agent harness drives a real local model — connect your node (top-right) or run Crucible locally to use it live." } });
+    opts.onEvent({ type: "done", data: { content: "" } });
+    return "ok";
+  }
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/agent/run", {
+    resp = await cfetch(API_BASE + "/api/agent/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: opts.messages, permissions: opts.permissions }),
@@ -191,7 +206,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
 }
 
 export async function createPreset(preset: SystemPromptPreset): Promise<SystemPromptPreset> {
-  const r = await fetch(API_BASE + "/api/guardrails/presets", {
+  const r = await cfetch(API_BASE + "/api/guardrails/presets", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(preset),
@@ -202,7 +217,7 @@ export async function createPreset(preset: SystemPromptPreset): Promise<SystemPr
 }
 
 export async function updatePreset(id: string, preset: SystemPromptPreset): Promise<SystemPromptPreset> {
-  const r = await fetch(`${API_BASE}/api/guardrails/presets/${encodeURIComponent(id)}`, {
+  const r = await cfetch(`${API_BASE}/api/guardrails/presets/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(preset),
@@ -212,12 +227,12 @@ export async function updatePreset(id: string, preset: SystemPromptPreset): Prom
 }
 
 export async function deletePreset(id: string): Promise<void> {
-  const r = await fetch(`${API_BASE}/api/guardrails/presets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const r = await cfetch(`${API_BASE}/api/guardrails/presets/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok && r.status !== 204) throw new Error(`DELETE /api/guardrails/presets/${id} -> ${r.status}`);
 }
 
 export async function resetPresets(): Promise<readonly SystemPromptPreset[]> {
-  const r = await fetch(API_BASE + "/api/guardrails/presets/reset", { method: "POST" });
+  const r = await cfetch(API_BASE + "/api/guardrails/presets/reset", { method: "POST" });
   if (!r.ok) throw new Error(`POST /api/guardrails/presets/reset -> ${r.status}`);
   return (await r.json()) as readonly SystemPromptPreset[];
 }
@@ -268,7 +283,7 @@ export type DiagnoseResult =
 export async function diagnoseCensorship(baseId: string): Promise<DiagnoseResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/diagnose", {
+    resp = await cfetch(API_BASE + "/api/abliteration/diagnose", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId }),
@@ -298,7 +313,7 @@ export type AbliterateResult =
 export async function abliterate(body: AbliterateRequestBody): Promise<AbliterateResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/run", {
+    resp = await cfetch(API_BASE + "/api/abliteration/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -334,13 +349,13 @@ export interface HHItem {
 export type PublishedTable = Readonly<Record<string, Readonly<Record<string, { readonly value: number | null; readonly source: string }>>>>;
 
 export async function getBenchmarks(): Promise<Readonly<Record<string, number>>> {
-  const r = await fetch(API_BASE + "/api/evals/benchmarks");
+  const r = await cfetch(API_BASE + "/api/evals/benchmarks");
   if (!r.ok) throw new Error(`benchmarks ${r.status}`);
   return (await r.json()) as Readonly<Record<string, number>>;
 }
 
 export async function getPublished(): Promise<PublishedTable> {
-  const r = await fetch(API_BASE + "/api/evals/published");
+  const r = await cfetch(API_BASE + "/api/evals/published");
   if (!r.ok) throw new Error(`published ${r.status}`);
   return (await r.json()) as PublishedTable;
 }
@@ -353,7 +368,7 @@ export type EvalRunResult =
 export async function runLocalEval(benchmark: string): Promise<EvalRunResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/evals/run", {
+    resp = await cfetch(API_BASE + "/api/evals/run", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ benchmark }),
     });
@@ -366,7 +381,7 @@ export async function runLocalEval(benchmark: string): Promise<EvalRunResult> {
 }
 
 export async function exportHeadToHead(benchmark: string): Promise<readonly HHItem[]> {
-  const r = await fetch(API_BASE + "/api/evals/headtohead/export", {
+  const r = await cfetch(API_BASE + "/api/evals/headtohead/export", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ benchmark }),
   });
@@ -375,7 +390,7 @@ export async function exportHeadToHead(benchmark: string): Promise<readonly HHIt
 }
 
 export async function scoreHeadToHead(benchmark: string, answers: Readonly<Record<string, string>>): Promise<BenchScore> {
-  const r = await fetch(API_BASE + "/api/evals/headtohead/score", {
+  const r = await cfetch(API_BASE + "/api/evals/headtohead/score", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ benchmark, answers }),
   });
@@ -399,7 +414,7 @@ export interface LmEvalRow {
 }
 
 export async function getSuite(): Promise<readonly SuiteTask[]> {
-  const r = await fetch(API_BASE + "/api/evals/suite");
+  const r = await cfetch(API_BASE + "/api/evals/suite");
   if (!r.ok) throw new Error(`suite ${r.status}`);
   return (await r.json()) as readonly SuiteTask[];
 }
@@ -413,7 +428,7 @@ export type LmEvalResult =
 export async function runLmEval(modelId: string, tasks: readonly string[], limit: number | null): Promise<LmEvalResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/evals/lmeval", {
+    resp = await cfetch(API_BASE + "/api/evals/lmeval", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model_id: modelId, tasks, limit }),
     });
@@ -458,7 +473,7 @@ export type WeightsResult =
 export async function getWeights(modelId: string): Promise<WeightsResult> {
   let resp: Response;
   try {
-    resp = await fetch(`${API_BASE}/api/weights/${encodeURIComponent(modelId)}`);
+    resp = await cfetch(`${API_BASE}/api/weights/${encodeURIComponent(modelId)}`);
   } catch {
     return { kind: "offline" };
   }
@@ -507,7 +522,7 @@ export type SweepResult =
 export async function verifyAbliteration(baseId: string, variantId: string): Promise<VerifyResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/verify", {
+    resp = await cfetch(API_BASE + "/api/abliteration/verify", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId, variant_id: variantId }),
     });
@@ -523,7 +538,7 @@ export async function verifyAbliteration(baseId: string, variantId: string): Pro
 export async function sweepStrength(baseId: string): Promise<SweepResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/sweep", {
+    resp = await cfetch(API_BASE + "/api/abliteration/sweep", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId }),
     });
@@ -556,7 +571,7 @@ export type RuntimeSteerResult =
 export async function runtimeSteer(baseId: string, rank: number, coefficient: number): Promise<RuntimeSteerResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/runtime-steer", {
+    resp = await cfetch(API_BASE + "/api/abliteration/runtime-steer", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId, rank, coefficient }),
     });
@@ -596,7 +611,7 @@ export type AutotuneResult =
 export async function autotuneAbliteration(baseId: string): Promise<AutotuneResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/autotune", {
+    resp = await cfetch(API_BASE + "/api/abliteration/autotune", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId }),
     });
@@ -639,7 +654,7 @@ export interface RecipeRow {
 export async function manualSteer(baseId: string, layers: readonly number[], rank: number, coefficient: number, testPrompt: string): Promise<ManualResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/manual", {
+    resp = await cfetch(API_BASE + "/api/abliteration/manual", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId, layers, rank, coefficient, test_prompt: testPrompt || null }),
     });
@@ -653,20 +668,20 @@ export async function manualSteer(baseId: string, layers: readonly number[], ran
 }
 
 export async function getRecipes(): Promise<readonly RecipeRow[]> {
-  const r = await fetch(API_BASE + "/api/abliteration/recipes");
+  const r = await cfetch(API_BASE + "/api/abliteration/recipes");
   if (!r.ok) return [];
   return (await r.json()) as readonly RecipeRow[];
 }
 
 export async function saveRecipe(recipe: RecipeRow): Promise<void> {
-  await fetch(API_BASE + "/api/abliteration/recipes", {
+  await cfetch(API_BASE + "/api/abliteration/recipes", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(recipe),
   });
 }
 
 export async function deleteRecipe(name: string): Promise<void> {
-  await fetch(`${API_BASE}/api/abliteration/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
+  await cfetch(`${API_BASE}/api/abliteration/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 export interface HeatmapReport {
@@ -684,7 +699,7 @@ export type HeatmapResult =
 export async function getHeatmap(baseId: string, prompt: string): Promise<HeatmapResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/heatmap", {
+    resp = await cfetch(API_BASE + "/api/abliteration/heatmap", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId, prompt }),
     });
@@ -718,7 +733,7 @@ export type FeatureCardResult =
 export async function getFeatureCard(baseId: string): Promise<FeatureCardResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/feature-card", {
+    resp = await cfetch(API_BASE + "/api/abliteration/feature-card", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId }),
     });
@@ -744,18 +759,18 @@ export interface EditCommit {
 export interface EditHistory { readonly branch: string; readonly commits: readonly EditCommit[] }
 
 export async function getHistory(): Promise<EditHistory> {
-  const r = await fetch(API_BASE + "/api/inference/history");
+  const r = await cfetch(API_BASE + "/api/inference/history");
   if (!r.ok) return { branch: "main", commits: [] };
   return (await r.json()) as EditHistory;
 }
 
 export async function revertCommit(id: string): Promise<boolean> {
-  const r = await fetch(`${API_BASE}/api/inference/revert/${encodeURIComponent(id)}`, { method: "POST" });
+  const r = await cfetch(`${API_BASE}/api/inference/revert/${encodeURIComponent(id)}`, { method: "POST" });
   return r.ok;
 }
 
 export async function cloneModel(outPath: string): Promise<boolean> {
-  const r = await fetch(API_BASE + "/api/inference/clone", {
+  const r = await cfetch(API_BASE + "/api/inference/clone", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ out_path: outPath }),
   });
@@ -780,7 +795,7 @@ export type ProbeResult =
 export async function runProbe(baseId: string, layers: readonly number[], rank: number, coefficient: number): Promise<ProbeResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/probe", {
+    resp = await cfetch(API_BASE + "/api/abliteration/probe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId, layers, rank, coefficient }),
     });
@@ -809,7 +824,7 @@ export type FlowResult =
 export async function getFlow(baseId: string): Promise<FlowResult> {
   let resp: Response;
   try {
-    resp = await fetch(API_BASE + "/api/abliteration/flow", {
+    resp = await cfetch(API_BASE + "/api/abliteration/flow", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_id: baseId }),
     });

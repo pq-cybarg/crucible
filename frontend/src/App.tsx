@@ -8,6 +8,7 @@ import UncensorPanel from "./components/UncensorPanel";
 import BenchmarksPanel from "./components/BenchmarksPanel";
 import WeightsPanel from "./components/WeightsPanel";
 import { getApiBase, getHealth, getModels, setApiBase } from "./api";
+import { isDemo } from "./demo";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";
 
@@ -107,6 +108,7 @@ export default function App(): JSX.Element {
         <span className="crumb">
           crucible<span className="sub"> · {tab}</span>
         </span>
+        {isDemo() && <span className="demo-badge">DEMO — connect a node to go live</span>}
         <div className="telemetry">
           <span className="stat">
             <span className={`dot ${online ? "ok" : "cold"}`} />
@@ -119,6 +121,7 @@ export default function App(): JSX.Element {
           <span className="stat">
             models <b>{modelCount ?? "—"}</b>
           </span>
+          <a className="stat docs-link" href="docs/index.html">docs ↗</a>
           <span className="stat">
             node
             <input className="node-input" value={node} onChange={(e) => setNode(e.target.value)}

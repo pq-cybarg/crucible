@@ -5,6 +5,7 @@ import { VitePWA } from "vite-plugin-pwa";
 // Crucible frontend. PWA so it installs on Android / iOS / desktop as a thin client
 // pointing at a local or remote Crucible node. /api and /v1 are never cached.
 export default defineConfig({
+  base: process.env.VITE_BASE || "/",
   plugins: [
     react(),
     VitePWA({
@@ -24,7 +25,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallbackDenylist: [/^\/api/, /^\/v1/],
+        navigateFallbackDenylist: [/^\/api/, /^\/v1/, /\/docs\//],
         runtimeCaching: [
           { urlPattern: /^https?:\/\/.*\/(api|v1)\//, handler: "NetworkOnly" },
         ],
