@@ -58,7 +58,7 @@ jobs:
           - { os: ubuntu-latest,    name: linux-x86_64 }
           - { os: ubuntu-24.04-arm, name: linux-arm64 }   # Raspberry Pi class
           - { os: windows-latest,   name: windows-x86_64 }
-          - { os: macos-13,         name: macos-x86_64 }
+          - { os: macos-15-intel,   name: macos-x86_64 }
           - { os: macos-14,         name: macos-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
@@ -74,7 +74,9 @@ jobs:
           --exclude-module lm_eval --exclude-module datasets
           packaging/cli_main.py --distpath dist-bin
       - uses: actions/upload-artifact@v4
-        with: { name: crucible-cli-${{ matrix.name }}, path: dist-bin/* }
+        with:
+          name: crucible-cli-${{ matrix.name }}
+          path: dist-bin/*
 
   docker:
     needs: test
