@@ -18,7 +18,7 @@ Deferred / planned work, captured so nothing is lost.
 - [x] Reversible runtime ablation (forward hooks, nondestructive)
 - [x] In-place weight editing (no copy, model stays live)
 - [x] Feature insertion mechanism (additive runtime steering)
-- [ ] Insertion auto-tuner (search layers × coefficient × direction-source for a coherent+effective window)
+- [x] Insertion auto-tuner (coherence-guarded search; FOUND a clean additive window — corrects earlier "no window")
 - [x] Restoration via remove-the-suppressor (target-prompt suppressor direction, proven removal)
 
 ## crucible CLI — full Claude-Code parity
