@@ -1,7 +1,8 @@
 """crucible — a local agentic coding harness CLI (Claude-Code-equivalent, term: crucible).
 
 Talks to any OpenAI-compatible endpoint (local llama-server, the Crucible torch server,
-or a REMOTE Windows node). Runs the agent tool-loop with allow/ask/deny permissions.
+or a REMOTE Windows node). Agent tool-loop with allow/ask/deny permissions, a settings
+file, and persistent sessions.
 """
 import argparse
 import json
@@ -17,17 +18,61 @@ from crucible.permissions import PermissionPolicy
 from crucible.tools import default_registry
 
 BANNER = "crucible — local agentic coding harness"
+DEFAULTS = {"endpoint": "http://127.0.0.1:8400/v1", "control": "http://127.0.0.1:8400", "perm": "ask"}
 HELP = """commands:
-  /help              show this help
-  /endpoint <url>    point at a chat endpoint (e.g. a remote Windows node)
-  /recipe <layers> <rank>   set the served runtime recipe (control API)
-  /recipe clear      clear the served recipe
-  /diagnose <id>     run censorship diagnosis on model <id>
-  /perm <mode>       tool permission: allow | ask | deny
-  /tools             list available tools
-  /clear             reset the conversation
-  /exit              quit
-(any other text is sent to the agent)"""
+  /help                 this help
+  /endpoint <url>       point at a chat endpoint (e.g. a remote Windows node)
+  /perm <allow|ask|deny>  tool permission
+  /tools                list tools
+  /save <name>          save this session
+  /load <name>          load a session
+  /sessions             list saved sessions
+  /config               show settings   ·   /config save  persists current settings
+  /recipe <layers> <rank> | /recipe clear   set/clear the served runtime recipe
+  /diagnose <id>        run censorship diagnosis
+  /clear                reset conversation   ·   /exit  quit
+(any other text → the agent)"""
+
+
+def home() -> Path:
+    h = Path(os.environ.get("CRUCIBLE_HOME", Path.home() / ".crucible"))
+    h.mkdir(parents=True, exist_ok=True)
+    return h
+
+
+def load_settings() -> dict:
+    f = home() / "settings.json"
+    out = dict(DEFAULTS)
+    if f.exists():
+        try:
+            out.update(json.loads(f.read_text()))
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def save_settings(s: dict) -> None:
+    (home() / "settings.json").write_text(json.dumps(s, indent=2))
+
+
+def session_path(name: str) -> Path:
+    d = home() / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{name}.json"
+
+
+def save_session(name: str, convo: list[dict]) -> None:
+    session_path(name).write_text(json.dumps(convo, indent=2))
+
+
+def load_session(name: str) -> list[dict]:
+    f = session_path(name)
+    return json.loads(f.read_text()) if f.exists() else []
+
+
+def list_sessions() -> list[str]:
+    d = home() / "sessions"
+    return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
 
 
 def parse_chat_response(data: dict) -> dict:
@@ -47,8 +92,7 @@ def make_model(chat_url: str):
 
 
 def _ask(name: str, args: dict) -> bool:
-    ans = input(f"  ↳ allow tool '{name}' {json.dumps(args)[:80]}? [y/N] ").strip().lower()
-    return ans in ("y", "yes")
+    return input(f"  ↳ allow '{name}' {json.dumps(args)[:80]}? [y/N] ").strip().lower() in ("y", "yes")
 
 
 def _print_event(ev) -> str:
@@ -58,36 +102,40 @@ def _print_event(ev) -> str:
     if ev.type == "tool_call":
         print(f"  · {ev.data['name']}({json.dumps(ev.data['args'])[:80]})")
     elif ev.type == "tool_result":
-        ok = ev.data.get("ok")
-        out = (ev.data.get("output") or ev.data.get("error") or "")[:200]
-        print(f"    {'✓' if ok else '✗'} {out}")
+        print(f"    {'✓' if ev.data.get('ok') else '✗'} {(ev.data.get('output') or ev.data.get('error') or '')[:200]}")
     elif ev.type == "error":
         print(f"  ! {ev.data.get('reason')}")
     return ""
 
 
 def main(argv=None) -> int:
+    cfg = load_settings()
     ap = argparse.ArgumentParser(prog="crucible", description=BANNER)
-    ap.add_argument("--endpoint", default=os.environ.get("CRUCIBLE_ENDPOINT", "http://127.0.0.1:8400/v1"))
-    ap.add_argument("--control", default=os.environ.get("CRUCIBLE_CONTROL", "http://127.0.0.1:8400"))
-    ap.add_argument("--perm", default="ask", choices=["allow", "ask", "deny"])
+    ap.add_argument("--endpoint", default=cfg["endpoint"])
+    ap.add_argument("--control", default=cfg["control"])
+    ap.add_argument("--perm", default=cfg["perm"], choices=["allow", "ask", "deny"])
+    ap.add_argument("--session", default=None)
     ap.add_argument("prompt", nargs="*")
     a = ap.parse_args(argv)
 
-    state = {"chat": a.endpoint.rstrip("/") + "/chat/completions", "perm": a.perm, "convo": []}
-    audit = AuditLog(Path.home() / ".crucible" / "cli-audit.jsonl")
+    st = {"chat": a.endpoint.rstrip("/") + "/chat/completions", "endpoint": a.endpoint,
+          "control": a.control, "perm": a.perm,
+          "convo": load_session(a.session) if a.session else [], "session": a.session}
+    audit = AuditLog(home() / "cli-audit.jsonl")
 
     def run_turn(text: str) -> None:
-        state["convo"].append({"role": "user", "content": text})
-        agent = Agent(make_model(state["chat"]), default_registry(Path.cwd()),
-                      PermissionPolicy(default=state["perm"], asker=_ask), audit)
+        st["convo"].append({"role": "user", "content": text})
+        agent = Agent(make_model(st["chat"]), default_registry(Path.cwd()),
+                      PermissionPolicy(default=st["perm"], asker=_ask), audit)
         final = ""
-        for ev in agent.run(state["convo"]):
+        for ev in agent.run(st["convo"]):
             got = _print_event(ev)
             if got:
                 final = got
         if final:
-            state["convo"].append({"role": "assistant", "content": final})
+            st["convo"].append({"role": "assistant", "content": final})
+        if st["session"]:
+            save_session(st["session"], st["convo"])
 
     def command(line: str) -> bool:
         parts = line.split()
@@ -97,28 +145,42 @@ def main(argv=None) -> int:
         if cmd == "/help":
             print(HELP)
         elif cmd == "/endpoint" and len(parts) > 1:
-            state["chat"] = parts[1].rstrip("/") + "/chat/completions"
-            print(f"  endpoint -> {parts[1]}")
+            st["chat"] = parts[1].rstrip("/") + "/chat/completions"
+            st["endpoint"] = parts[1]
+            print(f"  endpoint → {parts[1]}")
         elif cmd == "/perm" and len(parts) > 1:
-            state["perm"] = parts[1]
-            print(f"  permission -> {parts[1]}")
+            st["perm"] = parts[1]
+            print(f"  permission → {parts[1]}")
         elif cmd == "/tools":
             print("  " + ", ".join(t.name for t in default_registry(Path.cwd()).all()))
+        elif cmd == "/save" and len(parts) > 1:
+            st["session"] = parts[1]
+            save_session(parts[1], st["convo"])
+            print(f"  saved session '{parts[1]}' ({len(st['convo'])} msgs)")
+        elif cmd == "/load" and len(parts) > 1:
+            st["session"] = parts[1]
+            st["convo"] = load_session(parts[1])
+            print(f"  loaded '{parts[1]}' ({len(st['convo'])} msgs)")
+        elif cmd == "/sessions":
+            print("  " + (", ".join(list_sessions()) or "(none)"))
+        elif cmd == "/config" and len(parts) > 1 and parts[1] == "save":
+            save_settings({"endpoint": st["endpoint"], "control": st["control"], "perm": st["perm"]})
+            print(f"  settings saved → {home() / 'settings.json'}")
+        elif cmd == "/config":
+            print(f"  endpoint={st['endpoint']} control={st['control']} perm={st['perm']} session={st['session']}")
         elif cmd == "/clear":
-            state["convo"] = []
+            st["convo"] = []
             print("  conversation reset")
         elif cmd == "/recipe" and len(parts) > 1 and parts[1] == "clear":
-            httpx.delete(f"{a.control}/api/inference/recipe")
+            httpx.delete(f"{st['control']}/api/inference/recipe")
             print("  recipe cleared")
         elif cmd == "/recipe" and len(parts) >= 3:
-            layers = [int(x) for x in parts[1].split(",")]
-            rank = int(parts[2])
-            r = httpx.post(f"{a.control}/api/inference/recipe",
-                           json={"base_id": "served", "layers": layers, "rank": rank, "coefficient": 1.0})
-            print(f"  recipe -> {r.json().get('active')}")
+            httpx.post(f"{st['control']}/api/inference/recipe",
+                       json={"base_id": "served", "layers": [int(x) for x in parts[1].split(",")],
+                             "rank": int(parts[2]), "coefficient": 1.0})
+            print("  recipe set")
         elif cmd == "/diagnose" and len(parts) > 1:
-            r = httpx.post(f"{a.control}/api/abliteration/diagnose", json={"base_id": parts[1]}, timeout=300)
-            d = r.json()
+            d = httpx.post(f"{st['control']}/api/abliteration/diagnose", json={"base_id": parts[1]}, timeout=300).json()
             print(f"  best_layer {d.get('best_layer')} surgical {d.get('surgical')}")
         else:
             print("  unknown command — /help")
@@ -128,10 +190,10 @@ def main(argv=None) -> int:
         run_turn(" ".join(a.prompt))
         return 0
     print(BANNER)
-    print(f"endpoint: {a.endpoint}  ·  /help for commands")
+    print(f"endpoint: {st['endpoint']} · perm: {st['perm']}{' · session: ' + st['session'] if st['session'] else ''} · /help")
     while True:
         try:
-            line = input("\ncrucible> ").strip()
+            line = input(f"\ncrucible[{st['perm']}]> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break

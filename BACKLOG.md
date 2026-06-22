@@ -19,7 +19,7 @@ Deferred / planned work, captured so nothing is lost.
 - [x] In-place weight editing (no copy, model stays live)
 - [x] Feature insertion mechanism (additive runtime steering)
 - [ ] Insertion auto-tuner (search layers × coefficient × direction-source for a coherent+effective window)
-- [ ] Restoration via remove-the-suppressor (clean "restore capability X" flow using proven removal tooling)
+- [x] Restoration via remove-the-suppressor (target-prompt suppressor direction, proven removal)
 
 ## crucible CLI — full Claude-Code parity
 - [x] Functional CLI (agent loop, remote-aware --endpoint, slash commands)
