@@ -74,6 +74,15 @@ class ProbeRequest(BaseModel):
     max_new_tokens: int = 22
 
 
+class RestoreRequest(BaseModel):
+    base_id: str
+    target_prompts: list[str]
+    layers: list[int]
+    rank: int = 1
+    coefficient: float = 1.0
+    max_new_tokens: int = 24
+
+
 class InsertRequest(BaseModel):
     base_id: str
     layers: list[int]
@@ -587,6 +596,31 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                          "base": base, "steered": steered,
                          "base_refused": is_refusal(base), "steered_refused": is_refusal(steered)})
         return {"rows": rows}
+
+    @app.post("/api/abliteration/restore")
+    def abl_restore(req: RestoreRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.detection import refusal_rate
+        from crucible.abliteration.prompts import EVAL_BENIGN
+        from crucible.abliteration.subspace import refusal_subspace
+        a = abliteration_adapter
+        targets = req.target_prompts or []
+        if not targets:
+            raise HTTPException(status_code=422, detail="target_prompts required")
+        n = getattr(a, "num_layers", 1)
+        layers = [j for j in req.layers if 0 <= j < n]
+        # Suppressor direction from the TARGET prompts (refused) vs benign — then remove it.
+        ah = a.all_layer_activations(targets)
+        al = a.all_layer_activations(list(EVAL_BENIGN))
+        band = {j: refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0] for j in layers}
+        before = [a.generate(p, req.max_new_tokens) for p in targets]
+        after = [a.ablate_generate_banded(p, band, req.coefficient, req.max_new_tokens) for p in targets]
+        return {"layers": layers, "coefficient": req.coefficient, "method": "suppressor-removal",
+                "refusal_before": refusal_rate(before), "refusal_after": refusal_rate(after),
+                "samples": [{"prompt": t, "before": before[i], "after": after[i]} for i, t in enumerate(targets)]}
 
     @app.post("/api/abliteration/insert")
     def abl_insert(req: InsertRequest) -> dict:
