@@ -29,11 +29,11 @@ open-weight GLM models locally, wrapped in a Claude-Code-style agentic harness.
 
 ## 2. Hardware Reality (the constraint that shapes everything)
 
-| Machine | CPU | RAM | GPU | Role |
+| Node class | CPU | RAM | GPU | Role |
 |---|---|---|---|---|
-| Mac | modern laptop CPU | 32 GB unified | (integrated) | Control plane + dev model (GLM-4-32B) + fast local uncensored |
-| High-RAM workstation | multi-channel DDR4/5 | 128 GB now → **256 GB recommended** | mid-range GPU (10-12 GB) | Heavy inference node (GLM-5.2) |
-| Future Linux box | (TBD) 8-channel server CPU | 256–512 GB | 24–32 GB GPU | Production inference node |
+| Laptop | modern 8–16 core | 32 GB | integrated / small dGPU | Control plane + dev model (GLM-4-32B) + fast local uncensored |
+| High-RAM workstation | multi-channel DDR4/5 | 128–256 GB | mid-range (10–12 GB) | Heavy inference node (GLM-5.2) |
+| Server | 8-channel server CPU | 256–512 GB | 24–32 GB | Production inference node |
 
 **GLM-5.2 = 743B total / 39B active MoE (DeepSeek Sparse Attention, MIT license, weights public 2026-06-16).**
 A MoE keeps all experts resident, so **RAM ≈ on-disk quant size**:
@@ -45,9 +45,9 @@ A MoE keeps all experts resident, so **RAM ≈ on-disk quant size**:
 | IQ2 / ~2-bit dynamic | ~155–186 GB | ⚠️ light NVMe paging | ✅ | usable |
 | IQ1 / 1.58-bit dynamic | ~150–160 GB | ⚠️ ~30 GB paging | ✅ | rough |
 
-- **Today (128 GB):** 1.58-bit GLM-5.2, light NVMe paging, ~1–2 tok/s. Functional, low quality.
-- **After 256 GB upgrade:** Q2_K fully in RAM, ~few tok/s, real quality. **Recommended.**
-- a mid-range GPU offloads attention + KV cache + a few dense layers.
+- **At 128 GB:** 1.58-bit GLM-5.2, light NVMe paging, ~1–2 tok/s. Functional, low quality.
+- **At 256 GB:** Q2_K fully in RAM, ~few tok/s, real quality. **Recommended.**
+- A mid-range GPU offloads attention + KV cache + a few dense layers.
 - Local context capped at 16–32k (1M-token KV cache is hundreds of GB — out of scope locally).
 
 **Local dev/uncensoring target:** `GLM-4-32B-0414` (dense 32B, MIT, Q4_K_M ≈ 19.7 GB) — the largest GLM
@@ -160,12 +160,13 @@ Layered, each independently toggleable with an intensity control:
 4. **Uncensoring pipeline** — abliteration + activation steering + A/B + variant management + model cards.
 5. **Weight / Interpretability Explorer.**
 6. **Eval Harness + comparison report** (capability + safety + live-vs-assistant + calibration).
-7. **OpenCode integration + point at Windows GLM-5.2 node** (1.58-bit now; Q2_K after 256 GB upgrade).
+7. **OpenCode integration + point at a remote GLM-5.2 node** (1.58-bit at 128 GB; Q2_K at 256 GB).
 
 ---
 
 ## 8. Open Questions / Future
 - Final product name.
-- Windows node: confirm 256 GB upgrade timing; 1.58-bit bridge until then.
-- Future Linux box spec (8-channel server CPU, 256–512 GB, 24–32 GB GPU) for full-quality GLM-5.2.
+- Inference node: 1.58-bit at 128 GB as a bridge to Q2_K at 256 GB.
+- Server-class node (8-channel, 256–512 GB, 24–32 GB GPU) for full-quality GLM-5.2.
+
 - Whether to add a capability-threshold ("RSP-style") warning when an uncensored variant crosses defined eval scores.

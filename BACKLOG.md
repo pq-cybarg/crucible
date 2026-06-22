@@ -28,9 +28,9 @@ Deferred / planned work, captured so nothing is lost.
 - [x] MCP server support (stdio client, tool wrapping, /mcp command)
 - [x] Full slash-command set + status line + config
 
-## Remote Windows orchestration
+## Remote orchestration
 - [x] Remote-aware endpoints (--endpoint / CRUCIBLE_ENDPOINT)
-- [~] Remote orchestration plumbing done (CORS + configurable GUI/CLI node URL); live 1.5TB run is on a high-RAM inference node
+- [~] Remote orchestration plumbing done (CORS + configurable GUI/CLI node URL); live 1.5TB run runs on a high-RAM inference node
 
 ## Benchmarks
 - [x] lm-eval integration (canonical suite, capability retention)

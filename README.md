@@ -75,21 +75,21 @@ after a single surgical pass.
 ## Hardware reality
 
 GLM-5.2 is a **743B MoE** — it needs ~170-390 GB of RAM at any usable quant. It does **not** run on a
-32 GB Mac. The realistic targets:
+typical 32 GB laptop. The realistic targets, by capability tier:
 
-| Node | Runs |
+| Node class | Runs |
 |---|---|
 | Laptop / 32 GB | GLM-4-9B/32B (GGUF) . small HF models for torch abliteration . the whole control plane + GUI |
-| High-RAM workstation (128-256 GB) + GPU | GLM-5.2 at 1.58-bit (paging) now -> Q2_K fully in RAM after a 256 GB upgrade |
-| Future Linux (8-channel server CPU, 256-512 GB, 24-32 GB GPU) | GLM-5.2 Q4 at quality |
+| High-RAM workstation (128–256 GB) + GPU | GLM-5.2 at low quant — 1.58-bit with NVMe paging, → Q2_K fully in RAM around 256 GB |
+| Server (8-channel, 256–512 GB, 24–32 GB GPU) | GLM-5.2 Q4 at quality |
 
-### Pointing Crucible at the Windows GLM-5.2 node
+### Pointing Crucible at a remote GLM-5.2 node
 
-```powershell
+```bash
 # on the inference node, once GLM-5.2 weights are down:
 llama-server --model glm-5.2-IQ2.gguf --port 8081 --ctx-size 16384 --n-gpu-layers 40 --host 0.0.0.0
 ```
-Then register it in Crucible (Models tab or API) with `endpoint=http://<windows-ip>:8081`, and the Mac
+Then register it in Crucible (Models tab or API) with `endpoint=http://<node-ip>:8081`, and the laptop
 GUI drives the real 5.2 — agent, benchmarks, and guardrails all over the network.
 
 ## Honest scope
