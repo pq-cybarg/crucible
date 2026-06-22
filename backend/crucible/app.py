@@ -218,6 +218,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+    import os as _osrl
+    _rl_max = int(_osrl.environ.get("CRUCIBLE_RATE_LIMIT", "0"))
+    if _rl_max > 0:
+        from fastapi.responses import JSONResponse as _JR
+        from crucible.rate_limit import RateLimiter
+        _limiter = RateLimiter(_rl_max, 60.0)
+        _guarded = {"/api/agent/run", "/v1/chat/completions", "/api/abliteration/run",
+                    "/api/abliteration/autotune", "/api/abliteration/probe"}
+
+        @app.middleware("http")
+        async def _ratelimit(request, call_next):
+            if request.method == "POST" and request.url.path in _guarded:
+                ip = request.client.host if request.client else "anon"
+                if not _limiter.allow(ip):
+                    return _JR({"detail": "rate limit exceeded"}, status_code=429)
+            return await call_next(request)
+
     import os as _osauth
     _token = _osauth.environ.get("CRUCIBLE_API_TOKEN")
     if _token:

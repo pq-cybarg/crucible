@@ -1,0 +1,13 @@
+# One-command Crucible (backend + GUI). Optional token via CRUCIBLE_API_TOKEN in env.
+services:
+  crucible:
+    build: .
+    image: crucible
+    ports: ["8400:8400"]
+    volumes: ["crucible-data:/data"]
+    environment:
+      - CRUCIBLE_API_TOKEN=${CRUCIBLE_API_TOKEN:-}
+      - CRUCIBLE_RATE_LIMIT=${CRUCIBLE_RATE_LIMIT:-0}
+    restart: unless-stopped
+volumes:
+  crucible-data:

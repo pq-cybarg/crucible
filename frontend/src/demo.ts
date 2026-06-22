@@ -9,7 +9,7 @@ export function isDemo(): boolean {
   const h = window.location.hostname;
   return h.endsWith("github.io") || h.endsWith("pages.dev") ||
     new URLSearchParams(window.location.search).has("demo") ||
-    (typeof localStorage !== "undefined" && localStorage.getItem("crucible_demo") === "1");
+    (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" && localStorage.getItem("crucible_demo") === "1");
 }
 
 const PROFILE = Array.from({ length: 24 }, (_, l) => ({

@@ -1,18 +1,18 @@
 // Configurable backend base — point the GUI at a remote Crucible node (e.g. the
 // Windows box hosting the 1.5TB model). Empty string = same-origin (vite proxy).
-const _stored = typeof localStorage !== "undefined" ? localStorage.getItem("crucible_api_base") : null;
+const _stored = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" ? localStorage.getItem("crucible_api_base") : null;
 export let API_BASE = _stored ?? "";
 export function setApiBase(url: string): void {
   API_BASE = url.replace(/\/$/, "");
-  if (typeof localStorage !== "undefined") localStorage.setItem("crucible_api_base", API_BASE);
+  if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") localStorage.setItem("crucible_api_base", API_BASE);
 }
 export function getApiBase(): string { return API_BASE; }
 
-const _tok = typeof localStorage !== "undefined" ? localStorage.getItem("crucible_api_token") : null;
+const _tok = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" ? localStorage.getItem("crucible_api_token") : null;
 export let API_TOKEN = _tok ?? "";
 export function setApiToken(t: string): void {
   API_TOKEN = t;
-  if (typeof localStorage !== "undefined") localStorage.setItem("crucible_api_token", t);
+  if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") localStorage.setItem("crucible_api_token", t);
 }
 export function getApiToken(): string { return API_TOKEN; }
 function withAuth(init?: RequestInit): RequestInit {
@@ -109,7 +109,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseEvent(raw: string): AgentEvent | null {
+export function parseEvent(raw: string): AgentEvent | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
