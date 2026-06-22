@@ -74,6 +74,13 @@ class ProbeRequest(BaseModel):
     max_new_tokens: int = 22
 
 
+class InsertTuneRequest(BaseModel):
+    base_id: str
+    target_prompts: list[str]
+    coefficients: list[float] | None = None
+    max_new_tokens: int = 22
+
+
 class RestoreRequest(BaseModel):
     base_id: str
     target_prompts: list[str]
@@ -607,6 +614,41 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                          "base": base, "steered": steered,
                          "base_refused": is_refusal(base), "steered_refused": is_refusal(steered)})
         return {"rows": rows}
+
+    @app.post("/api/abliteration/insert-tune")
+    def abl_insert_tune(req: InsertTuneRequest) -> dict:
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.coherence import coherence_score
+        from crucible.abliteration.detection import refusal_rate
+        from crucible.abliteration.prompts import EVAL_BENIGN
+        from crucible.abliteration.tune import layer_band
+        a = abliteration_adapter
+        targets = req.target_prompts or []
+        if not targets:
+            raise HTTPException(status_code=422, detail="target_prompts required")
+        n = getattr(a, "num_layers", 1)
+        coefs = req.coefficients or [1.0, 2.0, 4.0, 6.0]
+        results = []
+        for bname in ("late_half", "last_quarter"):
+            layers = layer_band(n, bname)
+            ref = max(layers)
+            # compliance direction = benign minus target (what to ADD to restore answering)
+            direction = compute_refusal_direction(a.activations(list(EVAL_BENIGN), ref + 1),
+                                                  a.activations(targets, ref + 1))
+            for coef in coefs:
+                outs = [a.inject_generate(p, direction, coef, layers, req.max_new_tokens) for p in targets]
+                compliance = 1.0 - refusal_rate(outs)
+                coh = sum(coherence_score(o) for o in outs) / len(outs)
+                results.append({"band": bname, "coefficient": coef, "compliance": compliance,
+                                "coherence": coh, "score": round(compliance * coh, 4)})
+        best = max(results, key=lambda r: r["score"]) if results else None
+        clean_window = best is not None and best["score"] >= 0.5 and best["compliance"] >= 0.5
+        return {"results": results, "best": best, "clean_window": clean_window,
+                "note": ("found a coherent+effective additive window" if clean_window
+                         else "no clean additive window — use restore-via-suppressor instead")}
 
     @app.post("/api/abliteration/restore")
     def abl_restore(req: RestoreRequest) -> dict:
