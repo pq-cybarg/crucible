@@ -5,7 +5,7 @@ import json
 
 def reproducibility_hash(params: dict) -> str:
     blob = json.dumps(params, sort_keys=True).encode()
-    return hashlib.sha256(blob).hexdigest()[:16]
+    return hashlib.sha3_256(blob).hexdigest()[:16]
 
 
 def build_model_card(base_id: str, variant_id: str, method: str, layer: int,

@@ -281,7 +281,7 @@ git commit -m "feat: add reversible activation steering"
 
 **Interfaces:**
 - Produces:
-  - `reproducibility_hash(params: dict) -> str` — 16-hex sha256 of canonical JSON.
+  - `reproducibility_hash(params: dict) -> str` — 16-hex SHA3-256 of canonical JSON.
   - `build_model_card(base_id, variant_id, method, layer, strength, prompt_counts: dict, hidden_size) -> dict` with keys `variant_id, base_id, method, layer, strength, hidden_size, prompt_counts, repro_hash, eval_delta(None)`.
 
 - [ ] **Step 1: Write the failing test**

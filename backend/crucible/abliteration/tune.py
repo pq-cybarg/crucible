@@ -15,7 +15,7 @@ def layer_band(n_layers: int, name: str) -> list[int]:
 
 
 def recipe_hash(recipe: dict) -> str:
-    return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()[:16]
+    return hashlib.sha3_256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def autotune(adapter, harmful, harmless, configs, max_new_tokens=22):

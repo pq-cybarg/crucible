@@ -218,6 +218,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+    import os as _oslog
+    if _oslog.environ.get("CRUCIBLE_LOG"):
+        import logging as _logging
+        import time as _time
+        _alog = _logging.getLogger("crucible.access")
+        if not _alog.handlers:
+            _logging.basicConfig(level=_logging.INFO)
+
+        @app.middleware("http")
+        async def _accesslog(request, call_next):
+            _t0 = _time.monotonic()
+            resp = await call_next(request)
+            _alog.info(json.dumps({"method": request.method, "path": request.url.path,
+                                   "status": resp.status_code,
+                                   "ms": round((_time.monotonic() - _t0) * 1000, 1)}))
+            return resp
+
     import os as _osrl
     _rl_max = int(_osrl.environ.get("CRUCIBLE_RATE_LIMIT", "0"))
     if _rl_max > 0:
@@ -238,6 +255,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     import os as _osauth
     _token = _osauth.environ.get("CRUCIBLE_API_TOKEN")
     if _token:
+        import hmac as _hmac
         from fastapi.responses import JSONResponse
 
         @app.middleware("http")
@@ -247,7 +265,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             if guarded:
                 authz = request.headers.get("authorization", "")
                 tok = authz[7:] if authz.lower().startswith("bearer ") else request.headers.get("x-crucible-token", "")
-                if tok != _token:
+                if not _hmac.compare_digest(tok, _token):
                     return JSONResponse({"detail": "unauthorized"}, status_code=401)
             return await call_next(request)
 

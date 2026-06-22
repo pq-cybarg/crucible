@@ -151,5 +151,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
       - run: cd artifacts && for d in */; do (cd "$d" && zip -r "../${d%/}.zip" .); done
+      - name: SHA3-256 checksums (no legacy hashes)
+        run: |
+          cd artifacts
+          python3 -c "import glob,hashlib; open('SHA3-256SUMS.txt','w').write(''.join(hashlib.sha3_256(open(f,'rb').read()).hexdigest()+'  '+f+chr(10) for f in sorted(glob.glob('*.zip'))))"
+          cat SHA3-256SUMS.txt
       - uses: softprops/action-gh-release@v2
-        with: { files: "artifacts/*.zip" }
+        with:
+          files: |
+            artifacts/*.zip
+            artifacts/SHA3-256SUMS.txt

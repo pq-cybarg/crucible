@@ -128,3 +128,16 @@ When set, every `/api` and `/v1` request needs `Authorization: Bearer <token>`
 (`/api/health` stays open for probes). The GUI has a token field next to the node URL;
 the CLI takes `--token` (or saves it in `~/.crucible/settings.json`). Unset = open
 (fine for local-only `127.0.0.1`). License: MIT.
+
+## Install from CI artifacts
+- **Docker (any OS/arch, incl. Raspberry Pi):**
+  ```bash
+  docker pull ghcr.io/pq-cybarg/crucible:latest
+  docker run -p 8400:8400 ghcr.io/pq-cybarg/crucible:latest   # → http://localhost:8400
+  ```
+- **Native binaries / packages / mobile:** download from the latest tagged
+  [release](https://github.com/pq-cybarg/crucible/releases). Verify integrity with the
+  published **SHA3-256** sums (this project uses SHA-3 — no legacy hashes):
+  ```bash
+  shasum -a 3-256 -c SHA3-256SUMS.txt    # or: openssl dgst -sha3-256 <file>
+  ```
