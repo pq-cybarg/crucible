@@ -7,7 +7,7 @@ locally before commit (PWA build, PyInstaller CLI binary, multi-arch Docker imag
 
 | Platform | Artifact | Backend (control plane + GUI) | Abliteration adapter (torch) |
 |---|---|---|---|
-| **Windows 10/11** | CLI `.exe` + Docker Desktop | ✅ | optional (`pip install torch`) |
+| **Windows 10** (11 intentionally NOT targeted) | CLI `.exe` + Docker Desktop | ✅ | optional (`pip install torch`) |
 | **macOS** (Intel + Apple Silicon) | CLI binary + Docker | ✅ | ✅ (MPS) |
 | **Linux x86_64** (any distro) | AppImage · `.deb` · Docker · CLI | ✅ | ✅ (CUDA/CPU) |
 | **Linux ARM64 / Raspberry Pi** | Docker `arm64` · CLI arm64 | ✅ | CPU only / use a GPU node |

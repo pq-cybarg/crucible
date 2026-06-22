@@ -4,7 +4,7 @@ name: build
 # (PWA build, PyInstaller CLI binary, multi-arch Docker image, container run).
 #
 # Coverage:
-#   - Windows 10+        → native CLI .exe (+ Docker Desktop for the backend)
+#   - Windows 10         → native CLI .exe (+ Docker Desktop). Windows 11 is intentionally NOT targeted.
 #   - macOS (Intel+ARM)  → native CLI binary
 #   - Linux x86_64+ARM64 → CLI binary, AppImage, .deb, multi-arch Docker
 #                          (AppImage/.deb/Docker run on EVERY distro: Kali, Whonix,
