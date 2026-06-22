@@ -11,6 +11,7 @@ backend/crucible/inference.py
 backend/crucible/mcp.py
 backend/crucible/permissions.py
 backend/crucible/registry.py
+backend/crucible/serve.py
 backend/crucible.egg-info/PKG-INFO
 backend/crucible.egg-info/SOURCES.txt
 backend/crucible.egg-info/dependency_links.txt
@@ -19,6 +20,7 @@ backend/crucible.egg-info/requires.txt
 backend/crucible.egg-info/top_level.txt
 backend/crucible/abliteration/__init__.py
 backend/crucible/abliteration/cards.py
+backend/crucible/abliteration/coherence.py
 backend/crucible/abliteration/detection.py
 backend/crucible/abliteration/diagnosis.py
 backend/crucible/abliteration/direction.py
@@ -65,6 +67,7 @@ backend/scripts/smoke.py
 backend/tests/__init__.py
 backend/tests/conftest.py
 backend/tests/test_abl_cards.py
+backend/tests/test_abl_coherence.py
 backend/tests/test_abl_detection.py
 backend/tests/test_abl_diagnosis.py
 backend/tests/test_abl_direction.py
