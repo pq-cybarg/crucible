@@ -174,10 +174,18 @@ export async function previewGuardrail(stage: Stage, text: string, config: Guard
   return (await r.json()) as GuardrailResult;
 }
 
+export interface UpstreamOverride {
+  readonly endpoint: string;
+  readonly model?: string;
+  readonly token?: string;
+}
+
 export interface RunOpts {
   readonly messages: readonly ChatMessage[];
   readonly permissions: PermissionConfig;
   readonly onEvent: (event: AgentEvent) => void;
+  // BYO-AI: drive the full Crucible tool-loop against a user endpoint (Crucible runs tools).
+  readonly upstream?: UpstreamOverride;
 }
 
 export async function runAgent(opts: RunOpts): Promise<RunStatus> {
@@ -191,7 +199,17 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
     resp = await cfetch(API_BASE + "/api/agent/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: opts.messages, permissions: opts.permissions }),
+      body: JSON.stringify({
+        messages: opts.messages,
+        permissions: opts.permissions,
+        ...(opts.upstream
+          ? {
+              endpoint: opts.upstream.endpoint,
+              endpoint_model: opts.upstream.model ?? "local",
+              endpoint_token: opts.upstream.token ?? "",
+            }
+          : {}),
+      }),
     });
   } catch {
     return "offline";

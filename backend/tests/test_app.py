@@ -33,3 +33,23 @@ def test_duplicate_returns_409(tmp_path):
 
 def test_lineage_404(tmp_path):
     assert client(tmp_path).get("/api/models/nope/lineage").status_code == 404
+
+
+def test_connect_byo_endpoint(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/models/connect", json={"id": "ollama-llama3", "endpoint": "http://localhost:11434/v1/"})
+    assert r.status_code == 201
+    m = r.json()
+    assert m["endpoint"] == "http://localhost:11434/v1"
+    assert m["kind"] == "base"
+    assert m["path"].startswith("remote::")
+    # shows up in the registry and is benchmarkable (has an endpoint)
+    rows = c.get("/api/models").json()
+    assert any(x["id"] == "ollama-llama3" and x["endpoint"] for x in rows)
+
+
+def test_connect_duplicate_409(tmp_path):
+    c = client(tmp_path)
+    body = {"id": "dup", "endpoint": "http://localhost:8081"}
+    assert c.post("/api/models/connect", json=body).status_code == 201
+    assert c.post("/api/models/connect", json=body).status_code == 409

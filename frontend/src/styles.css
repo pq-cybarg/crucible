@@ -655,3 +655,4 @@ body::after {
 .byo-model.more { color: var(--ash); }
 .byo-use { align-self: flex-start; margin-top: 2px; font-size: 11px; padding: 5px 12px; }
 .byo-use.on { background: var(--flux-dim); border-color: var(--flux); }
+.byo-actions { display: flex; gap: 8px; flex-wrap: wrap; }

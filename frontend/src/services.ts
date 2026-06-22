@@ -85,16 +85,47 @@ export async function chatDirect(svc: DetectedService, messages: readonly { role
   return body.choices?.[0]?.message?.content ?? "";
 }
 
+// How a BYO chat service is driven from the forge console:
+//  - "direct": browser → service /v1 (plain chat, no tools; works from the static page)
+//  - "tools":  browser → Crucible backend → service (full agent tool-loop; Crucible runs the tools)
+export type ChatMode = "direct" | "tools";
+
 // active BYO chat service (persisted) — null means use Crucible's own agent path
 const KEY = "crucible_chat_service";
+const MODE_KEY = "crucible_chat_mode";
 export function getActiveChatService(): DetectedService | null {
   if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;
   try { return JSON.parse(raw) as DetectedService; } catch { return null; }
 }
-export function setActiveChatService(svc: DetectedService | null): void {
+export function setActiveChatService(svc: DetectedService | null, mode: ChatMode = "direct"): void {
   if (typeof localStorage === "undefined" || typeof localStorage.setItem !== "function") return;
-  if (svc) localStorage.setItem(KEY, JSON.stringify(svc));
-  else localStorage.removeItem(KEY);
+  if (svc) {
+    localStorage.setItem(KEY, JSON.stringify(svc));
+    localStorage.setItem(MODE_KEY, mode);
+  } else {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(MODE_KEY);
+  }
+}
+export function getChatMode(): ChatMode {
+  if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return "direct";
+  return localStorage.getItem(MODE_KEY) === "tools" ? "tools" : "direct";
+}
+
+// Register a BYO endpoint as a first-class Crucible registry model (needs a Crucible
+// backend reachable at apiBase). Returns the registered id, or throws.
+export async function connectService(
+  apiBase: string, svc: DetectedService, token = "",
+): Promise<string> {
+  const id = `${svc.type}-${svc.baseUrl.replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-")}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const r = await fetch(apiBase.replace(/\/$/, "") + "/api/models/connect", {
+    method: "POST", headers,
+    body: JSON.stringify({ id, name: svc.name, endpoint: svc.baseUrl, notes: svc.note }),
+  });
+  if (!r.ok && r.status !== 409) throw new Error(`connect ${r.status}`);
+  return id;
 }

@@ -5,7 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
-import { chatDirect, getActiveChatService } from "../services";
+import { chatDirect, getActiveChatService, getChatMode } from "../services";
 
 type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -78,10 +78,12 @@ export default function AgentConsole(): JSX.Element {
     setDraft("");
     setBusy(true);
 
-    // BYO-AI: if a non-Crucible chat backend is selected, talk to it directly.
-    // It's a plain chat endpoint (no Crucible agent tool-loop), so we just relay the reply.
+    // BYO-AI: a non-Crucible chat backend can be driven two ways.
     const byo = getActiveChatService();
-    if (byo && !byo.full) {
+    const mode = byo && !byo.full ? getChatMode() : null;
+
+    // "direct": browser → service /v1, plain chat (no tool loop). Works from the static page.
+    if (byo && mode === "direct") {
       setTurns((prev) => [
         ...prev,
         { id: nextId(), kind: "notice", text: `chat → ${byo.name} (${byo.baseUrl}) · direct, no tool loop` },
@@ -107,10 +109,23 @@ export default function AgentConsole(): JSX.Element {
       return;
     }
 
+    // "tools": browser → Crucible backend → service. Full agent tool-loop, Crucible runs the tools.
+    const byoTools = byo && mode === "tools" ? byo : null;
+    const upstream = byoTools
+      ? { endpoint: byoTools.baseUrl, model: byoTools.models[0] ?? "local" }
+      : undefined;
+    if (byoTools) {
+      setTurns((prev) => [
+        ...prev,
+        { id: nextId(), kind: "notice", text: `forge → ${byoTools.name} via Crucible · full tool loop` },
+      ]);
+    }
+
     const status = await runAgent({
       messages,
       permissions: { default: perm, modes: {} },
       onEvent: (event) => setTurns((prev) => reduce(prev, event, nextId)),
+      ...(upstream ? { upstream } : {}),
     });
     if (status === "no-model") {
       setTurns((prev) => [

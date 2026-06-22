@@ -67,3 +67,38 @@ def chat_client_model(client, extract: Callable[[dict], dict]):
         return extract(r.json())
 
     return model
+
+
+def extract_openai_message(body: dict) -> dict:
+    """Map a standard OpenAI /v1/chat/completions response to an assistant message
+    dict (content + optional tool_calls) — the shape the Agent loop consumes."""
+    choice = (body.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    out: dict = {"role": "assistant", "content": msg.get("content") or ""}
+    if msg.get("tool_calls"):
+        out["tool_calls"] = msg["tool_calls"]
+    return out
+
+
+def endpoint_model(chat_url: str, token: str = "", model_name: str = "local",
+                   max_tokens: int = 1024):
+    """Build a Model callable that drives ANY OpenAI-compatible /v1/chat/completions
+    endpoint (Crucible, Ollama, llama.cpp, vLLM, a remote node). This is what lets the
+    full Crucible agent tool-loop run against a user's BYO backend: Crucible executes the
+    tools locally, the named endpoint does the generation. Network path; not unit-tested."""
+    import httpx
+
+    url = chat_url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url = url + ("/chat/completions" if url.endswith("/v1") else "/v1/chat/completions")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+    def model(messages: list[dict], tools: list[dict]) -> dict:
+        payload: dict = {"model": model_name, "messages": messages, "max_tokens": max_tokens}
+        if tools:
+            payload["tools"] = tools
+        r = httpx.post(url, json=payload, headers=headers, timeout=600)
+        r.raise_for_status()
+        return extract_openai_message(r.json())
+
+    return model

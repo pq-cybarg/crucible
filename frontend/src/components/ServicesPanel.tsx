@@ -2,11 +2,14 @@ import type { JSX } from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
+  connectService,
   detectServices,
   getActiveChatService,
+  getChatMode,
   setActiveChatService,
 } from "../services";
-import type { DetectedService } from "../services";
+import type { ChatMode, DetectedService } from "../services";
+import { getApiBase, getApiToken, getHealth } from "../api";
 
 type Scan =
   | { readonly state: "idle" }
@@ -21,6 +24,8 @@ export default function ServicesPanel(): JSX.Element {
   const [scan, setScan] = useState<Scan>({ state: "idle" });
   const [custom, setCustom] = useState("");
   const [active, setActive] = useState<DetectedService | null>(getActiveChatService());
+  const [mode, setMode] = useState<ChatMode>(getChatMode());
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   async function runScan(): Promise<void> {
     setScan({ state: "scanning" });
@@ -29,9 +34,32 @@ export default function ServicesPanel(): JSX.Element {
     setScan({ state: "done", found });
   }
 
-  function pick(svc: DetectedService | null): void {
-    setActiveChatService(svc);
+  function pick(svc: DetectedService | null, m: ChatMode = "direct"): void {
+    setActiveChatService(svc, m);
     setActive(svc);
+    setMode(m);
+  }
+
+  // "drive with tools": register the endpoint with a reachable Crucible backend, then
+  // route the forge through it (full tool-loop). Needs a Crucible node online.
+  async function driveWithTools(svc: DetectedService): Promise<void> {
+    setBusyKey(svcKey(svc));
+    try {
+      if (!(await getHealth())) {
+        setScan((s) => s);
+        alert(
+          "Tool-loop needs a Crucible backend online. Start Crucible (or set the node URL " +
+            "top-right) — it runs the tools and relays generation to this service.",
+        );
+        return;
+      }
+      await connectService(getApiBase(), svc, getApiToken());
+      pick(svc, "tools");
+    } catch (err: unknown) {
+      alert(`could not connect via Crucible: ${err instanceof Error ? err.message : "failed"}`);
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   const activeKey = active ? svcKey(active) : null;
@@ -62,7 +90,8 @@ export default function ServicesPanel(): JSX.Element {
         </button>
         {active && (
           <span className="byo-active">
-            chat → <b>{active.name}</b> <code>{active.baseUrl}</code>
+            {mode === "tools" ? "forge+tools" : "chat"} → <b>{active.name}</b>{" "}
+            <code>{active.baseUrl}</code>
             <button className="byo-clear" onClick={() => pick(null)} title="back to Crucible's own agent">
               use Crucible
             </button>
@@ -110,12 +139,31 @@ export default function ServicesPanel(): JSX.Element {
                   </div>
                 )}
                 {s.chat && (
-                  <button
-                    className={`btn byo-use ${isActive ? "on" : ""}`}
-                    onClick={() => pick(isActive ? null : s)}
-                  >
-                    {isActive ? "active for chat ✓" : "use for chat"}
-                  </button>
+                  <div className="byo-actions">
+                    <button
+                      className={`btn byo-use ${isActive && mode === "direct" ? "on" : ""}`}
+                      onClick={() => pick(isActive && mode === "direct" ? null : s, "direct")}
+                      title="plain chat from the browser — works on the static page; no tools"
+                    >
+                      {isActive && mode === "direct" ? "chat ✓" : "use for chat"}
+                    </button>
+                    {!s.full && (
+                      <button
+                        className={`btn byo-use ${isActive && mode === "tools" ? "on" : ""}`}
+                        disabled={busyKey === svcKey(s)}
+                        onClick={() =>
+                          isActive && mode === "tools" ? pick(null) : void driveWithTools(s)
+                        }
+                        title="drive with the full Crucible agent tool-loop (needs a Crucible backend online)"
+                      >
+                        {busyKey === svcKey(s)
+                          ? "connecting…"
+                          : isActive && mode === "tools"
+                            ? "tools ✓"
+                            : "+ tools (via Crucible)"}
+                      </button>
+                    )}
+                  </div>
                 )}
               </motion.div>
             );

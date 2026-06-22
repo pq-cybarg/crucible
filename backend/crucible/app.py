@@ -41,6 +41,20 @@ class AgentRunRequest(BaseModel):
     messages: list[dict]
     permissions: PermissionConfig = Field(default_factory=PermissionConfig)
     guardrails: GuardrailConfig | None = None
+    # BYO-AI: drive the full Crucible tool-loop against any OpenAI-compatible upstream.
+    # Crucible runs the tools locally; this endpoint does the generation. Empty = default model.
+    endpoint: str | None = None
+    endpoint_model: str = "local"
+    endpoint_token: str = ""
+
+
+class ConnectRequest(BaseModel):
+    """Register a detected OpenAI-compatible service as a first-class registry model."""
+    id: str
+    name: str | None = None
+    endpoint: str
+    quant: str = "remote"
+    notes: str = ""
 
 
 class ApplyRequest(BaseModel):
@@ -281,6 +295,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     def create_model(model_in: Model) -> Model:
         try:
             return reg.register(model_in)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+    @app.post("/api/models/connect", status_code=201)
+    def connect_model(req: ConnectRequest) -> Model:
+        """Register a BYO OpenAI-compatible endpoint as a base model so the agent can
+        drive it with the full tool-loop and lm-eval can benchmark it over the network."""
+        from datetime import datetime, timezone
+        m = Model(
+            id=req.id, name=req.name or req.id, base_id=None,
+            path=f"remote::{req.endpoint}", quant=req.quant, kind="base",
+            endpoint=req.endpoint.rstrip("/"),
+            created=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            notes=req.notes or "connected BYO endpoint (OpenAI-compatible)",
+        )
+        try:
+            return reg.register(m)
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
 
@@ -894,7 +925,11 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
-        if model is None:
+        active_model = model
+        if req.endpoint:
+            from crucible.agent import endpoint_model
+            active_model = endpoint_model(req.endpoint, req.endpoint_token, req.endpoint_model)
+        if active_model is None:
             raise HTTPException(status_code=503, detail="no model configured")
         messages = list(req.messages)
         cfg = req.guardrails
@@ -912,7 +947,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
         policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
-        agent = Agent(model=model, tools=default_registry(root),
+        agent = Agent(model=active_model, tools=default_registry(root),
                       permissions=policy, audit=AuditLog(settings.data_dir / "audit.jsonl"))
 
         def stream():

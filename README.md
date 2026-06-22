@@ -23,7 +23,7 @@ CRUCIBLE_HF_MODEL="$PWD/models/qwen-hf" ./run.sh
 Run the test suite:
 
 ```bash
-source .venv/bin/activate && pytest -q          # 169 backend tests
+source .venv/bin/activate && pytest -q          # 181 backend tests
 cd frontend && npm run build                     # hardened TypeScript, zero errors
 ```
 
@@ -104,7 +104,7 @@ sourced); frontier numbers that can't be reliably sourced are left blank rather 
 ```
 backend/crucible/   registry . inference . agent . tools . permissions . audit
                     guardrails/ . abliteration/ (+torch_adapter) . evals/ (+lmeval) . weights/
-backend/tests/      169 tests
+backend/tests/      181 tests
 backend/scripts/    smoke.py . abliterate_hf.py
 frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models)
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
@@ -122,7 +122,14 @@ The page (even the static demo) can drive **any AI service you already run**. In
 hit **scan**: Crucible probes localhost — and any remote you name — for Crucible, **Ollama**
 (`:11434`), **llama.cpp** / **vLLM** / any OpenAI-compatible `/v1` (`:8080/:8081/:8000`), and
 **ComfyUI** (`:8188`). Detected services show capability badges, and any chat-capable one can be
-selected to drive the **forge** console directly (a plain chat call — no Crucible tool-loop).
+driven from the **forge** console two ways:
+
+- **chat (direct)** — browser → service `/v1`, a plain chat call. Works from the static page, no
+  Crucible backend required; no tool-loop.
+- **+ tools (via Crucible)** — registers the endpoint as a Crucible model (`POST /api/models/connect`)
+  and routes the **full agent tool-loop** through your Crucible backend: Crucible executes the tools
+  (read/write/edit/grep/bash, with permissions) locally and relays generation to the service. Needs a
+  Crucible node online; the service just generates.
 
 Two caveats, by design:
 
@@ -137,7 +144,7 @@ Two caveats, by design:
 
 ## Security
 The server runs tools (`bash`, file edits) and serves models, so when you expose it
-beyond `127.0.0.1` (Docker `0.0.0.0`, or the remote Windows node), **set a token**:
+beyond `127.0.0.1` (Docker `0.0.0.0`, or a remote inference node), **set a token**:
 
 ```bash
 CRUCIBLE_API_TOKEN=$(openssl rand -hex 24) crucible-serve

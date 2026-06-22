@@ -32,6 +32,14 @@ Deferred / planned work, captured so nothing is lost.
 - [x] Remote-aware endpoints (--endpoint / CRUCIBLE_ENDPOINT)
 - [~] Remote orchestration plumbing done (CORS + configurable GUI/CLI node URL); live 1.5TB run runs on a high-RAM inference node
 
+## BYO-AI — bring your own backend
+- [x] Service auto-detection (Crucible/Ollama/llama.cpp/vLLM/ComfyUI) on localhost + named remotes
+- [x] Capability badges + per-service notes (full / chat-only / no-chat) in the Models tab
+- [x] Drive the forge in "chat (direct)" mode — browser → service /v1, works on the static page
+- [x] Drive the forge in "+ tools (via Crucible)" mode — register endpoint, full agent tool-loop over it
+- [x] POST /api/models/connect — register an OpenAI-compatible endpoint as a first-class model
+- [x] CORS / OLLAMA_ORIGINS + write-permission docs
+
 ## Benchmarks
 - [x] lm-eval integration (canonical suite, capability retention)
 - [x] loglikelihood MC tasks via HF backend (MMLU/ARC/HellaSwag)
