@@ -182,6 +182,7 @@ class LmEvalRequest(BaseModel):
     model_id: str
     tasks: list[str]
     limit: int | None = None
+    backend: str = "chat"
 
 
 def create_app(registry: Registry | None = None, agent_root: Path | None = None,
@@ -457,7 +458,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         if not m.endpoint:
             raise HTTPException(status_code=409,
                 detail="model has no endpoint - launch llama-server and register its endpoint")
-        rows = run_lmeval(m.endpoint, req.tasks, req.limit)
+        rows = run_lmeval(m.endpoint, req.tasks, req.limit, backend=req.backend)
         return {"model_id": req.model_id, "results": rows}
 
     @app.get("/api/weights/{model_id}")

@@ -31,20 +31,20 @@ def parse_lmeval_results(results: dict) -> list[dict]:
 
 
 def run_lmeval(endpoint: str, tasks: list[str], limit: int | None = None,
-               model_name: str = "local") -> list[dict]:
+               model_name: str = "local", backend: str = "chat") -> list[dict]:
+    """backend='chat' (generative, gsm8k/ifeval) or 'completions' (loglikelihood MC:
+    mmlu/arc/hellaswag — needs an endpoint exposing /v1/completions with logprobs)."""
     import lm_eval
 
-    model_args = {
-        "model": model_name,
-        "base_url": f"{endpoint.rstrip('/')}/v1/chat/completions",
-        "num_concurrent": 4,
-        "tokenized_requests": False,
-    }
-    out = lm_eval.simple_evaluate(
-        model="local-chat-completions",
-        model_args=model_args,
-        tasks=tasks,
-        limit=limit,
-        apply_chat_template=True,
-    )
+    base = endpoint.rstrip("/")
+    if backend == "completions":
+        model_args = {"model": model_name, "base_url": f"{base}/v1/completions",
+                      "num_concurrent": 4, "tokenized_requests": False}
+        out = lm_eval.simple_evaluate(model="local-completions", model_args=model_args,
+                                      tasks=tasks, limit=limit)
+    else:
+        model_args = {"model": model_name, "base_url": f"{base}/v1/chat/completions",
+                      "num_concurrent": 4, "tokenized_requests": False}
+        out = lm_eval.simple_evaluate(model="local-chat-completions", model_args=model_args,
+                                      tasks=tasks, limit=limit, apply_chat_template=True)
     return parse_lmeval_results(out["results"])
