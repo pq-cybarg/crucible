@@ -614,3 +614,9 @@ body::after {
 .flow-carrier .cbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--amber-dim), var(--ember)); }
 .flow-carrier .cv { font-family: var(--font-mono); font-size: 10px; color: var(--steel-text); width: 42px; text-align: right; }
 .flow-title { font-family: var(--font-display); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); margin-bottom: 4px; text-align: center; }
+
+/* ---------- Remote node control ---------------------------------------- */
+.node-input { background: var(--steel-900); border: 1px solid var(--line-bright); border-radius: 3px; color: var(--bone); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; width: 140px; outline: none; }
+.node-input:focus { border-color: var(--amber); }
+.node-go { background: none; border: 1px solid var(--line-bright); border-radius: 3px; color: var(--amber-bright); cursor: pointer; font-size: 10px; padding: 2px 6px; margin-left: 3px; }
+.node-go:hover { border-color: var(--amber); }

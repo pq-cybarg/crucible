@@ -23,14 +23,14 @@ Deferred / planned work, captured so nothing is lost.
 
 ## crucible CLI — full Claude-Code parity
 - [x] Functional CLI (agent loop, remote-aware --endpoint, slash commands)
-- [ ] Persistent sessions
-- [ ] Settings file (~/.crucible/settings.json)
+- [x] Persistent sessions
+- [x] Settings file (~/.crucible/settings.json)
 - [ ] MCP server support
-- [ ] Full slash-command set + status line + config
+- [x] Full slash-command set + status line + config
 
 ## Remote Windows orchestration
 - [x] Remote-aware endpoints (--endpoint / CRUCIBLE_ENDPOINT)
-- [ ] Drive the real 1.5 TB-class model on the Windows node end-to-end (in-place edit, diagnose, serve over the network)
+- [~] Remote orchestration plumbing done (CORS + configurable GUI/CLI node URL); live 1.5TB run is on a high-RAM inference node
 
 ## Benchmarks
 - [x] lm-eval integration (canonical suite, capability retention)

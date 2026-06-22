@@ -206,6 +206,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     from crucible.abliteration.ledger import EditLedger
     ledger = EditLedger()
     app = FastAPI(title="Crucible")
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     @app.get("/api/health")
     def health():

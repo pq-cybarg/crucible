@@ -7,7 +7,7 @@ import GuardrailsPanel from "./components/GuardrailsPanel";
 import UncensorPanel from "./components/UncensorPanel";
 import BenchmarksPanel from "./components/BenchmarksPanel";
 import WeightsPanel from "./components/WeightsPanel";
-import { getHealth, getModels } from "./api";
+import { getApiBase, getHealth, getModels, setApiBase } from "./api";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";
 
@@ -47,6 +47,12 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<TabId>("agent");
   const [online, setOnline] = useState(false);
   const [modelCount, setModelCount] = useState<number | null>(null);
+  const [node, setNode] = useState(getApiBase());
+
+  const connectNode = (): void => {
+    setApiBase(node);
+    window.location.reload();
+  };
 
   useEffect(() => {
     let alive = true;
@@ -113,7 +119,12 @@ export default function App(): JSX.Element {
           <span className="stat">
             models <b>{modelCount ?? "—"}</b>
           </span>
-          <span className="stat">node <b>mac · m5</b></span>
+          <span className="stat">
+            node
+            <input className="node-input" value={node} onChange={(e) => setNode(e.target.value)}
+              placeholder="local (proxy)" title="point at a remote Crucible node, e.g. http://gpu-node:8400" />
+            <button className="node-go" onClick={connectNode} title="connect">⏎</button>
+          </span>
         </div>
       </header>
 
