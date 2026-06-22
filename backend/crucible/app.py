@@ -218,6 +218,22 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+    import os as _osauth
+    _token = _osauth.environ.get("CRUCIBLE_API_TOKEN")
+    if _token:
+        from fastapi.responses import JSONResponse
+
+        @app.middleware("http")
+        async def _auth(request, call_next):
+            path = request.url.path
+            guarded = (path.startswith("/api") or path.startswith("/v1")) and path != "/api/health"
+            if guarded:
+                authz = request.headers.get("authorization", "")
+                tok = authz[7:] if authz.lower().startswith("bearer ") else request.headers.get("x-crucible-token", "")
+                if tok != _token:
+                    return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            return await call_next(request)
+
     @app.get("/api/health")
     def health():
         return {"ok": True}

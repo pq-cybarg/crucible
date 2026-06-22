@@ -8,6 +8,19 @@ export function setApiBase(url: string): void {
 }
 export function getApiBase(): string { return API_BASE; }
 
+const _tok = typeof localStorage !== "undefined" ? localStorage.getItem("crucible_api_token") : null;
+export let API_TOKEN = _tok ?? "";
+export function setApiToken(t: string): void {
+  API_TOKEN = t;
+  if (typeof localStorage !== "undefined") localStorage.setItem("crucible_api_token", t);
+}
+export function getApiToken(): string { return API_TOKEN; }
+function withAuth(init?: RequestInit): RequestInit {
+  if (!API_TOKEN) return init ?? {};
+  const headers = { ...(init?.headers as Record<string, string> | undefined), Authorization: `Bearer ${API_TOKEN}` };
+  return { ...init, headers };
+}
+
 import { demoRespond, isDemo } from "./demo";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -15,7 +28,7 @@ async function cfetch(input: string, init?: RequestInit): Promise<Response> {
     const r = demoRespond(path, init);
     if (r) return r;
   }
-  return fetch(input, init);
+  return fetch(input, withAuth(init));
 }
 
 // Thin, fully-typed client for the Crucible backend. The agent stream is a

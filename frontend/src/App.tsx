@@ -7,7 +7,7 @@ import GuardrailsPanel from "./components/GuardrailsPanel";
 import UncensorPanel from "./components/UncensorPanel";
 import BenchmarksPanel from "./components/BenchmarksPanel";
 import WeightsPanel from "./components/WeightsPanel";
-import { getApiBase, getHealth, getModels, setApiBase } from "./api";
+import { getApiBase, getApiToken, getHealth, getModels, setApiBase, setApiToken } from "./api";
 import { isDemo } from "./demo";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";
@@ -49,9 +49,11 @@ export default function App(): JSX.Element {
   const [online, setOnline] = useState(false);
   const [modelCount, setModelCount] = useState<number | null>(null);
   const [node, setNode] = useState(getApiBase());
+  const [token, setToken] = useState(getApiToken());
 
   const connectNode = (): void => {
     setApiBase(node);
+    setApiToken(token);
     window.location.reload();
   };
 
@@ -126,6 +128,8 @@ export default function App(): JSX.Element {
             node
             <input className="node-input" value={node} onChange={(e) => setNode(e.target.value)}
               placeholder="local (proxy)" title="point at a remote Crucible node, e.g. http://gpu-node:8400" />
+            <input className="node-input" type="password" value={token} onChange={(e) => setToken(e.target.value)}
+              placeholder="token" title="CRUCIBLE_API_TOKEN if the node requires auth" style={{ width: 80 }} />
             <button className="node-go" onClick={connectNode} title="connect">⏎</button>
           </span>
         </div>

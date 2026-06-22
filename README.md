@@ -109,3 +109,22 @@ backend/scripts/    smoke.py . abliterate_hf.py
 frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models)
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
 ```
+
+## Live demo & wiki
+- App (static demo, real sample data): **https://pq-cybarg.github.io/crucible/**
+- Wiki: **https://pq-cybarg.github.io/crucible/docs/**
+
+Connect the **node** field (top-right) to a running Crucible backend to go live.
+
+## Security
+The server runs tools (`bash`, file edits) and serves models, so when you expose it
+beyond `127.0.0.1` (Docker `0.0.0.0`, or the remote Windows node), **set a token**:
+
+```bash
+CRUCIBLE_API_TOKEN=$(openssl rand -hex 24) crucible-serve
+```
+
+When set, every `/api` and `/v1` request needs `Authorization: Bearer <token>`
+(`/api/health` stays open for probes). The GUI has a token field next to the node URL;
+the CLI takes `--token` (or saves it in `~/.crucible/settings.json`). Unset = open
+(fine for local-only `127.0.0.1`). License: MIT.

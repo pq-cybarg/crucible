@@ -20,7 +20,7 @@ from crucible.tools import default_registry
 from crucible.mcp import load_mcp
 
 BANNER = "crucible — local agentic coding harness"
-DEFAULTS = {"endpoint": "http://127.0.0.1:8400/v1", "control": "http://127.0.0.1:8400", "perm": "ask"}
+DEFAULTS = {"endpoint": "http://127.0.0.1:8400/v1", "control": "http://127.0.0.1:8400", "perm": "ask", "token": ""}
 HELP = """commands:
   /help                 this help
   /endpoint <url>       point at a chat endpoint (e.g. a remote Windows node)
@@ -82,12 +82,13 @@ def parse_chat_response(data: dict) -> dict:
     return {"role": "assistant", "content": msg.get("content"), "tool_calls": msg.get("tool_calls") or []}
 
 
-def make_model(chat_url: str):
+def make_model(chat_url: str, token: str = ""):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     def model(messages, tools):
         payload = {"model": "crucible", "messages": messages, "max_tokens": 1024}
         if tools:
             payload["tools"] = tools
-        r = httpx.post(chat_url, json=payload, timeout=600)
+        r = httpx.post(chat_url, json=payload, headers=headers, timeout=600)
         r.raise_for_status()
         return parse_chat_response(r.json())
     return model
@@ -116,13 +117,14 @@ def main(argv=None) -> int:
     ap.add_argument("--endpoint", default=cfg["endpoint"])
     ap.add_argument("--control", default=cfg["control"])
     ap.add_argument("--perm", default=cfg["perm"], choices=["allow", "ask", "deny"])
+    ap.add_argument("--token", default=cfg.get("token", ""))
     ap.add_argument("--session", default=None)
     ap.add_argument("prompt", nargs="*")
     a = ap.parse_args(argv)
 
     st = {"chat": a.endpoint.rstrip("/") + "/chat/completions", "endpoint": a.endpoint,
           "control": a.control, "perm": a.perm,
-          "convo": load_session(a.session) if a.session else [], "session": a.session}
+          "convo": load_session(a.session) if a.session else [], "session": a.session, "token": a.token}
     audit = AuditLog(home() / "cli-audit.jsonl")
     registry = default_registry(Path.cwd())
     mcp_clients, mcp_tools = load_mcp(cfg.get("mcp", {}))
@@ -131,7 +133,7 @@ def main(argv=None) -> int:
 
     def run_turn(text: str) -> None:
         st["convo"].append({"role": "user", "content": text})
-        agent = Agent(make_model(st["chat"]), registry,
+        agent = Agent(make_model(st["chat"], st["token"]), registry,
                       PermissionPolicy(default=st["perm"], asker=_ask), audit)
         final = ""
         for ev in agent.run(st["convo"]):
