@@ -118,6 +118,7 @@ jobs:
   android:
     needs: test
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -132,6 +133,7 @@ jobs:
   ios:
     needs: test
     runs-on: macos-14
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -143,7 +145,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [cli-binaries, pwa, linux-packages, android]
+    needs: [cli-binaries, pwa, linux-packages]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

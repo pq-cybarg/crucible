@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
-# Capacitor mobile thin-client (Android APK / iOS archive). The PWA points at a remote
-# Crucible node. CI-targeted (android: ubuntu+JDK; ios: macos+Xcode).
+# Capacitor mobile thin-client (Android APK / iOS archive). The app is a PWA pointing at
+# a remote Crucible node. All @capacitor/* are pinned to ONE version to avoid Gradle
+# duplicate-class conflicts. Best-effort: the PWA is the primary mobile path.
 set -euo pipefail
 cd "$(dirname "$0")/../frontend"
+CAP=7.4.3
 npm ci
 npm run build
-npm install -D @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios
-[ -f capacitor.config.ts ] || npx cap init Crucible ai.crucible.app --web-dir dist
+npm install --save-exact \
+  "@capacitor/core@${CAP}" "@capacitor/cli@${CAP}" "@capacitor/android@${CAP}" "@capacitor/ios@${CAP}"
+[ -f capacitor.config.ts ] || npx --yes cap init Crucible ai.crucible.app --web-dir dist
+
 if [ "${1:-android}" = "android" ]; then
-  [ -d android ] || npx cap add android
-  npx cap sync android
-  cd android && chmod +x ./gradlew && ./gradlew assembleDebug
+  rm -rf android
+  npx --yes cap add android
+  npx --yes cap sync android
+  cd android
+  chmod +x ./gradlew
+  ./gradlew --no-daemon assembleDebug
 else
-  [ -d ios ] || npx cap add ios
-  npx cap sync ios
-  cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
-    -archivePath build/App.xcarchive archive CODE_SIGNING_ALLOWED=NO || true
+  rm -rf ios
+  npx --yes cap add ios
+  npx --yes cap sync ios
+  cd ios/App
+  xcodebuild -workspace App.xcworkspace -scheme App \
+    -archivePath build/App.xcarchive archive CODE_SIGNING_ALLOWED=NO
 fi
