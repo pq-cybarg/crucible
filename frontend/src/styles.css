@@ -625,3 +625,33 @@ body::after {
 .demo-badge { font-family: var(--font-display); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--void); background: linear-gradient(90deg, var(--amber-bright), var(--amber)); padding: 3px 9px; border-radius: 3px; margin-left: 14px; }
 .docs-link { color: var(--amber-bright) !important; text-decoration: none; }
 .docs-link:hover { color: var(--amber) !important; }
+
+/* ---------- BYO-AI: connect your own backends -------------------------- */
+.byo { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
+.byo-head h2 { font-family: var(--font-display); font-size: 17px; letter-spacing: 0.02em; color: var(--bone); font-weight: 600; }
+.byo-head h2 em { color: var(--ash); font-style: normal; font-weight: 400; font-size: 13px; }
+.byo-head p { color: var(--steel-text); font-size: 12px; line-height: 1.6; max-width: 760px; margin-top: 6px; }
+.byo-head p b { color: var(--amber-bright); font-weight: 600; }
+.byo-controls { display: flex; align-items: center; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
+.byo-active { font-size: 11px; color: var(--steel-text); display: inline-flex; align-items: center; gap: 6px; }
+.byo-active b { color: var(--flux); }
+.byo-active code { color: var(--ash); font-size: 10.5px; }
+.byo-clear { background: transparent; border: 1px solid var(--line-bright); color: var(--ash); font-family: var(--font-mono); font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer; }
+.byo-clear:hover { color: var(--bone); border-color: var(--amber-dim); }
+.byo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.byo-card { background: var(--steel-900); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.byo-card.on { border-color: var(--flux-dim); box-shadow: 0 0 0 1px var(--flux-dim); }
+.byo-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.byo-name { font-family: var(--font-display); font-size: 13px; color: var(--bone); font-weight: 600; }
+.byo-badges { display: flex; gap: 4px; }
+.byo-badge { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; font-family: var(--font-display); }
+.byo-badge.full { background: linear-gradient(90deg, var(--amber-bright), var(--amber)); color: var(--void); }
+.byo-badge.chat { background: var(--flux-dim); color: var(--bone); }
+.byo-badge.cold { background: var(--steel-700); color: var(--ash); }
+.byo-url { font-size: 10.5px; color: var(--ash); }
+.byo-note { font-size: 11px; color: var(--steel-text); line-height: 1.5; }
+.byo-models { display: flex; flex-wrap: wrap; gap: 4px; }
+.byo-model { font-size: 10px; color: var(--steel-text); background: var(--steel-800); border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px; }
+.byo-model.more { color: var(--ash); }
+.byo-use { align-self: flex-start; margin-top: 2px; font-size: 11px; padding: 5px 12px; }
+.byo-use.on { background: var(--flux-dim); border-color: var(--flux); }

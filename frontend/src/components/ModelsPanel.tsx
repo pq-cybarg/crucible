@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { getModels } from "../api";
 import type { ModelRow } from "../api";
+import ServicesPanel from "./ServicesPanel";
 
 type Load =
   | { readonly state: "loading" }
@@ -73,6 +74,8 @@ export default function ModelsPanel(): JSX.Element {
           </tbody>
         </table>
       )}
+
+      <ServicesPanel />
     </div>
   );
 }

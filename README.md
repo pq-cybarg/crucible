@@ -116,6 +116,25 @@ docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
 
 Connect the **node** field (top-right) to a running Crucible backend to go live.
 
+## BYO-AI — bring your own backend
+
+The page (even the static demo) can drive **any AI service you already run**. In the **Models** tab,
+hit **scan**: Crucible probes localhost — and any remote you name — for Crucible, **Ollama**
+(`:11434`), **llama.cpp** / **vLLM** / any OpenAI-compatible `/v1` (`:8080/:8081/:8000`), and
+**ComfyUI** (`:8188`). Detected services show capability badges, and any chat-capable one can be
+selected to drive the **forge** console directly (a plain chat call — no Crucible tool-loop).
+
+Two caveats, by design:
+
+- **Chat vs. edit.** Ollama/llama.cpp/vLLM are **chat-only** here — fine for talking to a model.
+  To **diagnose / abliterate / edit** weights you need a **Crucible node with write access** to the
+  model files: run Crucible locally (it can wrap any of these as its inference endpoint), or point it
+  at a remote you can write to. ComfyUI is detected but isn't a chat backend.
+- **Browser CORS.** Calling a local service from a `https://…github.io` page is cross-origin. Crucible
+  sets permissive CORS itself; **Ollama** needs `OLLAMA_ORIGINS` set (`OLLAMA_ORIGINS=*`, or the page's
+  origin) before it will answer a browser. llama.cpp/vLLM generally allow it; for a remote, expose the
+  port and (if you set `CRUCIBLE_API_TOKEN`) supply the token in the GUI.
+
 ## Security
 The server runs tools (`bash`, file edits) and serves models, so when you expose it
 beyond `127.0.0.1` (Docker `0.0.0.0`, or the remote Windows node), **set a token**:

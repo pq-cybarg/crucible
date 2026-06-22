@@ -5,6 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
+import { chatDirect, getActiveChatService } from "../services";
 
 type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -76,6 +77,36 @@ export default function AgentConsole(): JSX.Element {
     setTurns((prev) => [...prev, userTurn]);
     setDraft("");
     setBusy(true);
+
+    // BYO-AI: if a non-Crucible chat backend is selected, talk to it directly.
+    // It's a plain chat endpoint (no Crucible agent tool-loop), so we just relay the reply.
+    const byo = getActiveChatService();
+    if (byo && !byo.full) {
+      setTurns((prev) => [
+        ...prev,
+        { id: nextId(), kind: "notice", text: `chat → ${byo.name} (${byo.baseUrl}) · direct, no tool loop` },
+      ]);
+      try {
+        const reply = await chatDirect(byo, messages);
+        setTurns((prev) => [
+          ...prev,
+          { id: nextId(), kind: "assistant", text: reply || "(empty reply)" },
+        ]);
+      } catch (err: unknown) {
+        const why = err instanceof Error ? err.message : "request failed";
+        setTurns((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            kind: "notice",
+            text: `${byo.name} unreachable — ${why}. For browser access Ollama needs OLLAMA_ORIGINS set.`,
+          },
+        ]);
+      }
+      setBusy(false);
+      return;
+    }
+
     const status = await runAgent({
       messages,
       permissions: { default: perm, modes: {} },
