@@ -23,7 +23,7 @@ CRUCIBLE_HF_MODEL="$PWD/models/qwen-hf" ./run.sh
 Run the test suite:
 
 ```bash
-source .venv/bin/activate && pytest -q          # 123 backend tests
+source .venv/bin/activate && pytest -q          # 169 backend tests
 cd frontend && npm run build                     # hardened TypeScript, zero errors
 ```
 
@@ -104,7 +104,7 @@ sourced); frontier numbers that can't be reliably sourced are left blank rather 
 ```
 backend/crucible/   registry . inference . agent . tools . permissions . audit
                     guardrails/ . abliteration/ (+torch_adapter) . evals/ (+lmeval) . weights/
-backend/tests/      123 tests
+backend/tests/      169 tests
 backend/scripts/    smoke.py . abliterate_hf.py
 frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models)
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
