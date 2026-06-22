@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Logit-lens feature decoder: translate an abstract refusal DIRECTION into the actual
 # WORDS it promotes/suppresses, by projecting it through the unembedding. This is what
 # turns "layer 23, margin 13.93" into "this feature makes the model say sorry / cannot

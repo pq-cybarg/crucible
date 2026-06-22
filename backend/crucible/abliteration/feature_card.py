@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Plain-language feature cards: turn the technical refusal mechanism into a named,
 # human-readable card a non-ML developer can understand and act on.
 

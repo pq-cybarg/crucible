@@ -1,3 +1,4 @@
+from __future__ import annotations
 from crucible.guardrails.base import (  # noqa: F401
     GuardrailAction, GuardrailConfig, GuardrailResult, RegexRule, Stage)
 from crucible.guardrails.constitution import Critic  # noqa: F401

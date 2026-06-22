@@ -1,3 +1,4 @@
+from __future__ import annotations
 from crucible.evals.published import PUBLISHED
 
 

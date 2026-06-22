@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Rank-k refusal subspace. r1 = normalized difference-of-means (the primary refusal
 # axis); r2..rk = PCA of the harmful activations orthogonal to r1 (the "sticky"
 # residual a rank-1 cut misses). Returns orthonormal directions + explained variance

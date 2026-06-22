@@ -1,3 +1,4 @@
+from __future__ import annotations
 # The canonical industry-standard benchmark suite (EleutherAI lm-evaluation-harness
 # task names). These are the same tasks behind public leaderboards.
 CANONICAL_SUITE: list[dict] = [

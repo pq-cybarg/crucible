@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Integration with EleutherAI lm-evaluation-harness — the canonical benchmark tool.
 # run_lmeval() drives a live OpenAI-compatible endpoint; parse_lmeval_results() is a
 # pure transform over lm-eval's results dict (unit-tested without a model).

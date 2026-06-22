@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Capability retention: run a real lm-eval task on the base vs the abliterated weights
 # (lm-eval HF backend, in-process) to prove the cut was surgical, not lobotomizing.
 from crucible.evals.lmeval import parse_lmeval_results

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # SAMPLE SUBSETS for a runnable harness - not the full benchmarks. Extend freely.
 MMLU_SAMPLE = [
     {"id": "mmlu-1", "question": "What is the chemical symbol for gold?",

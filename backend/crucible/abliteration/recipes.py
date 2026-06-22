@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Persisted, named ablation recipes the human crafts by hand. Fully reproducible:
 # a recipe is {layers, rank, coefficient} + a hash.
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 
 from crucible.guardrails.base import GuardrailAction, RegexRule, Stage

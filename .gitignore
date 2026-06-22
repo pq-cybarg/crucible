@@ -6,3 +6,6 @@ dist/
 *.gguf
 models/
 .DS_Store
+dist-bin/
+*.spec
+frontend/dist/

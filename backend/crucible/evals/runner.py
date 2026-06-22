@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Callable
 
 from crucible.evals.scoring import extract_choice, mc_accuracy

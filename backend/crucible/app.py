@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 from pathlib import Path
 
@@ -868,6 +869,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    import os as _os
+    _static = _os.environ.get("CRUCIBLE_STATIC")
+    if _static and Path(_static).is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=_static, html=True), name="frontend")
 
     return app
 

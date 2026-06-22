@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Minimal MCP (Model Context Protocol) stdio client. Spawns a configured MCP server,
 # does the JSON-RPC handshake, lists its tools, and wraps each as a crucible Tool so
 # the agent can call them — bringing the crucible CLI to Claude-Code tool parity.

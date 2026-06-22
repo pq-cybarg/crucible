@@ -1,3 +1,4 @@
+from __future__ import annotations
 from crucible.abliteration.cards import build_model_card  # noqa: F401
 from crucible.abliteration.detection import is_refusal, refusal_rate  # noqa: F401
 from crucible.abliteration.diagnosis import (  # noqa: F401

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """crucible — a local agentic coding harness CLI (Claude-Code-equivalent, term: crucible).
 
 Talks to any OpenAI-compatible endpoint (local llama-server, the Crucible torch server,

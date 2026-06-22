@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Git-like edit ledger for live in-memory model editing. Each commit stores the
 # PRE-EDIT values of only the tensors it changed (a delta) — so history is tiny even
 # for a 1.5TB model, and revert is exact (restore the originals, no lossy inverse).

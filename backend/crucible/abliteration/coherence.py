@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Coherence proxy for the insertion auto-tuner: penalize gibberish (non-ASCII chars,
 # no spaces / concatenated runs, repetition) so the search avoids doses that wreck output.
 def coherence_score(text: str) -> float:

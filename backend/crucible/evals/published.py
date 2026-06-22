@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Cited public numbers. GLM-5 family figures are from public reporting (2026);
 # Opus entries are intentionally None - fill with an official Anthropic citation
 # rather than guessing. Never present an uncited number as measured.

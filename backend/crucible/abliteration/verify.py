@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Behavioral before/after verification: does the abliterated model comply with what
 # the base refused (uncensoring worked), without over-refusing benign prompts
 # (surgical)? Solver-agnostic so it unit-tests with fakes and runs on torch adapters.

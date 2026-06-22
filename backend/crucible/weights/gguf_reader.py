@@ -1,3 +1,4 @@
+from __future__ import annotations
 import struct
 
 GGUF_MAGIC = 0x46554747

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Callable
 
 from crucible.abliteration.detection import refusal_rate

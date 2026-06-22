@@ -1,3 +1,4 @@
+from __future__ import annotations
 from pathlib import Path
 
 from crucible.tools.base import Tool, ToolRegistry, ToolResult, openai_schema  # noqa: F401

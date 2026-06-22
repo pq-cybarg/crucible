@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Real ModelAdapter backed by transformers/torch. Implements the protocol used by
 # AbliterationPipeline + diagnosis so refusal extraction / orthogonalization run on
 # actual HF weights. Requires torch + transformers (installed separately from the

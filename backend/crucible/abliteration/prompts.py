@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Research refusal-elicitation pairs. Non-operational placeholders — the GUI lets
 # the operator supply their own sets. "Harmful" here means "tends to elicit a refusal".
 DEFAULT_HARMFUL: list[str] = [

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Strength sweep: abliterate at a range of doses on one loaded model (apply -> measure
 # -> restore), to find the strength that removes refusal without collateral over-refusal.
 import numpy as np
