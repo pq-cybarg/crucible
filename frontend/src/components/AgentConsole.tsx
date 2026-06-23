@@ -5,7 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
-import { chatDirectStream, getActiveChatService, getChatMode } from "../services";
+import { chatDirectStream, getActiveChatModel, getActiveChatService, getChatMode } from "../services";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -74,10 +74,22 @@ export default function AgentConsole(): JSX.Element {
   const [perm, setPerm] = useState<PermissionMode>("ask");
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const nextId = useCallbackRef(() => {
     counter.current += 1;
     return `t${counter.current}`;
   });
+
+  // close any open streaming turn (used when the operator stops a run)
+  function finalizeStreaming(): void {
+    setTurns((prev) =>
+      prev.map((t) => (t.kind === "assistant" && t.streaming === true ? { ...t, streaming: false } : t)),
+    );
+  }
+
+  function stop(): void {
+    abortRef.current?.abort();
+  }
 
   const history = useMemo<readonly ChatMessage[]>(
     () =>
@@ -97,26 +109,43 @@ export default function AgentConsole(): JSX.Element {
     setTurns((prev) => [...prev, userTurn]);
     setDraft("");
     setBusy(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const aborted = (): boolean => controller.signal.aborted;
 
     // BYO-AI: a non-Crucible chat backend can be driven two ways.
     const byo = getActiveChatService();
     const mode = byo && !byo.full ? getChatMode() : null;
+    const chosenModel = getActiveChatModel() ?? undefined;
 
     // "direct": browser → service /v1, plain chat (no tool loop). Works from the static page.
     if (byo && mode === "direct") {
       setTurns((prev) => [
         ...prev,
-        { id: nextId(), kind: "notice", text: `chat → ${byo.name} (${byo.baseUrl}) · direct, no tool loop` },
+        {
+          id: nextId(),
+          kind: "notice",
+          text: `chat → ${byo.name} (${byo.baseUrl})${chosenModel ? ` · ${chosenModel}` : ""} · direct, no tool loop`,
+        },
       ]);
       try {
-        const reply = await chatDirectStream(byo, messages, (delta) =>
-          setTurns((prev) => reduce(prev, { type: "assistant_delta", data: { delta } }, nextId)),
+        const reply = await chatDirectStream(
+          byo,
+          messages,
+          (delta) => setTurns((prev) => reduce(prev, { type: "assistant_delta", data: { delta } }, nextId)),
+          chosenModel,
+          512,
+          controller.signal,
         );
         // finalize the streamed turn with the authoritative text (or a fallback notice)
         setTurns((prev) =>
           reduce(prev, { type: "assistant", data: { content: reply || "(empty reply)", streamed: true } }, nextId),
         );
+        if (aborted()) {
+          setTurns((prev) => [...prev, { id: nextId(), kind: "notice", text: "stopped by operator" }]);
+        }
       } catch (err: unknown) {
+        finalizeStreaming();
         const why = err instanceof Error ? err.message : "request failed";
         setTurns((prev) => [
           ...prev,
@@ -127,6 +156,7 @@ export default function AgentConsole(): JSX.Element {
           },
         ]);
       }
+      abortRef.current = null;
       setBusy(false);
       return;
     }
@@ -134,7 +164,7 @@ export default function AgentConsole(): JSX.Element {
     // "tools": browser → Crucible backend → service. Full agent tool-loop, Crucible runs the tools.
     const byoTools = byo && mode === "tools" ? byo : null;
     const upstream = byoTools
-      ? { endpoint: byoTools.baseUrl, model: byoTools.models[0] ?? "local" }
+      ? { endpoint: byoTools.baseUrl, model: chosenModel ?? byoTools.models[0] ?? "local" }
       : undefined;
     if (byoTools) {
       setTurns((prev) => [
@@ -147,9 +177,13 @@ export default function AgentConsole(): JSX.Element {
       messages,
       permissions: { default: perm, modes: {} },
       onEvent: (event) => setTurns((prev) => reduce(prev, event, nextId)),
+      signal: controller.signal,
       ...(upstream ? { upstream } : {}),
     });
-    if (status === "no-model") {
+    if (aborted()) {
+      finalizeStreaming();
+      setTurns((prev) => [...prev, { id: nextId(), kind: "notice", text: "stopped by operator" }]);
+    } else if (status === "no-model") {
       setTurns((prev) => [
         ...prev,
         { id: nextId(), kind: "notice", text: "no inference node is loaded — bring the forge online to get a reply" },
@@ -160,6 +194,7 @@ export default function AgentConsole(): JSX.Element {
         { id: nextId(), kind: "notice", text: "backend offline — start the Crucible API on :8400" },
       ]);
     }
+    abortRef.current = null;
     setBusy(false);
   }
 
@@ -237,9 +272,15 @@ export default function AgentConsole(): JSX.Element {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKey}
           />
-          <button type="submit" className="btn" disabled={busy || draft.trim().length === 0}>
-            {busy ? "forging" : "send"}
-          </button>
+          {busy ? (
+            <button type="button" className="btn stop" onClick={stop} title="abort this run">
+              stop
+            </button>
+          ) : (
+            <button type="submit" className="btn" disabled={draft.trim().length === 0}>
+              send
+            </button>
+          )}
         </div>
         <div className="perm">
           <span>tool permission</span>

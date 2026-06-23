@@ -40,6 +40,9 @@ Deferred / planned work, captured so nothing is lost.
 - [x] POST /api/models/connect — register an OpenAI-compatible endpoint as a first-class model
 - [x] Token-level streaming on the tool-loop path (assistant_delta SSE; fragmented tool-calls reassembled)
 - [x] Token-level streaming on the direct-chat path (browser → service SSE, static-page friendly)
+- [x] Stop/cancel an in-flight run (AbortController through runAgent + chatDirectStream; Stop button)
+- [x] Per-service model picker on BYO cards (when a service exposes several; persisted, used by both modes)
+- [x] Demo-mode simulated token streaming (static page shows the animation + caret with no backend)
 - [x] CORS / OLLAMA_ORIGINS + write-permission docs
 
 ## Benchmarks

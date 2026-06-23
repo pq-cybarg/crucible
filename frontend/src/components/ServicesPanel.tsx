@@ -26,6 +26,12 @@ export default function ServicesPanel(): JSX.Element {
   const [active, setActive] = useState<DetectedService | null>(getActiveChatService());
   const [mode, setMode] = useState<ChatMode>(getChatMode());
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // per-card chosen model (when a service exposes several); keyed by svcKey
+  const [picked, setPicked] = useState<Readonly<Record<string, string>>>({});
+
+  function modelFor(svc: DetectedService): string | undefined {
+    return picked[svcKey(svc)] ?? svc.models[0];
+  }
 
   async function runScan(): Promise<void> {
     setScan({ state: "scanning" });
@@ -35,7 +41,7 @@ export default function ServicesPanel(): JSX.Element {
   }
 
   function pick(svc: DetectedService | null, m: ChatMode = "direct"): void {
-    setActiveChatService(svc, m);
+    setActiveChatService(svc, m, svc ? modelFor(svc) : undefined);
     setActive(svc);
     setMode(m);
   }
@@ -130,13 +136,27 @@ export default function ServicesPanel(): JSX.Element {
                 </div>
                 <code className="byo-url">{s.baseUrl}</code>
                 <div className="byo-note">{s.note}</div>
-                {s.models.length > 0 && (
+                {s.models.length === 1 && (
                   <div className="byo-models">
-                    {s.models.slice(0, 4).map((m) => (
-                      <span key={m} className="byo-model">{m}</span>
-                    ))}
-                    {s.models.length > 4 && <span className="byo-model more">+{s.models.length - 4}</span>}
+                    <span className="byo-model">{s.models[0]}</span>
                   </div>
+                )}
+                {s.models.length > 1 && (
+                  <select
+                    className="byo-modelsel"
+                    value={modelFor(s)}
+                    title="choose which model this service should serve"
+                    onChange={(e) => {
+                      const m = e.target.value;
+                      setPicked((p) => ({ ...p, [svcKey(s)]: m }));
+                      // keep the active selection's model in sync if this card is active
+                      if (isActive) setActiveChatService(s, mode, m);
+                    }}
+                  >
+                    {s.models.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
                 )}
                 {s.chat && (
                   <div className="byo-actions">

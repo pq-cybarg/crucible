@@ -109,10 +109,12 @@ export async function chatDirectStream(
   onToken: (delta: string) => void,
   model?: string,
   maxTokens = 512,
+  signal?: AbortSignal,
 ): Promise<string> {
   const r = await fetch(chatEndpoint(svc), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: model ?? svc.models[0] ?? "local", messages, max_tokens: maxTokens, stream: true }),
+    ...(signal ? { signal } : {}),
   });
   if (!r.ok) throw new Error(`chat ${r.status}`);
   if (r.body === null) return chatDirect(svc, messages, model, maxTokens);
@@ -121,21 +123,25 @@ export async function chatDirectStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      for (const line of frame.split("\n")) {
-        const delta = sseContentDelta(line);
-        if (delta !== null && delta.length > 0) {
-          full += delta;
-          onToken(delta);
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        for (const line of frame.split("\n")) {
+          const delta = sseContentDelta(line);
+          if (delta !== null && delta.length > 0) {
+            full += delta;
+            onToken(delta);
+          }
         }
       }
     }
+  } catch {
+    // aborted by the operator — return what streamed so far
   }
   return full;
 }
@@ -148,25 +154,35 @@ export type ChatMode = "direct" | "tools";
 // active BYO chat service (persisted) — null means use Crucible's own agent path
 const KEY = "crucible_chat_service";
 const MODE_KEY = "crucible_chat_mode";
+const MODEL_KEY = "crucible_chat_model";
 export function getActiveChatService(): DetectedService | null {
   if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;
   try { return JSON.parse(raw) as DetectedService; } catch { return null; }
 }
-export function setActiveChatService(svc: DetectedService | null, mode: ChatMode = "direct"): void {
+export function setActiveChatService(svc: DetectedService | null, mode: ChatMode = "direct", model?: string): void {
   if (typeof localStorage === "undefined" || typeof localStorage.setItem !== "function") return;
   if (svc) {
     localStorage.setItem(KEY, JSON.stringify(svc));
     localStorage.setItem(MODE_KEY, mode);
+    const chosen = model ?? svc.models[0];
+    if (chosen) localStorage.setItem(MODEL_KEY, chosen);
+    else localStorage.removeItem(MODEL_KEY);
   } else {
     localStorage.removeItem(KEY);
     localStorage.removeItem(MODE_KEY);
+    localStorage.removeItem(MODEL_KEY);
   }
 }
 export function getChatMode(): ChatMode {
   if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return "direct";
   return localStorage.getItem(MODE_KEY) === "tools" ? "tools" : "direct";
+}
+// the model chosen for the active service (when it exposes several); null = use its default
+export function getActiveChatModel(): string | null {
+  if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
+  return localStorage.getItem(MODEL_KEY);
 }
 
 // Register a BYO endpoint as a first-class Crucible registry model (needs a Crucible

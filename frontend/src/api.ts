@@ -187,11 +187,33 @@ export interface RunOpts {
   readonly onEvent: (event: AgentEvent) => void;
   // BYO-AI: drive the full Crucible tool-loop against a user endpoint (Crucible runs tools).
   readonly upstream?: UpstreamOverride;
+  // Abort an in-flight run (the Stop button wires this to an AbortController).
+  readonly signal?: AbortSignal;
+}
+
+const DEMO_REPLY =
+  "This is the static Crucible demo — the agent harness streams tokens like this, one at a time. " +
+  "Connect a node (top-right), run Crucible locally, or scan for a BYO backend to drive a real model with tools.";
+
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) return resolve();
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+  });
 }
 
 export async function runAgent(opts: RunOpts): Promise<RunStatus> {
   if (isDemo()) {
-    opts.onEvent({ type: "assistant", data: { content: "This is the static Crucible demo. The agent harness drives a real local model — connect your node (top-right) or run Crucible locally to use it live." } });
+    // simulate token streaming so the static page shows the live animation + caret
+    let first = true;
+    for (const word of DEMO_REPLY.split(" ")) {
+      if (opts.signal?.aborted === true) break;
+      opts.onEvent({ type: "assistant_delta", data: { delta: first ? word : ` ${word}` } });
+      first = false;
+      await sleep(40, opts.signal);
+    }
+    opts.onEvent({ type: "assistant", data: { content: DEMO_REPLY, streamed: true } });
     opts.onEvent({ type: "done", data: { content: "" } });
     return "ok";
   }
@@ -211,9 +233,10 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
             }
           : {}),
       }),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
   } catch {
-    return "offline";
+    return opts.signal?.aborted === true ? "ok" : "offline";
   }
   if (resp.status === 503) return "no-model";
   if (!resp.ok || resp.body === null) return "offline";
@@ -221,18 +244,23 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
-      if (dataLine === undefined) continue;
-      const event = parseEvent(dataLine.slice(6));
-      if (event !== null) opts.onEvent(event);
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+        if (dataLine === undefined) continue;
+        const event = parseEvent(dataLine.slice(6));
+        if (event !== null) opts.onEvent(event);
+      }
     }
+  } catch {
+    // aborted by the operator, or the stream dropped — treat as a clean stop
+    return "ok";
   }
   return "ok";
 }

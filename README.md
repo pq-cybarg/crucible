@@ -33,7 +33,7 @@ cd frontend && npm run build                     # hardened TypeScript, zero err
 
 | Surface | What it does |
 |---|---|
-| **Agent** | Claude-Code-style tool loop: read/write/edit/grep/glob/bash, allow/ask/deny permissions, audit log, SSE streaming |
+| **Agent** | Claude-Code-style tool loop: read/write/edit/grep/glob/bash, allow/ask/deny permissions, audit log, token-streamed SSE with a **Stop** button |
 | **Guardrails** | System-prompt presets + regex/redaction filters + constitutional self-critique — **full editorial CRUD** over every rail, built-ins included; live test bench |
 | **Uncensor** | Censorship **diagnosis** (per-layer refusal localization, per-component impact, why/how/removal, surgical verdict) → abliteration → reversible activation steering → lineage-tracked variants |
 | **Weights** | GGUF tensor browser — architecture, layers, shapes, quantization mix — read straight from the header |
@@ -121,8 +121,9 @@ Connect the **node** field (top-right) to a running Crucible backend to go live.
 The page (even the static demo) can drive **any AI service you already run**. In the **Models** tab,
 hit **scan**: Crucible probes localhost — and any remote you name — for Crucible, **Ollama**
 (`:11434`), **llama.cpp** / **vLLM** / any OpenAI-compatible `/v1` (`:8080/:8081/:8000`), and
-**ComfyUI** (`:8188`). Detected services show capability badges, and any chat-capable one can be
-driven from the **forge** console two ways:
+**ComfyUI** (`:8188`). Detected services show capability badges (and a **model picker** when a service
+exposes several); any chat-capable one can be driven from the **forge** console two ways (a **Stop**
+button aborts an in-flight run in either mode):
 
 - **chat (direct)** — browser → service `/v1`, a plain chat call (streams token-by-token via the
   service's own SSE). Works from the static page, no Crucible backend required; no tool-loop.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEvent } from "./api";
+import { parseEvent, sleep } from "./api";
 
 describe("parseEvent (agent SSE discriminated union)", () => {
   it("parses a tool_call event", () => {
@@ -18,5 +18,27 @@ describe("parseEvent (agent SSE discriminated union)", () => {
   });
   it("rejects when data is missing", () => {
     expect(parseEvent(JSON.stringify({ type: "done" }))).toBeNull();
+  });
+});
+
+describe("sleep (abort-aware)", () => {
+  it("resolves immediately if the signal is already aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const t0 = Date.now();
+    await sleep(5000, ac.signal);
+    expect(Date.now() - t0).toBeLessThan(200);
+  });
+  it("resolves when aborted mid-wait", async () => {
+    const ac = new AbortController();
+    const p = sleep(5000, ac.signal);
+    ac.abort();
+    const t0 = Date.now();
+    await p;
+    expect(Date.now() - t0).toBeLessThan(200);
+  });
+  it("resolves normally without a signal", async () => {
+    await sleep(1);
+    expect(true).toBe(true);
   });
 });
