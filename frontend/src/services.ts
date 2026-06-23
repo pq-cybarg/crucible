@@ -85,6 +85,61 @@ export async function chatDirect(svc: DetectedService, messages: readonly { role
   return body.choices?.[0]?.message?.content ?? "";
 }
 
+// Parse a single OpenAI SSE "data: {...}" line into its content delta (or null).
+// Pure + exported so the streaming loop stays trivial and this stays unit-tested.
+export function sseContentDelta(dataLine: string): string | null {
+  const line = dataLine.trim();
+  if (!line.startsWith("data:")) return null;
+  const payload = line.slice(5).trim();
+  if (payload === "" || payload === "[DONE]") return null;
+  try {
+    const obj = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+    return obj.choices?.[0]?.delta?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Direct streaming chat: browser → service /v1 with stream:true. Calls onToken for each
+// content delta and resolves with the full text. Falls back to chatDirect if the body
+// isn't a readable stream (some servers ignore stream:true). No tool-loop.
+export async function chatDirectStream(
+  svc: DetectedService,
+  messages: readonly { role: string; content: string }[],
+  onToken: (delta: string) => void,
+  model?: string,
+  maxTokens = 512,
+): Promise<string> {
+  const r = await fetch(chatEndpoint(svc), {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: model ?? svc.models[0] ?? "local", messages, max_tokens: maxTokens, stream: true }),
+  });
+  if (!r.ok) throw new Error(`chat ${r.status}`);
+  if (r.body === null) return chatDirect(svc, messages, model, maxTokens);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      for (const line of frame.split("\n")) {
+        const delta = sseContentDelta(line);
+        if (delta !== null && delta.length > 0) {
+          full += delta;
+          onToken(delta);
+        }
+      }
+    }
+  }
+  return full;
+}
+
 // How a BYO chat service is driven from the forge console:
 //  - "direct": browser → service /v1 (plain chat, no tools; works from the static page)
 //  - "tools":  browser → Crucible backend → service (full agent tool-loop; Crucible runs the tools)

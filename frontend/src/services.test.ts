@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatEndpoint, describeService, extractModels } from "./services";
+import { chatEndpoint, describeService, extractModels, sseContentDelta } from "./services";
 
 describe("BYO-AI service layer", () => {
   it("extracts Ollama models", () => {
@@ -24,5 +24,20 @@ describe("BYO-AI service layer", () => {
   it("builds the OpenAI-compatible chat endpoint", () => {
     expect(chatEndpoint(describeService({ type: "ollama", name: "O", baseUrl: "http://localhost:11434/" }, [])))
       .toBe("http://localhost:11434/v1/chat/completions");
+  });
+});
+
+describe("sseContentDelta (direct-chat streaming)", () => {
+  it("extracts a content delta", () => {
+    expect(sseContentDelta('data: {"choices":[{"delta":{"content":"hi"}}]}')).toBe("hi");
+  });
+  it("returns null for [DONE], blanks, role-only deltas, and non-data lines", () => {
+    expect(sseContentDelta("data: [DONE]")).toBeNull();
+    expect(sseContentDelta("")).toBeNull();
+    expect(sseContentDelta(": keep-alive")).toBeNull();
+    expect(sseContentDelta('data: {"choices":[{"delta":{"role":"assistant"}}]}')).toBeNull();
+  });
+  it("returns null on malformed json rather than throwing", () => {
+    expect(sseContentDelta("data: {not json")).toBeNull();
   });
 });

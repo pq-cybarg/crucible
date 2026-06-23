@@ -124,8 +124,8 @@ hit **scan**: Crucible probes localhost — and any remote you name — for Cruc
 **ComfyUI** (`:8188`). Detected services show capability badges, and any chat-capable one can be
 driven from the **forge** console two ways:
 
-- **chat (direct)** — browser → service `/v1`, a plain chat call. Works from the static page, no
-  Crucible backend required; no tool-loop.
+- **chat (direct)** — browser → service `/v1`, a plain chat call (streams token-by-token via the
+  service's own SSE). Works from the static page, no Crucible backend required; no tool-loop.
 - **+ tools (via Crucible)** — registers the endpoint as a Crucible model (`POST /api/models/connect`)
   and routes the **full agent tool-loop** through your Crucible backend: Crucible executes the tools
   (read/write/edit/grep/bash, with permissions) locally and relays generation to the service. Needs a

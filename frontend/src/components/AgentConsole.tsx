@@ -5,7 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
-import { chatDirect, getActiveChatService, getChatMode } from "../services";
+import { chatDirectStream, getActiveChatService, getChatMode } from "../services";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -109,11 +109,13 @@ export default function AgentConsole(): JSX.Element {
         { id: nextId(), kind: "notice", text: `chat → ${byo.name} (${byo.baseUrl}) · direct, no tool loop` },
       ]);
       try {
-        const reply = await chatDirect(byo, messages);
-        setTurns((prev) => [
-          ...prev,
-          { id: nextId(), kind: "assistant", text: reply || "(empty reply)" },
-        ]);
+        const reply = await chatDirectStream(byo, messages, (delta) =>
+          setTurns((prev) => reduce(prev, { type: "assistant_delta", data: { delta } }, nextId)),
+        );
+        // finalize the streamed turn with the authoritative text (or a fallback notice)
+        setTurns((prev) =>
+          reduce(prev, { type: "assistant", data: { content: reply || "(empty reply)", streamed: true } }, nextId),
+        );
       } catch (err: unknown) {
         const why = err instanceof Error ? err.message : "request failed";
         setTurns((prev) => [
