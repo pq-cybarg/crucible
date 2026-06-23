@@ -38,6 +38,7 @@ Deferred / planned work, captured so nothing is lost.
 - [x] Drive the forge in "chat (direct)" mode — browser → service /v1, works on the static page
 - [x] Drive the forge in "+ tools (via Crucible)" mode — register endpoint, full agent tool-loop over it
 - [x] POST /api/models/connect — register an OpenAI-compatible endpoint as a first-class model
+- [x] Token-level streaming on the tool-loop path (assistant_delta SSE; fragmented tool-calls reassembled)
 - [x] CORS / OLLAMA_ORIGINS + write-permission docs
 
 ## Benchmarks

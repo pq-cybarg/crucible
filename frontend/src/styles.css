@@ -656,3 +656,8 @@ body::after {
 .byo-use { align-self: flex-start; margin-top: 2px; font-size: 11px; padding: 5px 12px; }
 .byo-use.on { background: var(--flux-dim); border-color: var(--flux); }
 .byo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- streaming caret (BYO tool-loop token stream) --------------- */
+.caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: text-bottom;
+  background: var(--amber); border-radius: 1px; animation: caret-blink 1s steps(2, start) infinite; }
+@keyframes caret-blink { to { opacity: 0; } }

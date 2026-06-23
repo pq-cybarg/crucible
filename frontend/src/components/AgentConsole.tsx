@@ -7,9 +7,9 @@ import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
 import { chatDirect, getActiveChatService, getChatMode } from "../services";
 
-type Turn =
+export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
-  | { readonly id: string; readonly kind: "assistant"; readonly text: string }
+  | { readonly id: string; readonly kind: "assistant"; readonly text: string; readonly streaming?: boolean }
   | { readonly id: string; readonly kind: "notice"; readonly text: string }
   | {
       readonly id: string;
@@ -22,10 +22,30 @@ type Turn =
 
 const PERMS: readonly PermissionMode[] = ["allow", "ask", "deny"];
 
-function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => string): readonly Turn[] {
+export function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => string): readonly Turn[] {
   switch (event.type) {
-    case "assistant":
+    case "assistant_delta": {
+      // token-level streaming: extend the open streaming turn, or open a new one
+      const last = turns[turns.length - 1];
+      if (last !== undefined && last.kind === "assistant" && last.streaming === true) {
+        return turns.map((t) =>
+          t.id === last.id && t.kind === "assistant" ? { ...t, text: t.text + event.data.delta } : t,
+        );
+      }
+      return [...turns, { id: nextId(), kind: "assistant", text: event.data.delta, streaming: true }];
+    }
+    case "assistant": {
+      // finalize an open streaming turn with the authoritative content; else append a new turn
+      const last = turns[turns.length - 1];
+      if (last !== undefined && last.kind === "assistant" && last.streaming === true) {
+        return turns.map((t) =>
+          t.id === last.id && t.kind === "assistant"
+            ? { ...t, text: event.data.content, streaming: false }
+            : t,
+        );
+      }
       return [...turns, { id: nextId(), kind: "assistant", text: event.data.content }];
+    }
     case "tool_call":
       return [
         ...turns,
@@ -194,7 +214,12 @@ export default function AgentConsole(): JSX.Element {
               ) : (
                 <>
                   <div className="who">{turn.kind === "user" ? "operator" : "model"}</div>
-                  <div className="bubble">{turn.text}</div>
+                  <div className="bubble">
+                    {turn.text}
+                    {turn.kind === "assistant" && turn.streaming === true && (
+                      <span className="caret" aria-hidden="true" />
+                    )}
+                  </div>
                 </>
               )}
             </motion.div>

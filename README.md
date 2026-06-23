@@ -23,7 +23,7 @@ CRUCIBLE_HF_MODEL="$PWD/models/qwen-hf" ./run.sh
 Run the test suite:
 
 ```bash
-source .venv/bin/activate && pytest -q          # 181 backend tests
+source .venv/bin/activate && pytest -q          # 188 backend tests
 cd frontend && npm run build                     # hardened TypeScript, zero errors
 ```
 
@@ -104,7 +104,7 @@ sourced); frontier numbers that can't be reliably sourced are left blank rather 
 ```
 backend/crucible/   registry . inference . agent . tools . permissions . audit
                     guardrails/ . abliteration/ (+torch_adapter) . evals/ (+lmeval) . weights/
-backend/tests/      181 tests
+backend/tests/      188 tests
 backend/scripts/    smoke.py . abliterate_hf.py
 frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models)
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
@@ -129,7 +129,8 @@ driven from the **forge** console two ways:
 - **+ tools (via Crucible)** — registers the endpoint as a Crucible model (`POST /api/models/connect`)
   and routes the **full agent tool-loop** through your Crucible backend: Crucible executes the tools
   (read/write/edit/grep/bash, with permissions) locally and relays generation to the service. Needs a
-  Crucible node online; the service just generates.
+  Crucible node online; the service just generates. Replies **stream token-by-token** (SSE
+  `assistant_delta` events) — fragmented tool-calls are reassembled server-side.
 
 Two caveats, by design:
 

@@ -67,3 +67,50 @@ def test_agent_respects_max_iters(tmp_path):
     assert events[-1].type == "error"
     assert events[-1].data["reason"] == "max_iters exceeded"
     assert sum(1 for e in events if e.type == "tool_call") == 3
+
+
+class _StreamModel:
+    """A streaming Model: __call__ blocks; .stream() yields token deltas then final."""
+    def __init__(self, chunks, final):
+        self.chunks = chunks
+        self.final = final
+    def __call__(self, messages, tools):
+        return self.final
+    def stream(self, messages, tools):
+        for c in self.chunks:
+            yield ("token", c)
+        yield ("final", self.final)
+
+
+def test_agent_streams_token_deltas(tmp_path):
+    model = _StreamModel(["Hel", "lo"], {"role": "assistant", "content": "Hello", "tool_calls": []})
+    agent = Agent(model=model, tools=make_registry(tmp_path),
+                  permissions=PermissionPolicy(default="allow"),
+                  audit=AuditLog(tmp_path / "audit.jsonl"))
+    events = list(agent.run([{"role": "user", "content": "hi"}]))
+    deltas = [e.data["delta"] for e in events if e.type == "assistant_delta"]
+    assert deltas == ["Hel", "lo"]
+    final_assistant = [e for e in events if e.type == "assistant"][0]
+    assert final_assistant.data == {"content": "Hello", "streamed": True}
+    assert events[-1].type == "done"
+
+
+def test_agent_stream_disabled_falls_back_to_blocking(tmp_path):
+    model = _StreamModel(["x"], {"role": "assistant", "content": "Y", "tool_calls": []})
+    agent = Agent(model=model, tools=make_registry(tmp_path),
+                  permissions=PermissionPolicy(default="allow"),
+                  audit=AuditLog(tmp_path / "audit.jsonl"), stream=False)
+    events = list(agent.run([{"role": "user", "content": "hi"}]))
+    assert not any(e.type == "assistant_delta" for e in events)
+    assert [e for e in events if e.type == "assistant"][0].data["content"] == "Y"
+
+
+def test_agent_emits_error_on_model_failure(tmp_path):
+    def boom(messages, tools):
+        raise RuntimeError("upstream down")
+    agent = Agent(model=boom, tools=make_registry(tmp_path),
+                  permissions=PermissionPolicy(default="allow"),
+                  audit=AuditLog(tmp_path / "audit.jsonl"))
+    events = list(agent.run([{"role": "user", "content": "hi"}]))
+    assert events[-1].type == "error"
+    assert "upstream down" in events[-1].data["reason"]

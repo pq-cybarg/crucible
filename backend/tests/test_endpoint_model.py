@@ -1,5 +1,53 @@
 """BYO-AI: driving the full agent tool-loop against any OpenAI-compatible upstream."""
-from crucible.agent import endpoint_model, extract_openai_message
+import json
+
+from crucible.agent import endpoint_model, extract_openai_message, parse_openai_stream
+
+
+def _sse(*objs):
+    return [f"data: {json.dumps(o)}" for o in objs] + ["data: [DONE]"]
+
+
+def test_parse_stream_content_tokens():
+    lines = _sse(
+        {"choices": [{"delta": {"content": "Hel"}}]},
+        {"choices": [{"delta": {"content": "lo"}}]},
+    )
+    events = list(parse_openai_stream(lines))
+    assert events[0] == ("token", "Hel")
+    assert events[1] == ("token", "lo")
+    assert events[-1] == ("final", {"role": "assistant", "content": "Hello"})
+
+
+def test_parse_stream_ignores_noise_and_done():
+    lines = ["", ": keep-alive", "data: [DONE]"]
+    assert list(parse_openai_stream(lines)) == [("final", {"role": "assistant", "content": ""})]
+
+
+def test_parse_stream_assembles_fragmented_tool_calls():
+    lines = _sse(
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c1", "function": {"name": "read", "arguments": ""}}]}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": '{"path":'}}]}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": '"a.txt"}'}}]}}]},
+    )
+    final = list(parse_openai_stream(lines))[-1]
+    assert final[0] == "final"
+    msg = final[1]
+    assert msg["content"] == ""
+    assert msg["tool_calls"] == [
+        {"id": "c1", "type": "function",
+         "function": {"name": "read", "arguments": '{"path":"a.txt"}'}}
+    ]
+
+
+def test_parse_stream_synthesizes_missing_tool_call_id():
+    lines = _sse({"choices": [{"delta": {"tool_calls": [
+        {"index": 0, "function": {"name": "ls", "arguments": "{}"}}]}}]})
+    msg = list(parse_openai_stream(lines))[-1][1]
+    assert msg["tool_calls"][0]["id"] == "call_0"
 
 
 def test_extract_plain_message():
