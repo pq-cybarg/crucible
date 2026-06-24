@@ -2,6 +2,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -68,6 +70,33 @@ class DiagnoseRequest(BaseModel):
     layers: list[int] | None = None
     harmful: list[str] | None = None
     harmless: list[str] | None = None
+
+
+class CausalTraceRequest(BaseModel):
+    base_id: str
+    clean_prompt: str | None = None     # harmless-style prompt (no refusal)
+    corrupt_prompt: str | None = None   # harmful-style prompt (triggers refusal)
+    layers: list[int] | None = None
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
+class MultiDirRequest(BaseModel):
+    base_id: str
+    k: int = 3
+    layer: int | None = None
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
+class ConceptRequest(BaseModel):
+    base_id: str
+    positive: list[str]                 # prompts that express the concept
+    negative: list[str]                 # prompts that don't
+    layer: int | None = None
+    coefficient: float = 4.0
+    test_prompt: str | None = None
+    max_new_tokens: int = 40
 
 
 class AbliterateRequest(BaseModel):
@@ -387,6 +416,77 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         impacts = {name: ablation_impact(abliteration_adapter.get_matrix(name), direction)
                    for name in abliteration_adapter.writing_matrices()}
         return explain_mechanism(profile, impacts, req.base_id)
+
+    @app.post("/api/abliteration/causal-trace")
+    def abl_causal_trace(req: CausalTraceRequest) -> dict:
+        """Activation patching / causal tracing — proves WHERE refusal is *caused*, not just
+        correlated. Patches the clean residual into the corrupt run per layer."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - causal tracing needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.patching import causal_trace
+        harmful = req.harmful or DEFAULT_HARMFUL
+        harmless = req.harmless or DEFAULT_HARMLESS
+        n = getattr(a, "num_layers", 1)
+        layers = req.layers if req.layers is not None else list(range(n))
+        bl = best_layer(layer_refusal_profile(a, harmful, harmless, layers))
+        direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
+        clean = req.clean_prompt or harmless[0]
+        corrupt = req.corrupt_prompt or harmful[0]
+        out = causal_trace(a, clean, corrupt, layers, direction)
+        out.update({"base_id": req.base_id, "clean_prompt": clean, "corrupt_prompt": corrupt,
+                    "direction_layer": bl})
+        return out
+
+    @app.post("/api/abliteration/multidir")
+    def abl_multidir(req: MultiDirRequest) -> dict:
+        """Discover MULTIPLE refusal directions (refusal isn't strictly rank-1) and report
+        how much separation lives beyond the primary axis."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.multidir import refusal_directions, sticky_fraction
+        harmful = req.harmful or DEFAULT_HARMFUL
+        harmless = req.harmless or DEFAULT_HARMLESS
+        layer = req.layer if req.layer is not None else best_layer(
+            layer_refusal_profile(a, harmful, harmless, list(range(getattr(a, "num_layers", 1)))))
+        dirs, seps = refusal_directions(a.activations(harmful, layer), a.activations(harmless, layer), req.k)
+        return {"base_id": req.base_id, "layer": layer, "n_directions": int(dirs.shape[0]),
+                "separations": seps, "sticky_fraction": sticky_fraction(seps),
+                "directions": dirs.tolist()}
+
+    @app.post("/api/abliteration/concept")
+    def abl_concept(req: ConceptRequest) -> dict:
+        """Concept steering (RepE / CAA): build a steering vector for ANY concept from
+        paired +/- prompts, report how linearly encoded it is, and (optionally) demo
+        additive steering on a test prompt."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.concept import concept_vector, separability
+        n = getattr(a, "num_layers", 1)
+        layer = req.layer if req.layer is not None else n // 2
+        pos = a.activations(req.positive, layer)
+        neg = a.activations(req.negative, layer)
+        vec = concept_vector(pos, neg)
+        out: dict = {"base_id": req.base_id, "layer": layer,
+                     "separability": separability(pos, neg, vec),
+                     "vector_norm": float(np.linalg.norm(vec))}
+        if req.test_prompt:
+            band = list(range(layer, min(n, layer + max(1, n // 4))))
+            out["test"] = {
+                "prompt": req.test_prompt,
+                "base": a.generate(req.test_prompt, req.max_new_tokens),
+                "steered+": a.inject_generate(req.test_prompt, vec, req.coefficient, band, req.max_new_tokens),
+                "steered-": a.inject_generate(req.test_prompt, vec, -req.coefficient, band, req.max_new_tokens),
+            }
+        return out
 
     @app.post("/api/abliteration/run")
     def abl_run(req: AbliterateRequest) -> dict:

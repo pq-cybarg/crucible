@@ -68,6 +68,53 @@ class TorchModelAdapter:
             rows.append([hs[0, -1, :].float().cpu().numpy() for hs in out.hidden_states])
         return np.array(rows)
 
+    def residual_projection(self, prompt: str, direction) -> float:
+        """Project the final-layer, last-token residual onto a (unit-normalized) direction.
+        The scalar metric used by causal tracing."""
+        import torch
+        r = np.asarray(direction, dtype=np.float64)
+        rn = r / (float(np.linalg.norm(r)) or 1.0)
+        ids = self._encode(prompt).to(self.device)
+        with torch.no_grad():
+            out = self.model(ids, output_hidden_states=True)
+        h = out.hidden_states[-1][0, -1, :].float().cpu().numpy()
+        return float(h @ rn)
+
+    def _clean_residual_at(self, prompt: str, layer: int):
+        """Last-token residual at the OUTPUT of decoder layer `layer` (== hidden_states[layer+1])."""
+        import torch
+        ids = self._encode(prompt).to(self.device)
+        with torch.no_grad():
+            out = self.model(ids, output_hidden_states=True)
+        return out.hidden_states[layer + 1][0, -1, :].detach().clone()
+
+    def patched_residual_projection(self, corrupt_prompt: str, clean_prompt: str,
+                                    layer: int, direction) -> float:
+        """Activation patching: run the corrupt prompt but splice the clean prompt's
+        last-token residual in at `layer`, then read the final-residual projection. The
+        causal counterpart to residual_projection. Hook removed after the call."""
+        import torch
+        r = np.asarray(direction, dtype=np.float64)
+        rn = r / (float(np.linalg.norm(r)) or 1.0)
+        clean_vec = self._clean_residual_at(clean_prompt, int(layer)).to(self.device)
+        layers = self.decoder_layers()
+
+        def hook(module, inp, out):
+            is_t = isinstance(out, tuple)
+            h = (out[0] if is_t else out).clone()
+            h[0, -1, :] = clean_vec.to(h.dtype)
+            return (h,) + tuple(out[1:]) if is_t else h
+
+        ids = self._encode(corrupt_prompt).to(self.device)
+        handle = layers[int(layer)].register_forward_hook(hook)
+        try:
+            with torch.no_grad():
+                out = self.model(ids, output_hidden_states=True)
+            h = out.hidden_states[-1][0, -1, :].float().cpu().numpy()
+            return float(h @ rn)
+        finally:
+            handle.remove()
+
     def _encode_messages(self, messages: list[dict]):
         if getattr(self.tok, "chat_template", None):
             enc = self.tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
