@@ -342,6 +342,23 @@ export interface RuntimeStatus {
   readonly active: readonly string[];
 }
 
+// Validate an arbitrary Crucible node URL before committing the GUI to it. Pings its
+// /api/health with the given token; returns ok or the reason it failed.
+export async function probeNode(base: string, token: string): Promise<{ ok: boolean; detail: string }> {
+  const url = base.replace(/\/$/, "") + "/api/health";
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  try {
+    const r = await fetch(url, { headers });
+    if (!r.ok) return { ok: false, detail: `HTTP ${r.status}` };
+    const body: unknown = await r.json();
+    const healthy = isRecord(body) && body["ok"] === true;
+    return { ok: healthy, detail: healthy ? "healthy" : "unexpected response" };
+  } catch {
+    return { ok: false, detail: "unreachable (offline or CORS)" };
+  }
+}
+
 export async function getRuntime(): Promise<RuntimeStatus> {
   const r = await cfetch(API_BASE + "/api/runtime");
   if (!r.ok) throw new Error(`GET /api/runtime -> ${r.status}`);

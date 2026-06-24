@@ -7,7 +7,7 @@ import GuardrailsPanel from "./components/GuardrailsPanel";
 import UncensorPanel from "./components/UncensorPanel";
 import BenchmarksPanel from "./components/BenchmarksPanel";
 import WeightsPanel from "./components/WeightsPanel";
-import { getApiBase, getApiToken, getHealth, getModels, setApiBase, setApiToken } from "./api";
+import { getApiBase, getApiToken, getHealth, getModels, probeNode, setApiBase, setApiToken } from "./api";
 import { isDemo } from "./demo";
 
 type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks";
@@ -50,6 +50,13 @@ export default function App(): JSX.Element {
   const [modelCount, setModelCount] = useState<number | null>(null);
   const [node, setNode] = useState(getApiBase());
   const [token, setToken] = useState(getApiToken());
+  const [probe, setProbe] = useState<{ state: "idle" | "checking" | "ok" | "bad"; detail: string }>({ state: "idle", detail: "" });
+
+  const testNode = async (): Promise<void> => {
+    setProbe({ state: "checking", detail: "" });
+    const r = await probeNode(node, token);
+    setProbe({ state: r.ok ? "ok" : "bad", detail: r.detail });
+  };
 
   const connectNode = (): void => {
     setApiBase(node);
@@ -124,13 +131,18 @@ export default function App(): JSX.Element {
             models <b>{modelCount ?? "—"}</b>
           </span>
           <a className="stat docs-link" href="docs/index.html">docs ↗</a>
-          <span className="stat">
+          <span className="stat node-stat">
             node
-            <input className="node-input" value={node} onChange={(e) => setNode(e.target.value)}
-              placeholder="local (proxy)" title="point at a remote Crucible node, e.g. http://gpu-node:8400" />
+            <input className="node-input" value={node} onChange={(e) => { setNode(e.target.value); setProbe({ state: "idle", detail: "" }); }}
+              placeholder="local (proxy)" title="point at a Crucible node, e.g. http://gpu-node:8400" />
             <input className="node-input" type="password" value={token} onChange={(e) => setToken(e.target.value)}
-              placeholder="token" title="CRUCIBLE_API_TOKEN if the node requires auth" style={{ width: 80 }} />
-            <button className="node-go" onClick={connectNode} title="connect">⏎</button>
+              placeholder="token" title="CRUCIBLE_API_TOKEN if the node requires auth" style={{ width: 72 }} />
+            <button className="node-test" onClick={() => void testNode()} disabled={probe.state === "checking"}
+              title="check the node is reachable before connecting">{probe.state === "checking" ? "…" : "test"}</button>
+            {(probe.state === "ok" || probe.state === "bad") && (
+              <span className={`node-probe ${probe.state}`} title={probe.detail}>{probe.state === "ok" ? "✓" : "✕ " + probe.detail}</span>
+            )}
+            <button className="node-go" onClick={connectNode} title="point the GUI at this node (reloads)">connect</button>
           </span>
         </div>
       </header>
