@@ -25,3 +25,6 @@ where = ["backend"]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"
 pythonpath = ["backend"]
+# Starlette's TestClient warns to "install httpx2" — a harmless version-skew notice from a
+# transitive dep, not our code. Match by message (it surfaces via fastapi.testclient).
+filterwarnings = ["ignore:Using .httpx. with .starlette.testclient. is deprecated:Warning"]

@@ -48,6 +48,9 @@ class AgentRunRequest(BaseModel):
     endpoint: str | None = None
     endpoint_model: str = "local"
     endpoint_token: str = ""
+    # Or drive a model already in the registry (by id) — uses its endpoint, or the local
+    # abliteration adapter if it's the loaded HF model. Empty = auto-resolve.
+    model_id: str | None = None
 
 
 class ConnectRequest(BaseModel):
@@ -1023,14 +1026,51 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         abliteration_adapter.save(out)
         return {"cloned_to": out, "note": "pristine backup; the loaded copy stays active for in-place edits"}
 
+    def _adapter_chat_model(adapter):
+        """Wrap the local HF abliteration adapter as a chat Model (no tools, but it can
+        talk) so the forge works with just the adapter loaded — no llama-server needed."""
+        def m(messages: list[dict], tools: list[dict]) -> dict:
+            return {"role": "assistant", "content": adapter.generate_chat(messages, 256)}
+        return m
+
+    def _resolve_chat_model(req: AgentRunRequest):
+        """Resolve a chat model in priority order so 'chat with Crucible local' just works:
+        per-request endpoint > per-request model_id > process model > env endpoint >
+        any registered endpoint > local adapter."""
+        import os
+        from crucible.agent import endpoint_model
+        if req.endpoint:
+            return endpoint_model(req.endpoint, req.endpoint_token, req.endpoint_model)
+        if req.model_id:
+            try:
+                m = reg.get(req.model_id)
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"model '{req.model_id}' not in registry")
+            if m.endpoint:
+                return endpoint_model(m.endpoint, model_name=m.id)
+            if abliteration_adapter is not None:
+                return _adapter_chat_model(abliteration_adapter)
+            raise HTTPException(status_code=409,
+                detail=f"model '{req.model_id}' has no endpoint and no local adapter is loaded")
+        if model is not None:
+            return model
+        env_ep = os.environ.get("CRUCIBLE_CHAT_ENDPOINT")
+        if env_ep:
+            return endpoint_model(env_ep)
+        for m in reg.list():
+            if m.endpoint:
+                return endpoint_model(m.endpoint, model_name=m.id)
+        if abliteration_adapter is not None:
+            return _adapter_chat_model(abliteration_adapter)
+        return None
+
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
-        active_model = model
-        if req.endpoint:
-            from crucible.agent import endpoint_model
-            active_model = endpoint_model(req.endpoint, req.endpoint_token, req.endpoint_model)
+        active_model = _resolve_chat_model(req)
         if active_model is None:
-            raise HTTPException(status_code=503, detail="no model configured")
+            raise HTTPException(status_code=503,
+                detail="no model available - register a model with an endpoint, set "
+                       "CRUCIBLE_CHAT_ENDPOINT, or load the HF adapter (CRUCIBLE_HF_MODEL)")
         messages = list(req.messages)
         cfg = req.guardrails
         if cfg is not None:
