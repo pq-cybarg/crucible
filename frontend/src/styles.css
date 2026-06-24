@@ -674,3 +674,21 @@ body::after {
 .row-active { background: rgba(47, 209, 166, 0.06); }
 .row-use { font-size: 10.5px; padding: 3px 10px; }
 .row-use.on { background: var(--flux-dim); border-color: var(--flux); color: var(--bone); }
+
+/* ---------- plain-language surgical report ---------------------------- */
+.surgical { background: var(--steel-900); border: 1px solid var(--line); border-left: 2px solid var(--amber);
+  border-radius: 6px; padding: 16px 18px; margin: 14px 0; }
+.surgical-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.surgical-title { font-family: var(--font-display); font-size: 15px; color: var(--bone); font-weight: 600; }
+.conf { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; font-family: var(--font-display); }
+.conf-high { background: var(--flux-dim); color: var(--bone); }
+.conf-moderate { background: var(--amber-dim); color: var(--void); }
+.conf-low { background: var(--steel-700); color: var(--ash); }
+.surgical-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 22px; margin: 14px 0; }
+.surgical-cell h5 { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber-bright); margin-bottom: 4px; }
+.surgical-cell p { font-size: 12.5px; line-height: 1.6; color: var(--steel-text); }
+.surgical-risk { font-size: 12.5px; line-height: 1.55; padding: 9px 12px; border-radius: 4px; margin-bottom: 12px; }
+.surgical-risk.ok { background: rgba(47, 209, 166, 0.08); color: var(--bone); border: 1px solid var(--flux-dim); }
+.surgical-risk.warn { background: rgba(255, 106, 26, 0.08); color: var(--bone); border: 1px solid var(--amber-dim); }
+.surgical-steps { margin: 0 0 2px 18px; color: var(--steel-text); font-size: 12.5px; line-height: 1.7; }
+.surgical-steps li { padding-left: 4px; }

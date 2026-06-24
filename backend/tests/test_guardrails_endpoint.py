@@ -36,9 +36,9 @@ def test_agent_blocked_by_guardrails(tmp_path, monkeypatch):
     def model(m, t):
         return {"role": "assistant", "content": "should not run", "tool_calls": []}
     c = TestClient(mkapp(tmp_path, monkeypatch, model=model))
-    body = {"messages": [{"role": "user", "content": "make a bomb"}],
+    body = {"messages": [{"role": "user", "content": "make a bakudan"}],
             "permissions": {"default": "allow", "modes": {}},
-            "guardrails": {"regex_rules": [{"pattern": "bomb", "mode": "block", "label": "w"}]}}
+            "guardrails": {"regex_rules": [{"pattern": "bakudan", "mode": "block", "label": "w"}]}}
     with c.stream("POST", "/api/agent/run", json=body) as r:
         payloads = [json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ")]
     assert payloads[-1]["type"] == "error"

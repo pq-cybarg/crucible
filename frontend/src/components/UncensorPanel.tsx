@@ -282,6 +282,25 @@ export default function UncensorPanel(): JSX.Element {
             <span>refusal localized to <b>layer {report.best_layer}</b> · mean removal {(report.mean_removed_fraction * 100).toFixed(2)}% · {report.collateral_risk}</span>
           </div>
 
+          {report.narrative && (
+            <div className="surgical">
+              <div className="surgical-head">
+                <span className="surgical-title">{report.narrative.headline}</span>
+                <span className={`conf conf-${report.narrative.confidence}`}>confidence: {report.narrative.confidence}</span>
+              </div>
+              <div className="surgical-grid">
+                <div className="surgical-cell"><h5>where</h5><p>{report.narrative.locate}</p></div>
+                <div className="surgical-cell"><h5>how we know</h5><p>{report.narrative.evidence}</p></div>
+                <div className="surgical-cell"><h5>the target</h5><p>{report.narrative.target}</p></div>
+                <div className="surgical-cell"><h5>the repair</h5><p>{report.narrative.repair}</p></div>
+              </div>
+              <div className={`surgical-risk ${report.surgical ? "ok" : "warn"}`}>{report.narrative.risk}</div>
+              <ol className="surgical-steps">
+                {report.narrative.steps.map((s, i) => <li key={i}>{s}</li>)}
+              </ol>
+            </div>
+          )}
+
           <div className="engrave">where it lives · per-layer refusal margin</div>
           <div className="layer-chart">
             {report.layer_profile.map((p) => (

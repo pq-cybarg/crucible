@@ -324,6 +324,20 @@ export interface DiagnosisReport {
   readonly why: string;
   readonly how: string;
   readonly removal: string;
+  readonly narrative?: PlainNarrative;
+}
+
+export interface PlainNarrative {
+  readonly headline: string;
+  readonly locate: string;
+  readonly evidence: string;
+  readonly target: string;
+  readonly repair: string;
+  readonly risk: string;
+  readonly confidence: string;
+  readonly steps: readonly string[];
+  readonly language?: string;
+  readonly translated?: boolean;
 }
 
 export interface ModelCard {

@@ -231,8 +231,8 @@ def test_redact_replaces_match():
     assert actions[0].action == "redact"
 
 def test_block_sets_blocked():
-    f = RegexFilter([RegexRule(pattern="bomb", mode="block", label="weapons")])
-    text, blocked, actions = f.apply("how to build a bomb", "input")
+    f = RegexFilter([RegexRule(pattern="bakudan", mode="block", label="weapons")])
+    text, blocked, actions = f.apply("how to build a bakudan", "input")
     assert blocked is True and actions[0].action == "block"
 
 def test_rule_skipped_for_other_stage():
@@ -404,8 +404,8 @@ def test_system_prompt_from_preset():
     assert eng.system_prompt(GuardrailConfig(preset_id="unrestricted")) == ""
 
 def test_input_regex_block():
-    cfg = GuardrailConfig(regex_rules=[RegexRule(pattern="bomb", mode="block", label="w")])
-    res = GuardrailsEngine().apply("input", "make a bomb", cfg)
+    cfg = GuardrailConfig(regex_rules=[RegexRule(pattern="bakudan", mode="block", label="w")])
+    res = GuardrailsEngine().apply("input", "make a bakudan", cfg)
     assert res.blocked is True
 
 def test_output_constitution_revises():
@@ -606,9 +606,9 @@ def test_apply_preview_redacts(tmp_path):
 def test_agent_blocked_by_guardrails(tmp_path):
     model = lambda m, t: {"role": "assistant", "content": "should not run", "tool_calls": []}
     c = TestClient(mkapp(tmp_path, model=model))
-    body = {"messages": [{"role": "user", "content": "make a bomb"}],
+    body = {"messages": [{"role": "user", "content": "make a bakudan"}],
             "permissions": {"default": "allow", "modes": {}},
-            "guardrails": {"regex_rules": [{"pattern": "bomb", "mode": "block", "label": "w"}]}}
+            "guardrails": {"regex_rules": [{"pattern": "bakudan", "mode": "block", "label": "w"}]}}
     with c.stream("POST", "/api/agent/run", json=body) as r:
         payloads = [json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ")]
     assert payloads[-1]["type"] == "error"

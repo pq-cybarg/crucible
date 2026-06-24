@@ -75,6 +75,13 @@ class DiagnoseRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class ExplainRequest(BaseModel):
+    base_id: str
+    language: str = "en"           # render the narrative in the user's language
+    include_causal: bool = False   # prove WHERE by activation patching (slower)
+    include_multidir: bool = False # flag secondary refusal paths
+
+
 class CausalTraceRequest(BaseModel):
     base_id: str
     clean_prompt: str | None = None     # harmless-style prompt (no refusal)
@@ -418,7 +425,48 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             abliteration_adapter.activations(harmless, bl))
         impacts = {name: ablation_impact(abliteration_adapter.get_matrix(name), direction)
                    for name in abliteration_adapter.writing_matrices()}
-        return explain_mechanism(profile, impacts, req.base_id)
+        result = explain_mechanism(profile, impacts, req.base_id)
+        from crucible.abliteration.narrative import plain_diagnosis
+        result["narrative"] = plain_diagnosis(result)   # plain-language surgical report
+        return result
+
+    @app.post("/api/abliteration/explain")
+    def abl_explain(req: ExplainRequest) -> dict:
+        """Plain-language 'surgical' diagnosis: where the behavior is decided, how we know
+        (optionally proven by causal intervention), what to remove, how safe — in the user's
+        language. Jargon-free; the math stays in /diagnose."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.narrative import plain_diagnosis, translate
+        harmful = DEFAULT_HARMFUL
+        harmless = DEFAULT_HARMLESS
+        n = getattr(a, "num_layers", 1)
+        layers = list(range(n))
+        profile = layer_refusal_profile(a, harmful, harmless, layers)
+        bl = best_layer(profile)
+        direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
+        impacts = {name: ablation_impact(a.get_matrix(name), direction)
+                   for name in a.writing_matrices()}
+        diag = explain_mechanism(profile, impacts, req.base_id)
+        causal = multidir = None
+        if req.include_causal:
+            from crucible.abliteration.patching import causal_trace
+            causal = causal_trace(a, harmless[0], harmful[0], layers, direction)
+        if req.include_multidir:
+            from crucible.abliteration.multidir import refusal_directions, sticky_fraction
+            dirs, seps = refusal_directions(a.activations(harmful, bl), a.activations(harmless, bl), 3)
+            multidir = {"n_directions": int(dirs.shape[0]), "sticky_fraction": sticky_fraction(seps)}
+        narr = plain_diagnosis(diag, causal, multidir)
+        if req.language and req.language.lower() not in ("en", "english"):
+            def _translate(text: str, lang: str) -> str:
+                msg = [{"role": "user", "content":
+                        f"Translate to {lang}. Output only the translation, no preamble:\n\n{text}"}]
+                return a.generate_chat(msg, 220).strip()
+            narr = translate(narr, req.language, _translate)
+        return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
 
     @app.post("/api/abliteration/causal-trace")
     def abl_causal_trace(req: CausalTraceRequest) -> dict:

@@ -10,8 +10,8 @@ def test_redact_replaces_match():
 
 
 def test_block_sets_blocked():
-    f = RegexFilter([RegexRule(pattern="bomb", mode="block", label="weapons")])
-    text, blocked, actions = f.apply("how to build a bomb", "input")
+    f = RegexFilter([RegexRule(pattern="bakudan", mode="block", label="weapons")])
+    text, blocked, actions = f.apply("how to build a bakudan", "input")
     assert blocked is True and actions[0].action == "block"
 
 

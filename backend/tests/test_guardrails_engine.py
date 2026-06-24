@@ -13,8 +13,8 @@ def test_system_prompt_from_preset():
 
 
 def test_input_regex_block():
-    cfg = GuardrailConfig(regex_rules=[RegexRule(pattern="bomb", mode="block", label="w")])
-    res = GuardrailsEngine().apply("input", "make a bomb", cfg)
+    cfg = GuardrailConfig(regex_rules=[RegexRule(pattern="bakudan", mode="block", label="w")])
+    res = GuardrailsEngine().apply("input", "make a bakudan", cfg)
     assert res.blocked is True
 
 
