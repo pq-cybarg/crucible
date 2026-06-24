@@ -62,6 +62,15 @@ class ConnectRequest(BaseModel):
     notes: str = ""
 
 
+class RuntimeStartRequest(BaseModel):
+    model_id: str
+    port: int | None = None
+
+
+class RuntimeActiveRequest(BaseModel):
+    model_ids: list[str]
+
+
 class ApplyRequest(BaseModel):
     stage: str
     text: str
@@ -267,6 +276,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     serve = {"recipe": None, "band_dirs": None, "coefficient": 1.0}
     from crucible.abliteration.ledger import EditLedger
     ledger = EditLedger()
+
+    import os as _osrt
+    import atexit as _atexit
+    from crucible.runtime import ModelRuntime
+    runtime = ModelRuntime(max_resident=int(_osrt.environ.get("CRUCIBLE_MAX_RESIDENT", "1")))
+    _atexit.register(runtime.stop_all)
     app = FastAPI(title="Crucible")
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -353,6 +368,40 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return reg.register(m)
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
+
+    @app.get("/api/runtime")
+    def runtime_status() -> dict:
+        return runtime.status()
+
+    @app.post("/api/runtime/start")
+    def runtime_start(req: RuntimeStartRequest) -> dict:
+        """Launch a local GGUF model's server (evicting LRU models to respect the memory
+        cap), wait for health, and register its endpoint."""
+        try:
+            m = reg.get(req.model_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="model not found")
+        if not m.path.endswith(".gguf") or not Path(m.path).exists():
+            raise HTTPException(status_code=409,
+                detail="runtime can only launch local GGUF models on disk")
+        inst = runtime.ensure(m.id, m.path, req.port)
+        from crucible.inference import wait_healthy
+        healthy = wait_healthy(inst.endpoint, timeout=90)
+        reg.set_endpoint(m.id, inst.endpoint)
+        return {"started": m.id, "endpoint": inst.endpoint, "healthy": healthy,
+                "status": runtime.status()}
+
+    @app.post("/api/runtime/stop")
+    def runtime_stop(req: RuntimeStartRequest) -> dict:
+        stopped = runtime.stop(req.model_id)
+        return {"stopped": stopped, "status": runtime.status()}
+
+    @app.post("/api/runtime/active")
+    def runtime_active(req: RuntimeActiveRequest) -> dict:
+        """Mark the set of models the operator wants 'active'. With enough memory they run
+        concurrently; when capped, they round-robin (LRU eviction) on demand."""
+        runtime.set_active(req.model_ids)
+        return runtime.status()
 
     @app.get("/api/models/{model_id}/lineage")
     def lineage(model_id: str) -> list[Model]:
@@ -1096,6 +1145,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 raise HTTPException(status_code=404, detail=f"model '{req.model_id}' not in registry")
             if m.endpoint:
                 return endpoint_model(m.endpoint, model_name=m.id)
+            # local GGUF with no endpoint -> launch it on demand (round-robin manager)
+            if m.path.endswith(".gguf") and Path(m.path).exists():
+                inst = runtime.ensure(m.id, m.path)
+                from crucible.inference import wait_healthy
+                wait_healthy(inst.endpoint, timeout=90)
+                return endpoint_model(inst.endpoint, model_name=m.id)
             if abliteration_adapter is not None:
                 return _adapter_chat_model(abliteration_adapter)
             raise HTTPException(status_code=409,

@@ -327,6 +327,54 @@ export interface DiagnosisReport {
   readonly narrative?: PlainNarrative;
 }
 
+export interface RuntimeInstance {
+  readonly model_id: string;
+  readonly port: number;
+  readonly endpoint: string;
+  readonly active: boolean;
+  readonly started_at: number;
+  readonly last_used: number;
+}
+
+export interface RuntimeStatus {
+  readonly max_resident: number;
+  readonly resident: readonly RuntimeInstance[];
+  readonly active: readonly string[];
+}
+
+export async function getRuntime(): Promise<RuntimeStatus> {
+  const r = await cfetch(API_BASE + "/api/runtime");
+  if (!r.ok) throw new Error(`GET /api/runtime -> ${r.status}`);
+  return (await r.json()) as RuntimeStatus;
+}
+
+export async function startModel(modelId: string): Promise<{ healthy: boolean; status: RuntimeStatus }> {
+  const r = await cfetch(API_BASE + "/api/runtime/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model_id: modelId }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `start -> ${r.status}`);
+  return (await r.json()) as { healthy: boolean; status: RuntimeStatus };
+}
+
+export async function stopModel(modelId: string): Promise<RuntimeStatus> {
+  const r = await cfetch(API_BASE + "/api/runtime/stop", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model_id: modelId }),
+  });
+  if (!r.ok) throw new Error(`stop -> ${r.status}`);
+  return ((await r.json()) as { status: RuntimeStatus }).status;
+}
+
+export async function setActiveModels(ids: readonly string[]): Promise<RuntimeStatus> {
+  const r = await cfetch(API_BASE + "/api/runtime/active", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model_ids: ids }),
+  });
+  if (!r.ok) throw new Error(`active -> ${r.status}`);
+  return (await r.json()) as RuntimeStatus;
+}
+
 export interface PlainNarrative {
   readonly headline: string;
   readonly locate: string;

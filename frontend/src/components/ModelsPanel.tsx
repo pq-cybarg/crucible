@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { getModels } from "../api";
 import type { ModelRow } from "../api";
 import ServicesPanel from "./ServicesPanel";
+import RuntimePanel from "./RuntimePanel";
 import { getActiveModelId, setActiveModelId } from "../services";
 
 type Load =
@@ -100,6 +101,7 @@ export default function ModelsPanel(): JSX.Element {
         </>
       )}
 
+      {load.state === "ready" && <RuntimePanel rows={load.rows} />}
       <ServicesPanel />
     </div>
   );

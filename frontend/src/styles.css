@@ -692,3 +692,24 @@ body::after {
 .surgical-risk.warn { background: rgba(255, 106, 26, 0.08); color: var(--bone); border: 1px solid var(--amber-dim); }
 .surgical-steps { margin: 0 0 2px 18px; color: var(--steel-text); font-size: 12.5px; line-height: 1.7; }
 .surgical-steps li { padding-left: 4px; }
+
+/* ---------- runtime manager (load models on demand) ------------------- */
+.runtime { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
+.runtime-head h2 { font-family: var(--font-display); font-size: 17px; color: var(--bone); font-weight: 600; }
+.runtime-head h2 em { color: var(--ash); font-style: normal; font-weight: 400; font-size: 13px; }
+.runtime-head p { color: var(--steel-text); font-size: 12px; line-height: 1.6; max-width: 760px; margin-top: 6px; }
+.runtime-head p b { color: var(--amber-bright); font-weight: 600; }
+.runtime-err { color: var(--ember); font-size: 11.5px; margin: 8px 0; }
+.runtime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
+.runtime-card { background: var(--steel-900); border: 1px solid var(--line); border-radius: 6px; padding: 13px; display: flex; flex-direction: column; gap: 8px; }
+.runtime-card.on { border-color: var(--flux-dim); }
+.runtime-top { display: flex; align-items: center; justify-content: space-between; }
+.runtime-name { font-family: var(--font-display); font-size: 13px; color: var(--bone); font-weight: 600; }
+.runtime-dot { width: 8px; height: 8px; border-radius: 50%; }
+.runtime-dot.live { background: var(--flux); box-shadow: 0 0 8px var(--flux); }
+.runtime-dot.cold { background: var(--steel-600); }
+.runtime-sub { font-size: 10.5px; color: var(--ash); }
+.runtime-actions { display: flex; align-items: center; gap: 12px; }
+.runtime-run { font-size: 11px; padding: 4px 12px; }
+.runtime-run.stop { background: var(--steel-800); border-color: var(--ember); color: var(--ember); }
+.runtime-active { font-size: 11px; color: var(--steel-text); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
