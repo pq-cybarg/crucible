@@ -166,6 +166,7 @@ export function setActiveChatService(svc: DetectedService | null, mode: ChatMode
   if (svc) {
     localStorage.setItem(KEY, JSON.stringify(svc));
     localStorage.setItem(MODE_KEY, mode);
+    localStorage.removeItem("crucible_active_model_id");   // BYO service supersedes a registry pick
     const chosen = model ?? svc.models[0];
     if (chosen) localStorage.setItem(MODEL_KEY, chosen);
     else localStorage.removeItem(MODEL_KEY);
@@ -183,6 +184,23 @@ export function getChatMode(): ChatMode {
 export function getActiveChatModel(): string | null {
   if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
   return localStorage.getItem(MODEL_KEY);
+}
+
+// A registry model selected as the chat target (by id). Mutually exclusive with a BYO
+// service: setting one clears the other. This is how you "select the model" in the GUI.
+const MODEL_ID_KEY = "crucible_active_model_id";
+export function getActiveModelId(): string | null {
+  if (typeof localStorage === "undefined" || typeof localStorage.getItem !== "function") return null;
+  return localStorage.getItem(MODEL_ID_KEY);
+}
+export function setActiveModelId(id: string | null): void {
+  if (typeof localStorage === "undefined" || typeof localStorage.setItem !== "function") return;
+  if (id) {
+    localStorage.setItem(MODEL_ID_KEY, id);
+    setActiveChatService(null);   // a registry model and a BYO service are mutually exclusive
+  } else {
+    localStorage.removeItem(MODEL_ID_KEY);
+  }
 }
 
 // Register a BYO endpoint as a first-class Crucible registry model (needs a Crucible

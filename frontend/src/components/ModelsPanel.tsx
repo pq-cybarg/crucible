@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { getModels } from "../api";
 import type { ModelRow } from "../api";
 import ServicesPanel from "./ServicesPanel";
+import { getActiveModelId, setActiveModelId } from "../services";
 
 type Load =
   | { readonly state: "loading" }
@@ -12,6 +13,13 @@ type Load =
 
 export default function ModelsPanel(): JSX.Element {
   const [load, setLoad] = useState<Load>({ state: "loading" });
+  const [activeId, setActiveId] = useState<string | null>(getActiveModelId());
+
+  const selectModel = (id: string): void => {
+    const next = activeId === id ? null : id;
+    setActiveModelId(next);
+    setActiveId(next);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -49,30 +57,47 @@ export default function ModelsPanel(): JSX.Element {
       )}
 
       {load.state === "ready" && load.rows.length > 0 && (
-        <table className="grid-table">
-          <thead>
-            <tr>
-              <th>id</th><th>name</th><th>kind</th><th>quant</th><th>endpoint</th><th>created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {load.rows.map((row, i) => (
-              <motion.tr
-                key={row.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: i * 0.04 }}
-              >
-                <td style={{ color: "var(--bone)" }}>{row.id}</td>
-                <td>{row.name}</td>
-                <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
-                <td>{row.quant}</td>
-                <td>{row.endpoint ?? "—"}</td>
-                <td style={{ color: "var(--ash)" }}>{row.created}</td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <p className="hint">
+            Click <b>use</b> to make the forge talk to that model. Models with an endpoint chat over
+            the network; a local model with no endpoint uses the loaded HF adapter (needs the backend
+            running with <code>CRUCIBLE_HF_MODEL</code>).
+          </p>
+          <table className="grid-table">
+            <thead>
+              <tr>
+                <th>id</th><th>name</th><th>kind</th><th>quant</th><th>endpoint</th><th>created</th><th>chat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {load.rows.map((row, i) => (
+                <motion.tr
+                  key={row.id}
+                  className={activeId === row.id ? "row-active" : ""}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: i * 0.04 }}
+                >
+                  <td style={{ color: "var(--bone)" }}>{row.id}</td>
+                  <td>{row.name}</td>
+                  <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
+                  <td>{row.quant}</td>
+                  <td>{row.endpoint ?? "—"}</td>
+                  <td style={{ color: "var(--ash)" }}>{row.created}</td>
+                  <td>
+                    <button
+                      className={`btn row-use ${activeId === row.id ? "on" : ""}`}
+                      onClick={() => selectModel(row.id)}
+                      title="route the forge console to this model"
+                    >
+                      {activeId === row.id ? "active ✓" : "use"}
+                    </button>
+                  </td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       <ServicesPanel />

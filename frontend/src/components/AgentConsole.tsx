@@ -5,7 +5,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
-import { chatDirectStream, getActiveChatModel, getActiveChatService, getChatMode } from "../services";
+import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -173,12 +173,22 @@ export default function AgentConsole(): JSX.Element {
       ]);
     }
 
+    // a registry model selected in the Models tab (mutually exclusive with a BYO service)
+    const modelId = !byo ? getActiveModelId() : null;
+    if (modelId) {
+      setTurns((prev) => [
+        ...prev,
+        { id: nextId(), kind: "notice", text: `forge → model "${modelId}" (registry)` },
+      ]);
+    }
+
     const status = await runAgent({
       messages,
       permissions: { default: perm, modes: {} },
       onEvent: (event) => setTurns((prev) => reduce(prev, event, nextId)),
       signal: controller.signal,
       ...(upstream ? { upstream } : {}),
+      ...(modelId ? { modelId } : {}),
     });
     if (aborted()) {
       finalizeStreaming();

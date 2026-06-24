@@ -187,6 +187,8 @@ export interface RunOpts {
   readonly onEvent: (event: AgentEvent) => void;
   // BYO-AI: drive the full Crucible tool-loop against a user endpoint (Crucible runs tools).
   readonly upstream?: UpstreamOverride;
+  // Drive a specific registry model by id (the backend resolves its endpoint or adapter).
+  readonly modelId?: string;
   // Abort an in-flight run (the Stop button wires this to an AbortController).
   readonly signal?: AbortSignal;
 }
@@ -232,6 +234,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
               endpoint_token: opts.upstream.token ?? "",
             }
           : {}),
+        ...(opts.modelId ? { model_id: opts.modelId } : {}),
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });

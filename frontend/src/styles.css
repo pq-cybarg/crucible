@@ -668,3 +668,9 @@ body::after {
 .byo-modelsel { background: var(--steel-800); color: var(--bone); border: 1px solid var(--line-bright);
   border-radius: 4px; font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; max-width: 100%; }
 .byo-modelsel:focus { outline: none; border-color: var(--amber-dim); }
+
+/* ---------- model selection in the registry table --------------------- */
+.hint { color: var(--steel-text); font-size: 12px; line-height: 1.6; margin: 4px 0 14px; max-width: 760px; }
+.row-active { background: rgba(47, 209, 166, 0.06); }
+.row-use { font-size: 10.5px; padding: 3px 10px; }
+.row-use.on { background: var(--flux-dim); border-color: var(--flux); color: var(--bone); }
