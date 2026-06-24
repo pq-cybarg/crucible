@@ -204,6 +204,26 @@ class ManualSteerRequest(BaseModel):
     max_new_tokens: int = 18
 
 
+class SafetySuiteRequest(BaseModel):
+    suite: str
+    model_id: str | None = None
+    path: str | None = None         # local dataset for non-bundled (harmful) suites
+    use_judge: bool = False         # score open-ended harmful suites with the LLM judge
+    max_new_tokens: int = 128
+
+
+class ContaminationRequest(BaseModel):
+    candidate: str
+    reference: str
+    n: int = 13
+    threshold: float = 0.5
+
+
+class PassKRequest(BaseModel):
+    per_task: list[tuple[int, int]]   # (n_samples, n_correct) per task
+    k: int = 1
+
+
 class AutotuneRequest(BaseModel):
     base_id: str
     max_new_tokens: int = 18
@@ -738,6 +758,66 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     @app.get("/api/evals/suite")
     def evals_suite() -> list[dict]:
         return CANONICAL_SUITE
+
+    def _make_solver(model_id: str | None):
+        """A prompt->text solver from a registry endpoint, the local adapter, or the
+        process model — whichever is available."""
+        from crucible.agent import endpoint_model
+        if model_id:
+            try:
+                m = reg.get(model_id)
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"model '{model_id}' not in registry")
+            if m.endpoint:
+                em = endpoint_model(m.endpoint, model_name=m.id)
+                return lambda p: (em([{"role": "user", "content": p}], []) or {}).get("content", "")
+        if abliteration_adapter is not None:
+            return lambda p: abliteration_adapter.generate_chat([{"role": "user", "content": p}], 128)
+        if model is not None:
+            return lambda p: (model([{"role": "user", "content": p}], []) or {}).get("content", "")
+        return None
+
+    @app.get("/api/evals/safety-suites")
+    def evals_safety_suites() -> dict:
+        from crucible.evals.safety_suites import SUITES
+        return SUITES
+
+    @app.post("/api/evals/safety-suite")
+    def evals_safety_suite(req: SafetySuiteRequest) -> dict:
+        """Run a safety suite: bundled over-refusal/capability sets, or an operator-supplied
+        harmful set (HarmBench/AdvBench/StrongREJECT) by local path. Reports under- and
+        over-refusal honestly; optional LLM-judge scoring for open-ended harmful suites."""
+        from crucible.evals.safety_suites import load_suite, score_suite
+        solver = _make_solver(req.model_id)
+        if solver is None:
+            raise HTTPException(status_code=503,
+                detail="no model available - select a model or load the HF adapter")
+        try:
+            prompts = load_suite(req.suite, req.path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown suite '{req.suite}'")
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        answers = [solver(p) for p in prompts]
+        judge_scores = None
+        if req.use_judge:
+            from crucible.evals.judge import judge_one
+            judge_scores = [judge_one(p, a, solver)["score"] for p, a in zip(prompts, answers)]
+        result = score_suite(req.suite, answers, judge_scores)
+        result["samples"] = [{"prompt": p, "answer": a} for p, a in list(zip(prompts, answers))[:5]]
+        return result
+
+    @app.post("/api/evals/contamination")
+    def evals_contamination(req: ContaminationRequest) -> dict:
+        from crucible.evals.contamination import flag_contamination
+        return flag_contamination(req.candidate, req.reference, req.n, req.threshold)
+
+    @app.post("/api/evals/passk")
+    def evals_passk(req: PassKRequest) -> dict:
+        from crucible.evals.code_eval import aggregate_pass_at_k, pass_at_k
+        per = [(int(n), int(c)) for n, c in req.per_task]
+        return {"k": req.k, "pass_at_k": aggregate_pass_at_k(per, req.k),
+                "per_task": [pass_at_k(n, c, req.k) for n, c in per]}
 
     @app.post("/api/evals/lmeval")
     def evals_lmeval(req: LmEvalRequest) -> dict:
