@@ -84,6 +84,16 @@ class DiagnoseRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class SaeRequest(BaseModel):
+    base_id: str
+    layer: int | None = None
+    n_features: int = 256
+    epochs: int = 200
+    max_tokens: int = 24
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
 class ExplainRequest(BaseModel):
     base_id: str
     language: str = "en"           # render the narrative in the user's language
@@ -536,6 +546,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return a.generate_chat(msg, 220).strip()
             narr = translate(narr, req.language, _translate)
         return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
+
+    @app.post("/api/abliteration/sae")
+    def abl_sae(req: SaeRequest) -> dict:
+        """Train a sparse autoencoder on a layer's token activations and return the learned
+        feature dictionary with the tokens each top feature fires on — monosemantic features
+        you can name and target, the modern interpretability view."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - SAE needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.sae import SparseAutoencoder, label_features
+        harmful = req.harmful or DEFAULT_HARMFUL
+        harmless = req.harmless or DEFAULT_HARMLESS
+        n = getattr(a, "num_layers", 1)
+        layer = req.layer if req.layer is not None else n // 2
+        X, toks = a.token_activations(harmful + harmless, layer, req.max_tokens)
+        sae = SparseAutoencoder(n_features=req.n_features, epochs=req.epochs, lr=1e-2).fit(X)
+        return {"base_id": req.base_id, "layer": layer, "n_features": req.n_features,
+                "n_tokens": int(X.shape[0]), "r2": sae.r2(X), "sparsity": sae.sparsity(X),
+                "reconstruction_error": sae.reconstruction_error(X),
+                "features": label_features(sae, X, toks, n_features=16, n_tokens=6)}
 
     @app.post("/api/abliteration/causal-trace")
     def abl_causal_trace(req: CausalTraceRequest) -> dict:

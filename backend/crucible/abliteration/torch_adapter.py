@@ -115,6 +115,26 @@ class TorchModelAdapter:
         finally:
             handle.remove()
 
+    def token_activations(self, prompts: list[str], layer: int,
+                          max_tokens: int = 32) -> tuple[np.ndarray, list[str]]:
+        """All per-token residuals at `layer` across the prompts, with the decoded token
+        string for each row. Many vectors (one per token) — the volume an SAE needs to
+        learn a feature dictionary, and the token labels that make features interpretable."""
+        import torch
+        vecs: list[np.ndarray] = []
+        toks: list[str] = []
+        for p in prompts:
+            ids = self._encode(p).to(self.device)
+            with torch.no_grad():
+                out = self.model(ids, output_hidden_states=True)
+            hs = out.hidden_states[layer + 1][0]          # (seq, hidden)
+            seq = hs.shape[0]
+            take = min(seq, max_tokens)
+            for t in range(seq - take, seq):
+                vecs.append(hs[t].float().cpu().numpy())
+                toks.append(self.tok.decode([int(ids[0, t])]).strip() or "·")
+        return np.array(vecs), toks
+
     def _encode_messages(self, messages: list[dict]):
         if getattr(self.tok, "chat_template", None):
             enc = self.tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
