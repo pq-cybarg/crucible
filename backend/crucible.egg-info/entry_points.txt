@@ -1,3 +1,4 @@
 [console_scripts]
 crucible = crucible.cli:main
+crucible-mcp = crucible.mcp_server:main
 crucible-serve = crucible.serve:main

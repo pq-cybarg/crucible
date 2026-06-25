@@ -144,6 +144,27 @@ Two caveats, by design:
   origin) before it will answer a browser. llama.cpp/vLLM generally allow it; for a remote, expose the
   port and (if you set `CRUCIBLE_API_TOKEN`) supply the token in the GUI.
 
+## Drive Crucible from an agent (MCP)
+
+Crucible ships an **MCP server** (`crucible-mcp`) that exposes its capabilities as tools, so
+Claude Code — or any MCP-speaking agent — can drive the whole system: list models, diagnose
+censorship, get the plain-language surgical report, run causal tracing, run safety suites,
+chat with a model, and manage the runtime. Point it at a running backend and register it:
+
+```jsonc
+// ~/.claude/mcp.json (or your client's MCP config)
+{ "mcpServers": {
+    "crucible": {
+      "command": "crucible-mcp",
+      "env": { "CRUCIBLE_ENDPOINT": "http://127.0.0.1:8400", "CRUCIBLE_API_TOKEN": "" }
+    } } }
+```
+
+Tools: `crucible_list_models`, `crucible_diagnose`, `crucible_explain` (plain-language,
+translatable), `crucible_causal_trace`, `crucible_safety_suite`, `crucible_chat`,
+`crucible_runtime`. The agent diagnoses, abliterates, benchmarks, and iterates — you stay in
+the loop. (Crucible is also an MCP *client*, so the agent it runs can use your other MCP servers.)
+
 ## Security
 The server runs tools (`bash`, file edits) and serves models, so when you expose it
 beyond `127.0.0.1` (Docker `0.0.0.0`, or a remote inference node), **set a token**:
