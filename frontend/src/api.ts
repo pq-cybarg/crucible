@@ -189,6 +189,8 @@ export interface RunOpts {
   readonly upstream?: UpstreamOverride;
   // Drive a specific registry model by id (the backend resolves its endpoint or adapter).
   readonly modelId?: string;
+  // ReAct tool-loop for models without native function-calling.
+  readonly react?: boolean;
   // Abort an in-flight run (the Stop button wires this to an AbortController).
   readonly signal?: AbortSignal;
 }
@@ -235,6 +237,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
             }
           : {}),
         ...(opts.modelId ? { model_id: opts.modelId } : {}),
+        ...(opts.react ? { react: true } : {}),
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });

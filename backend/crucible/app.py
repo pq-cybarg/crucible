@@ -51,6 +51,8 @@ class AgentRunRequest(BaseModel):
     # Or drive a model already in the registry (by id) — uses its endpoint, or the local
     # abliteration adapter if it's the loaded HF model. Empty = auto-resolve.
     model_id: str | None = None
+    # ReAct tool-loop for models without native function-calling (most small GGUF models).
+    react: bool = False
 
 
 class ConnectRequest(BaseModel):
@@ -1302,11 +1304,17 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
         policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
-        agent = Agent(model=active_model, tools=default_registry(root),
-                      permissions=policy, audit=AuditLog(settings.data_dir / "audit.jsonl"))
+        tools = default_registry(root)
+        audit = AuditLog(settings.data_dir / "audit.jsonl")
+        if req.react:
+            # ReAct fallback for models without native function-calling (small GGUF models)
+            from crucible.agent_react import react_run
+            events = react_run(active_model, tools, messages, policy, audit)
+        else:
+            events = Agent(model=active_model, tools=tools, permissions=policy, audit=audit).run(messages)
 
         def stream():
-            for event in agent.run(messages):
+            for event in events:
                 yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")

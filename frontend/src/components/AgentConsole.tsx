@@ -72,6 +72,7 @@ export default function AgentConsole(): JSX.Element {
   const [turns, setTurns] = useState<readonly Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [perm, setPerm] = useState<PermissionMode>("ask");
+  const [react, setReact] = useState(false);
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -189,6 +190,7 @@ export default function AgentConsole(): JSX.Element {
       signal: controller.signal,
       ...(upstream ? { upstream } : {}),
       ...(modelId ? { modelId } : {}),
+      ...(react ? { react: true } : {}),
     });
     if (aborted()) {
       finalizeStreaming();
@@ -306,6 +308,10 @@ export default function AgentConsole(): JSX.Element {
               </button>
             ))}
           </span>
+          <label className="react-toggle" title="ReAct text tool-loop — use for models without native function-calling (most small GGUF)">
+            <input type="checkbox" checked={react} onChange={(e) => setReact(e.target.checked)} />
+            ReAct
+          </label>
         </div>
       </form>
     </div>

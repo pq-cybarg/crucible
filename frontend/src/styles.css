@@ -725,3 +725,5 @@ body::after {
 .node-probe { font-size: 10.5px; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
 .node-probe.ok { color: var(--flux); }
 .node-probe.bad { color: var(--ember); }
+
+.react-toggle { font-size: 11px; color: var(--steel-text); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 14px; }
