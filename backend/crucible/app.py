@@ -53,6 +53,12 @@ class AgentRunRequest(BaseModel):
     model_id: str | None = None
     # ReAct tool-loop for models without native function-calling (most small GGUF models).
     react: bool = False
+    # Client-supplied id so a Stop can halt this run server-side (between steps).
+    run_id: str | None = None
+
+
+class CancelRequest(BaseModel):
+    run_id: str
 
 
 class ConnectRequest(BaseModel):
@@ -314,6 +320,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     from crucible.runtime import ModelRuntime
     runtime = ModelRuntime(max_resident=int(_osrt.environ.get("CRUCIBLE_MAX_RESIDENT", "1")))
     _atexit.register(runtime.stop_all)
+    _cancels: set[str] = set()   # run_ids the operator asked to stop (server-side cancel)
     app = FastAPI(title="Crucible")
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -1313,11 +1320,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         else:
             events = Agent(model=active_model, tools=tools, permissions=policy, audit=audit).run(messages)
 
+        run_id = req.run_id
+
         def stream():
-            for event in events:
-                yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
+            try:
+                for event in events:
+                    # server-side cancel: stop pulling events (halts further model calls)
+                    if run_id and run_id in _cancels:
+                        yield f"data: {json.dumps({'type': 'error', 'data': {'reason': 'cancelled by operator'}})}\n\n"
+                        break
+                    yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
+            finally:
+                if run_id:
+                    _cancels.discard(run_id)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/api/agent/cancel")
+    def agent_cancel(req: CancelRequest) -> dict:
+        """Halt an in-flight run server-side (between steps) — stops further generation,
+        not just the client stream."""
+        _cancels.add(req.run_id)
+        return {"cancelled": req.run_id}
 
     import os as _os
     _static = _os.environ.get("CRUCIBLE_STATIC")

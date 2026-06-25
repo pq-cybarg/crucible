@@ -3,7 +3,7 @@ import { useCallbackRef } from "../useCallbackRef";
 import { useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { runAgent } from "../api";
+import { cancelAgent, runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 
@@ -76,6 +76,7 @@ export default function AgentConsole(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef<string | null>(null);
   const nextId = useCallbackRef(() => {
     counter.current += 1;
     return `t${counter.current}`;
@@ -89,7 +90,8 @@ export default function AgentConsole(): JSX.Element {
   }
 
   function stop(): void {
-    abortRef.current?.abort();
+    if (runIdRef.current) void cancelAgent(runIdRef.current);   // halt generation server-side
+    abortRef.current?.abort();                                  // and stop the client stream
   }
 
   const history = useMemo<readonly ChatMessage[]>(
@@ -112,6 +114,8 @@ export default function AgentConsole(): JSX.Element {
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    const runId = `run-${counter.current}-${Math.floor(performance.now())}`;
+    runIdRef.current = runId;
     const aborted = (): boolean => controller.signal.aborted;
 
     // BYO-AI: a non-Crucible chat backend can be driven two ways.
@@ -158,6 +162,7 @@ export default function AgentConsole(): JSX.Element {
         ]);
       }
       abortRef.current = null;
+      runIdRef.current = null;
       setBusy(false);
       return;
     }
@@ -188,6 +193,7 @@ export default function AgentConsole(): JSX.Element {
       permissions: { default: perm, modes: {} },
       onEvent: (event) => setTurns((prev) => reduce(prev, event, nextId)),
       signal: controller.signal,
+      runId,
       ...(upstream ? { upstream } : {}),
       ...(modelId ? { modelId } : {}),
       ...(react ? { react: true } : {}),

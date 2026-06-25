@@ -191,8 +191,20 @@ export interface RunOpts {
   readonly modelId?: string;
   // ReAct tool-loop for models without native function-calling.
   readonly react?: boolean;
+  // Id so Stop can cancel this run server-side (via cancelAgent).
+  readonly runId?: string;
   // Abort an in-flight run (the Stop button wires this to an AbortController).
   readonly signal?: AbortSignal;
+}
+
+// Halt a run server-side (stops further generation, not just the client stream).
+export async function cancelAgent(runId: string): Promise<void> {
+  try {
+    await cfetch(API_BASE + "/api/agent/cancel", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId }),
+    });
+  } catch { /* best-effort; the client abort still stops the stream */ }
 }
 
 const DEMO_REPLY =
@@ -238,6 +250,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
           : {}),
         ...(opts.modelId ? { model_id: opts.modelId } : {}),
         ...(opts.react ? { react: true } : {}),
+        ...(opts.runId ? { run_id: opts.runId } : {}),
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
