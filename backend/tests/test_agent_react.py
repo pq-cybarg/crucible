@@ -83,3 +83,47 @@ def test_react_loop_unknown_tool(tmp_path):
                             PermissionPolicy(default="allow"), AuditLog(tmp_path / "audit.jsonl")))
     tr = [e for e in events if e.type == "tool_result"][0]
     assert tr.data["ok"] is False and "no such tool" in tr.data["error"]
+
+
+def test_hybrid_preamble_mentions_both_paths(tmp_path):
+    from crucible.agent_react import hybrid_preamble
+    p = hybrid_preamble(reg(tmp_path).schemas())
+    assert "function" in p.lower() and "Action:" in p and "Example:" in p
+
+
+def test_hybrid_handles_native_tool_calls(tmp_path):
+    import json as _json
+    from crucible.agent_react import hybrid_run
+    (tmp_path / "a.txt").write_text("hi there")
+    # native model: returns OpenAI tool_calls, then a plain final answer
+    steps = iter([
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": _json.dumps({"path": "a.txt"})}}]},
+        {"role": "assistant", "content": "the file says hi there"},
+    ])
+    model = lambda messages, tools: next(steps)
+    events = list(hybrid_run(model, reg(tmp_path), [{"role": "user", "content": "read a.txt"}],
+                             PermissionPolicy(default="allow"), AuditLog(tmp_path / "audit.jsonl")))
+    types = [e.type for e in events]
+    assert "tool_call" in types and "tool_result" in types
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert tr.data["ok"] and "hi there" in tr.data["output"]
+    assert events[-1].type == "done"
+
+
+def test_hybrid_handles_text_react_from_nonnative_model(tmp_path):
+    from crucible.agent_react import hybrid_run
+    (tmp_path / "a.txt").write_text("hello")
+    # a model with NO function-calling: emits text ReAct, then a Final Answer
+    steps = iter([
+        {"role": "assistant", "content": 'Thought: read it\nAction: read_file\nAction Input: {"path": "a.txt"}'},
+        {"role": "assistant", "content": "Final Answer: it says hello"},
+    ])
+    model = lambda messages, tools: next(steps)
+    events = list(hybrid_run(model, reg(tmp_path), [{"role": "user", "content": "read a.txt"}],
+                             PermissionPolicy(default="allow"), AuditLog(tmp_path / "audit.jsonl")))
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert tr.data["ok"] and "hello" in tr.data["output"]
+    final = [e for e in events if e.type == "assistant"][-1]
+    assert final.data["content"] == "it says hello"   # 'Final Answer:' stripped
+    assert events[-1].type == "done"

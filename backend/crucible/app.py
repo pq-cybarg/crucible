@@ -1365,11 +1365,14 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         tools = default_registry(root)
         audit = AuditLog(settings.data_dir / "audit.jsonl")
         if req.react:
-            # ReAct fallback for models without native function-calling (small GGUF models)
+            # force pure text ReAct (for models where native tool-calls misbehave)
             from crucible.agent_react import react_run
             events = react_run(active_model, tools, messages, policy, audit)
         else:
-            events = Agent(model=active_model, tools=tools, permissions=policy, audit=audit).run(messages)
+            # default: hybrid loop — accepts BOTH native tool-calls AND text ReAct, so tools
+            # work with any model (even one never designed for them), no toggle needed
+            from crucible.agent_react import hybrid_run
+            events = hybrid_run(active_model, tools, messages, policy, audit)
 
         run_id = req.run_id
 

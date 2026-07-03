@@ -338,9 +338,9 @@ export default function AgentConsole(): JSX.Element {
               </button>
             ))}
           </span>
-          <label className="react-toggle" title="ReAct text tool-loop — use for models without native function-calling (most small GGUF)">
+          <label className="react-toggle" title="Tools work with any model by default (native + text fallback). Check to FORCE the pure text ReAct format for models where native tool-calls misbehave.">
             <input type="checkbox" checked={react} onChange={(e) => setReact(e.target.checked)} />
-            ReAct
+            force ReAct
           </label>
         </div>
       </form>
