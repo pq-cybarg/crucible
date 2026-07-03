@@ -112,3 +112,17 @@ def test_abliterate_gguf_dry_run_skips_kquant(tmp_path):
     assert res["dry_run"] is True
     assert res["n_edited"] == 0                              # nothing edited on a dry run
     # any matched writing matrices are K-quant -> reported as skipped, file untouched
+
+
+def test_edit_matrix_modes():
+    from crucible.weights.gguf_edit import edit_matrix, orthogonalize_matrix
+    rng = np.random.default_rng(7)
+    W = rng.standard_normal((8, 5)); r = rng.standard_normal(8); r /= np.linalg.norm(r)
+    # unalign matches orthogonalize; realign is its mirror (adds the component back)
+    assert np.allclose(edit_matrix(W, r, "unalign", 1.0), orthogonalize_matrix(W, r), atol=1e-5)
+    assert np.allclose(r @ edit_matrix(W, r, "unalign"), 0.0, atol=1e-5)
+    assert float(np.linalg.norm(r @ edit_matrix(W, r, "realign", 1.0))) > float(np.linalg.norm(r @ W))
+
+
+def test_edit_matrix_realign():   # marker
+    pass

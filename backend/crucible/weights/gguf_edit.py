@@ -66,6 +66,16 @@ def quantize(arr: np.ndarray, dtype: str) -> bytes:
     raise ValueError(f"quantize: unsupported type {dtype}")
 
 
+def edit_matrix(W: np.ndarray, r: np.ndarray, mode: str = "unalign", coef: float = 1.0) -> np.ndarray:
+    """Edit the refusal component of a writing matrix. mode='unalign' removes it
+    (W - coef*r(rT W)), 'realign' restores/strengthens it (W + coef*r(rT W))."""
+    r = np.asarray(r, dtype=np.float64)
+    r = r / (float(np.linalg.norm(r)) or 1.0)
+    Wf = np.asarray(W, dtype=np.float64)
+    sign = 1.0 if mode == "realign" else -1.0
+    return (Wf + sign * coef * np.outer(r, r @ Wf)).astype(np.float32)
+
+
 def orthogonalize_matrix(W: np.ndarray, r: np.ndarray) -> np.ndarray:
     """Surgical cut: W' = W - r (rᵀ W), removing only the rank-1 component of W along the
     (unit) refusal direction r. r's length must equal W's output dimension (rows)."""
@@ -84,7 +94,7 @@ def tensor_matrix_shape(dims: list[int]) -> tuple[int, int]:
 
 
 def abliterate_gguf(path: str, direction, name_filter=("o_proj", "down_proj"),
-                    dry_run: bool = False) -> dict:
+                    dry_run: bool = False, mode: str = "unalign", coef: float = 1.0) -> dict:
     """Abliterate a GGUF in place (edits the file unless dry_run). Patches 2-D writing
     matrices whose name contains one of name_filter, when their type is directly editable."""
     from crucible.weights.gguf_reader import parse_gguf
@@ -107,7 +117,7 @@ def abliterate_gguf(path: str, direction, name_filter=("o_proj", "down_proj"),
             nbytes = _tensor_nbytes(t["dtype"], t["n_params"])
             raw = f.read(nbytes)
         W = dequantize(raw, t["dtype"], t["n_params"]).reshape(out_dim, in_dim)
-        W2 = orthogonalize_matrix(W, r)
+        W2 = edit_matrix(W, r, mode, coef)
         new_bytes = quantize(W2, t["dtype"])
         if len(new_bytes) != nbytes:
             skipped.append({"name": t["name"], "dtype": t["dtype"], "reason": "requant size mismatch"})

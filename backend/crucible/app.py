@@ -124,12 +124,19 @@ class LoraRequest(BaseModel):
     save_path: str | None = None       # optional .npz to persist the adapter tensors
 
 
+class QuantizeRequest(BaseModel):
+    base_id: str
+    dtype: str = "Q8_0"                # target type: F32/F16/BF16/Q8_0 supported directly
+
+
 class GgufAbliterateRequest(BaseModel):
     base_id: str                       # HF model (loaded adapter) to compute the refusal direction
     gguf_path: str | None = None       # GGUF file to edit; or gguf_model_id
     gguf_model_id: str | None = None
     name_filter: list[str] = ["o_proj", "down_proj"]
     dry_run: bool = True               # default safe: report what WOULD be edited
+    mode: str = "unalign"              # "unalign" (remove refusal) or "realign" (restore it)
+    coef: float = 1.0
 
 
 class TunedLensRequest(BaseModel):
@@ -632,6 +639,20 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "total_adapter_params": total, "n_matrices": len(adapters),
                 "saved": bool(req.save_path and saved)}
 
+    @app.post("/api/weights/quantize")
+    def weights_quantize(req: QuantizeRequest) -> dict:
+        """Quantization analysis: report per-writing-matrix fidelity of a target quant type
+        (what quantizing to it would cost). Directly supports F32/F16/BF16/Q8_0."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.weights.quantize import quantization_report
+        mats = {name: np.asarray(a.get_matrix(name), dtype=np.float32)
+                for name in a.writing_matrices()}
+        return {"base_id": req.base_id, **quantization_report(mats, req.dtype)}
+
     @app.post("/api/abliteration/gguf")
     def abl_gguf(req: GgufAbliterateRequest) -> dict:
         """Abliterate a GGUF directly (in place) — no HF round-trip. Computes the refusal
@@ -656,7 +677,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                               list(range(getattr(a, "num_layers", 1)))))
         direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
         from crucible.weights.gguf_edit import abliterate_gguf
-        result = abliterate_gguf(path, direction, tuple(req.name_filter), dry_run=req.dry_run)
+        result = abliterate_gguf(path, direction, tuple(req.name_filter), dry_run=req.dry_run, mode=req.mode, coef=req.coef)
         result.update({"gguf_path": path, "direction_layer": bl})
         return result
 
