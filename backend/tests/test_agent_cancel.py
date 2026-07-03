@@ -36,3 +36,9 @@ def test_precancel_run_emits_cancelled(tmp_path):
             "permissions": {"default": "allow", "modes": {}}, "run_id": "run-x"}
     resp = c.post("/api/agent/run", json=body)
     assert "cancelled by operator" in resp.text
+
+
+def test_approve_unknown_request(tmp_path):
+    c = mkapp(tmp_path)
+    r = c.post("/api/agent/approve", json={"run_id": "r", "call_id": "c", "approved": True}).json()
+    assert r["ok"] is False   # no pending request

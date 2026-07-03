@@ -3,7 +3,7 @@ import { useCallbackRef } from "../useCallbackRef";
 import { useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { cancelAgent, runAgent } from "../api";
+import { approveAgent, cancelAgent, runAgent } from "../api";
 import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 
@@ -11,6 +11,13 @@ export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
   | { readonly id: string; readonly kind: "assistant"; readonly text: string; readonly streaming?: boolean }
   | { readonly id: string; readonly kind: "notice"; readonly text: string }
+  | {
+      readonly id: string;
+      readonly kind: "permission";
+      readonly name: string;
+      readonly args: Readonly<Record<string, unknown>>;
+      readonly resolved?: "approved" | "denied";
+    }
   | {
       readonly id: string;
       readonly kind: "tool";
@@ -46,6 +53,11 @@ export function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => 
       }
       return [...turns, { id: nextId(), kind: "assistant", text: event.data.content }];
     }
+    case "permission_request":
+      return [
+        ...turns,
+        { id: event.data.id, kind: "permission", name: event.data.name, args: event.data.args },
+      ];
     case "tool_call":
       return [
         ...turns,
@@ -107,6 +119,15 @@ export default function AgentConsole(): JSX.Element {
   function stop(): void {
     if (runIdRef.current) void cancelAgent(runIdRef.current);   // halt generation server-side
     abortRef.current?.abort();                                  // and stop the client stream
+  }
+
+  function decide(callId: string, approved: boolean): void {
+    if (runIdRef.current) void approveAgent(runIdRef.current, callId, approved);
+    setTurns((prev) =>
+      prev.map((t) =>
+        t.kind === "permission" && t.id === callId ? { ...t, resolved: approved ? "approved" : "denied" } : t,
+      ),
+    );
   }
 
   const history = useMemo<readonly ChatMessage[]>(
@@ -269,10 +290,26 @@ export default function AgentConsole(): JSX.Element {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.22 }}
               className={
-                turn.kind === "tool" ? "toolcard" : turn.kind === "notice" ? "notice" : `msg ${turn.kind}`
+                turn.kind === "tool" ? "toolcard" : turn.kind === "permission" ? "permcard"
+                  : turn.kind === "notice" ? "notice" : `msg ${turn.kind}`
               }
             >
-              {turn.kind === "tool" ? (
+              {turn.kind === "permission" ? (
+                <>
+                  <div className="perm-req">
+                    <span className="perm-name">approve <b>{turn.name}</b>?</span>
+                    <code style={{ color: "var(--ash)", fontSize: 11 }}>{JSON.stringify(turn.args)}</code>
+                  </div>
+                  {turn.resolved ? (
+                    <span className={`perm-done ${turn.resolved}`}>{turn.resolved}</span>
+                  ) : (
+                    <div className="perm-actions">
+                      <button className="btn perm-yes" onClick={() => decide(turn.id, true)}>approve</button>
+                      <button className="btn perm-no" onClick={() => decide(turn.id, false)}>deny</button>
+                    </div>
+                  )}
+                </>
+              ) : turn.kind === "tool" ? (
                 <>
                   <div className="tc-head">
                     <span className="tc-name">{turn.name}</span>

@@ -138,3 +138,48 @@ def test_coerce_tool_name_snaps_near_misses():
     assert coerce_tool_name("read", valid) == "read_file"         # substring
     assert coerce_tool_name("xyzzy", valid) == "xyzzy"            # nothing close -> unchanged
     assert coerce_tool_name("anything", []) == "anything"         # no valid list
+
+
+def _react_action_then_final():
+    steps = iter([
+        {"role": "assistant", "content": 'Action: read_file\nAction Input: {"path": "a.txt"}'},
+        {"role": "assistant", "content": "Final Answer: done"},
+    ])
+    return lambda messages, tools: next(steps)
+
+
+def test_ask_tool_emits_permission_request_and_approves(tmp_path):
+    from crucible.agent_react import hybrid_run
+    from crucible.permissions import PermissionPolicy
+    (tmp_path / "a.txt").write_text("secret")
+    events = list(hybrid_run(_react_action_then_final(), reg(tmp_path),
+                             [{"role": "user", "content": "read a.txt"}],
+                             PermissionPolicy(default="ask"), AuditLog(tmp_path / "audit.jsonl"),
+                             approver=lambda cid, name, args: True))
+    types = [e.type for e in events]
+    assert "permission_request" in types
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert tr.data["ok"] and "secret" in tr.data["output"]
+
+
+def test_ask_tool_denied_when_operator_rejects(tmp_path):
+    from crucible.agent_react import hybrid_run
+    from crucible.permissions import PermissionPolicy
+    (tmp_path / "a.txt").write_text("secret")
+    events = list(hybrid_run(_react_action_then_final(), reg(tmp_path),
+                             [{"role": "user", "content": "read a.txt"}],
+                             PermissionPolicy(default="ask"), AuditLog(tmp_path / "audit.jsonl"),
+                             approver=lambda cid, name, args: False))
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert tr.data["ok"] is False and "rejected" in tr.data["error"]
+
+
+def test_ask_tool_denied_without_approver(tmp_path):
+    from crucible.agent_react import hybrid_run
+    from crucible.permissions import PermissionPolicy
+    events = list(hybrid_run(_react_action_then_final(), reg(tmp_path),
+                             [{"role": "user", "content": "read a.txt"}],
+                             PermissionPolicy(default="ask"), AuditLog(tmp_path / "audit.jsonl")))
+    assert not any(e.type == "permission_request" for e in events)
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert "no approver" in tr.data["error"]

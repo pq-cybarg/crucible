@@ -97,6 +97,7 @@ export interface GuardrailResult {
 export type AgentEvent =
   | { readonly type: "assistant"; readonly data: { readonly content: string; readonly streamed?: boolean } }
   | { readonly type: "assistant_delta"; readonly data: { readonly delta: string } }
+  | { readonly type: "permission_request"; readonly data: { readonly id: string; readonly name: string; readonly args: Readonly<Record<string, unknown>> } }
   | { readonly type: "tool_call"; readonly data: { readonly id: string; readonly name: string; readonly args: Readonly<Record<string, unknown>> } }
   | { readonly type: "tool_result"; readonly data: { readonly id: string; readonly name: string; readonly ok: boolean; readonly output: string; readonly error: string | null } }
   | { readonly type: "done"; readonly data: { readonly content: string } }
@@ -104,7 +105,17 @@ export type AgentEvent =
 
 export type RunStatus = "ok" | "no-model" | "offline";
 
-const EVENT_TYPES: ReadonlySet<string> = new Set(["assistant", "assistant_delta", "tool_call", "tool_result", "done", "error"]);
+const EVENT_TYPES: ReadonlySet<string> = new Set(["assistant", "assistant_delta", "permission_request", "tool_call", "tool_result", "done", "error"]);
+
+// Approve or deny a pending 'ask' tool call (unblocks the waiting run server-side).
+export async function approveAgent(runId: string, callId: string, approved: boolean): Promise<void> {
+  try {
+    await cfetch(API_BASE + "/api/agent/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId, call_id: callId, approved }),
+    });
+  } catch { /* best-effort */ }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

@@ -61,6 +61,12 @@ class CancelRequest(BaseModel):
     run_id: str
 
 
+class ApproveRequest(BaseModel):
+    run_id: str
+    call_id: str
+    approved: bool
+
+
 class ConnectRequest(BaseModel):
     """Register a detected OpenAI-compatible service as a first-class registry model."""
     id: str
@@ -343,6 +349,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     runtime = ModelRuntime(max_resident=int(_osrt.environ.get("CRUCIBLE_MAX_RESIDENT", "1")))
     _atexit.register(runtime.stop_all)
     _cancels: set[str] = set()   # run_ids the operator asked to stop (server-side cancel)
+    _approvals: dict = {}        # "run_id:call_id" -> {event, decision} for 'ask' tool approvals
     app = FastAPI(title="Crucible")
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -1513,15 +1520,30 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
         tools = default_registry(root)
         audit = AuditLog(settings.data_dir / "audit.jsonl")
+        # 'ask' tools pause the run and wait for the operator to approve/deny via /api/agent/approve
+        def _make_approver(run_id):
+            if not run_id:
+                return None
+            import threading
+
+            def approver(call_id, name, args):
+                key = f"{run_id}:{call_id}"
+                ev = threading.Event()
+                _approvals[key] = {"event": ev, "decision": False}
+                got = ev.wait(timeout=300)
+                return bool(got and _approvals.pop(key, {}).get("decision", False))
+            return approver
+
+        approver = _make_approver(req.run_id)
         if req.react:
             # force pure text ReAct (for models where native tool-calls misbehave)
             from crucible.agent_react import react_run
-            events = react_run(active_model, tools, messages, policy, audit)
+            events = react_run(active_model, tools, messages, policy, audit, approver=approver)
         else:
             # default: hybrid loop — accepts BOTH native tool-calls AND text ReAct, so tools
             # work with any model (even one never designed for them), no toggle needed
             from crucible.agent_react import hybrid_run
-            events = hybrid_run(active_model, tools, messages, policy, audit)
+            events = hybrid_run(active_model, tools, messages, policy, audit, approver=approver)
 
         run_id = req.run_id
 
@@ -1538,6 +1560,16 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     _cancels.discard(run_id)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/api/agent/approve")
+    def agent_approve(req: ApproveRequest) -> dict:
+        """Approve or deny a pending 'ask' tool call (unblocks the waiting run)."""
+        slot = _approvals.get(f"{req.run_id}:{req.call_id}")
+        if slot is None:
+            return {"ok": False, "detail": "no pending request (it may have timed out)"}
+        slot["decision"] = bool(req.approved)
+        slot["event"].set()
+        return {"ok": True, "approved": bool(req.approved)}
 
     @app.post("/api/agent/cancel")
     def agent_cancel(req: CancelRequest) -> dict:

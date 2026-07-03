@@ -94,26 +94,44 @@ def parse_react(text: str) -> dict:
     return {"kind": "final", "text": text.strip()}
 
 
-def _run_tool(tools: ToolRegistry, permissions: PermissionPolicy, audit: AuditLog,
-              name: str, args: dict) -> dict:
-    """Execute one tool through the permission gate; return an OpenAI-style result dict."""
+def _execute(tools: ToolRegistry, audit: AuditLog, name: str, args: dict) -> dict:
+    """Run one tool (permission already decided). Returns an OpenAI-style result dict."""
     if name not in {t.name for t in tools.all()}:
         return {"ok": False, "output": "", "error": f"no such tool '{name}'"}
-    decision = permissions.check(name, args)
-    if not decision.allowed:
-        return {"ok": False, "output": "", "error": decision.reason}
     res = tools.get(name).run(**args).model_dump()
     audit.record("tool_result", {"name": name, **res})
     return res
 
 
+def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
+    """Authorize + run a tool, yielding a permission_request (when mode='ask' and an approver
+    exists) then the tool_result. Returns the observation string (via generator return)."""
+    mode = permissions.mode_for(name)
+    if mode == "deny":
+        result = {"ok": False, "output": "", "error": "denied by policy"}
+    elif mode == "ask":
+        if approver is None:
+            result = {"ok": False, "output": "", "error": "ask mode with no approver -> denied"}
+        else:
+            yield AgentEvent("permission_request", {"id": call_id, "name": name, "args": args})
+            if approver(call_id, name, args):        # blocks until the operator decides
+                result = _execute(tools, audit, name, args)
+            else:
+                result = {"ok": False, "output": "", "error": "rejected by operator"}
+    else:  # allow
+        result = _execute(tools, audit, name, args)
+    yield AgentEvent("tool_result", {"id": call_id, "name": name, **result})
+    return result.get("output") or result.get("error", "")
+
+
 def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
                permissions: PermissionPolicy, audit: AuditLog,
-               max_iters: int = 10) -> Iterator[AgentEvent]:
+               max_iters: int = 10, approver=None) -> Iterator[AgentEvent]:
     """Universal tool loop: accepts BOTH native OpenAI tool_calls AND text ReAct actions in
     the same loop, so tools work whether or not the model was designed for them. Native
     models keep function-calling; models without it use the text format from the preamble.
-    This is the default forge loop — no toggle needed to give a 'heretic' model tools."""
+    This is the default forge loop — no toggle needed to give a 'heretic' model tools.
+    `approver(call_id, name, args)->bool` handles 'ask' tools (blocks until the operator decides)."""
     convo: list[dict] = [{"role": "system", "content": hybrid_preamble(tools.schemas())}, *messages]
     streamer = getattr(model, "stream", None)
     use_stream = callable(streamer)
@@ -144,10 +162,9 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
                 name = call["function"]["name"]
                 args = json.loads(call["function"].get("arguments") or "{}")
                 yield AgentEvent("tool_call", {"id": call["id"], "name": name, "args": args})
-                result = _run_tool(tools, permissions, audit, name, args)
-                yield AgentEvent("tool_result", {"id": call["id"], "name": name, **result})
-                convo.append({"role": "tool", "tool_call_id": call["id"],
-                              "content": result["output"] or result.get("error", "")})
+                obs = yield from _dispatch_tool(tools, permissions, audit, approver,
+                                                call["id"], name, args)
+                convo.append({"role": "tool", "tool_call_id": call["id"], "content": obs})
             continue
         step = parse_react(text)
         if step["kind"] == "action":                     # --- text ReAct path ---
@@ -157,10 +174,8 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
             cid = f"react-{rid}"
             name, args = step["tool"], step["input"]
             yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args})
-            result = _run_tool(tools, permissions, audit, name, args)
-            yield AgentEvent("tool_result", {"id": cid, "name": name, **result})
-            observation = result["output"] or result.get("error", "")
-            convo.append({"role": "user", "content": f"Observation: {observation}"})
+            obs = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args)
+            convo.append({"role": "user", "content": f"Observation: {obs}"})
             continue
         if streamed or text:                             # --- final (clean text replaces raw) ---
             yield AgentEvent("assistant", {"content": step["text"], "streamed": streamed})
@@ -203,7 +218,7 @@ def react_to_openai_tool_call(step: dict, idx: int = 0) -> dict:
 
 def react_run(model, tools: ToolRegistry, messages: list[dict],
               permissions: PermissionPolicy, audit: AuditLog,
-              max_iters: int = 8) -> Iterator[AgentEvent]:
+              max_iters: int = 8, approver=None) -> Iterator[AgentEvent]:
     """Run a ReAct tool loop against a plain chat model (no native function-calling)."""
     convo = [{"role": "system", "content": react_preamble(tools.schemas())}, *messages]
     step_id = 0
@@ -220,26 +235,11 @@ def react_run(model, tools: ToolRegistry, messages: list[dict],
                 yield AgentEvent("assistant", {"content": step["text"], "streamed": False})
             yield AgentEvent("done", {"content": step["text"]})
             return
-        # action
         step_id += 1
         cid = f"react-{step_id}"
         name, args = step["tool"], step["input"]
         yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args})
-        if name not in {t.name for t in tools.all()}:
-            observation = f"error: no such tool '{name}'"
-            yield AgentEvent("tool_result", {"id": cid, "name": name, "ok": False,
-                                             "output": "", "error": observation})
-        else:
-            decision = permissions.check(name, args)
-            if not decision.allowed:
-                observation = f"denied: {decision.reason}"
-                yield AgentEvent("tool_result", {"id": cid, "name": name, "ok": False,
-                                                 "output": "", "error": decision.reason})
-            else:
-                res = tools.get(name).run(**args).model_dump()
-                observation = res.get("output") or res.get("error") or ""
-                audit.record("tool_result", {"name": name, **res})
-                yield AgentEvent("tool_result", {"id": cid, "name": name, **res})
+        observation = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args)
         convo.append({"role": "assistant", "content": text})
         convo.append({"role": "user", "content": f"Observation: {observation}"})
     yield AgentEvent("error", {"reason": "max_iters exceeded"})
