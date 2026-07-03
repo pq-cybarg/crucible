@@ -108,6 +108,12 @@ class SaeRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class TunedLensRequest(BaseModel):
+    base_id: str
+    harmful: list[str] | None = None
+    harmless: list[str] | None = None
+
+
 class ExplainRequest(BaseModel):
     base_id: str
     language: str = "en"           # render the narrative in the user's language
@@ -561,6 +567,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return a.generate_chat(msg, 220).strip()
             narr = translate(narr, req.language, _translate)
         return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
+
+    @app.post("/api/abliteration/tuned-lens")
+    def abl_tuned_lens(req: TunedLensRequest) -> dict:
+        """Train a tuned lens and return the per-layer decodability curve — where the model
+        commits to its final answer (a faithful alternative to the raw logit lens)."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.tuned_lens import TunedLens
+        prompts = (req.harmful or DEFAULT_HARMFUL) + (req.harmless or DEFAULT_HARMLESS)
+        acts = np.asarray(a.all_layer_activations(prompts))     # (n, n_layers+1, d)
+        final = acts[:, -1, :]
+        n_layers = acts.shape[1] - 1
+        layer_acts = {layer: acts[:, layer + 1, :] for layer in range(n_layers)}
+        lens = TunedLens().fit(layer_acts, final)
+        return {"base_id": req.base_id, "n_layers": n_layers, "curve": lens.curve(layer_acts, final)}
 
     @app.post("/api/abliteration/sae")
     def abl_sae(req: SaeRequest) -> dict:
