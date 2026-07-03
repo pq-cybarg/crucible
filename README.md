@@ -33,7 +33,7 @@ cd frontend && npm run build                     # hardened TypeScript, zero err
 
 | Surface | What it does |
 |---|---|
-| **Agent** | Claude-Code-style tool loop: read/write/edit/grep/glob/bash, allow/ask/deny permissions, audit log, token-streamed SSE with a **Stop** button |
+| **Agent** | Claude-Code-style tool loop with a full skillset — **read · write · edit · multi_edit · list_dir · grep · glob · bash · web_fetch · todo_write** — allow/ask/deny permissions, audit log, token-streamed SSE with a **Stop** button. Works with **any** model (native tool-calls or text ReAct, auto). |
 | **Guardrails** | System-prompt presets + regex/redaction filters + constitutional self-critique — **full editorial CRUD** over every rail, built-ins included; live test bench |
 | **Uncensor** | Censorship **diagnosis** (per-layer refusal localization, per-component impact, why/how/removal, surgical verdict) → abliteration → reversible activation steering → lineage-tracked variants |
 | **Weights** | GGUF tensor browser — architecture, layers, shapes, quantization mix — read straight from the header |
@@ -162,6 +162,13 @@ availability tested live at request time. `/v1/models` lists the choices; the re
 ```
 
 Set the fallback order via `POST /api/provider/preferences {"preferences": ["glm-5.2","crucible"]}`.
+
+**Tools through the gateway.** When OpenCode drives Crucible-as-provider it sends its own tool
+definitions and expects `tool_calls` back — Crucible **forwards `tools`/`tool_choice` to the
+backing model and relays its `tool_calls`**, so OpenCode's tools work end-to-end *when routed
+to a tool-capable model*. The local abliterated adapter has no native tool-calling, so for
+OpenCode tool use route to a tool-capable backing model (or use Crucible's own **forge**, whose
+hybrid loop gives tools to any model). Crucible's forge ships the full toolset above.
 
 ## Drive Crucible from an agent (MCP)
 

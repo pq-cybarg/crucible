@@ -1040,14 +1040,27 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 continue
         return False
 
-    def _serve_content(model_id: str, messages: list, max_tokens: int) -> str:
+    def _serve_message(model_id: str, body: dict) -> dict:
+        """Return the assistant message (content + any tool_calls) for the chosen model.
+        For a proxied endpoint we forward the FULL request (tools, tool_choice, temperature),
+        so a client like OpenCode gets native tool-calling through the gateway; for the local
+        adapter we synthesize a content-only reply (it has no native tool-calling)."""
+        messages = body.get("messages", [])
+        max_tokens = int(body.get("max_tokens") or 256)
         if model_id == "crucible":
-            return abliteration_adapter.generate_chat(
+            content = abliteration_adapter.generate_chat(
                 messages, max_tokens, serve["band_dirs"], serve["coefficient"])
-        from crucible.agent import endpoint_model
+            return {"role": "assistant", "content": content}
+        import httpx
         m = reg.get(model_id)
-        em = endpoint_model(m.endpoint, model_name=m.id, max_tokens=max_tokens)
-        return (em(messages, []) or {}).get("content", "")
+        fwd = {k: v for k, v in body.items() if k != "model" and k != "stream"}
+        fwd["model"] = m.id
+        r = httpx.post(m.endpoint.rstrip("/") + "/v1/chat/completions", json=fwd, timeout=600)
+        r.raise_for_status()
+        data = r.json()
+        msg = (data.get("choices") or [{}])[0].get("message") or {}
+        return {"role": "assistant", "content": msg.get("content") or "",
+                **({"tool_calls": msg["tool_calls"]} if msg.get("tool_calls") else {})}
 
     @app.get("/api/provider/preferences")
     def get_prefs() -> dict:
@@ -1079,25 +1092,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             raise HTTPException(status_code=503,
                 detail="no backing model available (register a model with an endpoint, or load the adapter)")
         reason = routing_explain(requested, chosen, _load_prefs())
-        content = _serve_content(chosen, messages, max_tokens)
+        message = _serve_message(chosen, body)
+        finish = "tool_calls" if message.get("tool_calls") else "stop"
 
         if body.get("stream"):
             def sse():
                 head = {"id": "chatcmpl-crucible", "object": "chat.completion.chunk",
                         "model": chosen, "system_fingerprint": reason,
-                        "choices": [{"index": 0, "delta": {"role": "assistant", "content": content},
-                                     "finish_reason": None}]}
+                        "choices": [{"index": 0, "delta": message, "finish_reason": None}]}
                 yield "data: " + json.dumps(head) + "\n\n"
                 tail = {"id": "chatcmpl-crucible", "object": "chat.completion.chunk",
-                        "model": chosen, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                        "model": chosen, "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]}
                 yield "data: " + json.dumps(tail) + "\n\n"
                 yield "data: [DONE]\n\n"
             return StreamingResponse(sse(), media_type="text/event-stream")
 
         return {"id": "chatcmpl-crucible", "object": "chat.completion", "model": chosen,
                 "system_fingerprint": reason,
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
-                             "finish_reason": "stop"}]}
+                "choices": [{"index": 0, "message": message, "finish_reason": finish}]}
 
     @app.get("/api/inference/recipe")
     def get_serve_recipe() -> dict:

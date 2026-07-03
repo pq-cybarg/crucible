@@ -72,3 +72,58 @@ class EditFile:
             return ToolResult(ok=False, output="", error=str(e))
         except OSError as e:
             return ToolResult(ok=False, output="", error=f"cannot edit: {e}")
+
+
+class ListDir:
+    name = "list_dir"
+    description = "List the entries in a directory (relative to the working directory). Directories end with '/'."
+    parameters = {"type": "object", "properties": {"path": {"type": "string", "description": "directory, default '.'"}}, "required": []}
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+
+    def run(self, path: str = ".") -> ToolResult:
+        try:
+            d = _resolve(self.root, path)
+            if not d.is_dir():
+                return ToolResult(ok=False, output="", error="not a directory")
+            entries = sorted(
+                (e.name + ("/" if e.is_dir() else "") for e in d.iterdir()),
+                key=lambda s: (not s.endswith("/"), s.lower()))
+            return ToolResult(ok=True, output="\n".join(entries) or "(empty)")
+        except ValueError as e:
+            return ToolResult(ok=False, output="", error=str(e))
+        except OSError as e:
+            return ToolResult(ok=False, output="", error=f"cannot list: {e}")
+
+
+class MultiEdit:
+    name = "multi_edit"
+    description = "Apply a sequence of unique-substring replacements to one file, atomically (all or nothing)."
+    parameters = {"type": "object", "properties": {
+        "path": {"type": "string"},
+        "edits": {"type": "array", "items": {"type": "object", "properties": {
+            "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["old", "new"]}},
+    }, "required": ["path", "edits"]}
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+
+    def run(self, path: str, edits: list) -> ToolResult:
+        try:
+            t = _resolve(self.root, path)
+            text = t.read_text()
+            for i, e in enumerate(edits):
+                old, new = e.get("old", ""), e.get("new", "")
+                count = text.count(old)
+                if count == 0:
+                    return ToolResult(ok=False, output="", error=f"edit {i}: old text not found")
+                if count > 1:
+                    return ToolResult(ok=False, output="", error=f"edit {i}: old text not unique ({count})")
+                text = text.replace(old, new)
+            t.write_text(text)
+            return ToolResult(ok=True, output=f"applied {len(edits)} edits")
+        except ValueError as e:
+            return ToolResult(ok=False, output="", error=str(e))
+        except OSError as e:
+            return ToolResult(ok=False, output="", error=f"cannot edit: {e}")
