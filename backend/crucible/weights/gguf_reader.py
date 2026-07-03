@@ -71,8 +71,15 @@ def parse_gguf(path: str) -> dict:
                 "name": name,
                 "shape": dims,
                 "dtype": GGML_TYPES.get(ttype, f"type{ttype}"),
+                "ggml_type": ttype,
                 "n_params": n_params,
                 "offset": offset,
             })
-        return {"version": version, "tensor_count": tensor_count,
-                "metadata": metadata, "tensors": tensors}
+        # tensor data begins after the header, aligned up to general.alignment (default 32)
+        alignment = int(metadata.get("general.alignment", 32) or 32)
+        pos = f.tell()
+        data_start = pos if pos % alignment == 0 else pos + (alignment - pos % alignment)
+        for t in tensors:
+            t["abs_offset"] = data_start + t["offset"]
+        return {"version": version, "tensor_count": tensor_count, "metadata": metadata,
+                "tensors": tensors, "data_start": data_start, "alignment": alignment}

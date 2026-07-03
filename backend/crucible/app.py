@@ -108,6 +108,14 @@ class SaeRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class GgufAbliterateRequest(BaseModel):
+    base_id: str                       # HF model (loaded adapter) to compute the refusal direction
+    gguf_path: str | None = None       # GGUF file to edit; or gguf_model_id
+    gguf_model_id: str | None = None
+    name_filter: list[str] = ["o_proj", "down_proj"]
+    dry_run: bool = True               # default safe: report what WOULD be edited
+
+
 class TunedLensRequest(BaseModel):
     base_id: str
     harmful: list[str] | None = None
@@ -567,6 +575,34 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return a.generate_chat(msg, 220).strip()
             narr = translate(narr, req.language, _translate)
         return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
+
+    @app.post("/api/abliteration/gguf")
+    def abl_gguf(req: GgufAbliterateRequest) -> dict:
+        """Abliterate a GGUF directly (in place) — no HF round-trip. Computes the refusal
+        direction from the loaded HF adapter, then cuts it out of the GGUF's writing matrices
+        for the directly-editable quant types (F16/BF16/F32/Q8_0). dry_run reports first."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503,
+                detail="need the HF adapter loaded to compute the refusal direction")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        path = req.gguf_path
+        if path is None and req.gguf_model_id:
+            try:
+                path = reg.get(req.gguf_model_id).path
+            except KeyError:
+                raise HTTPException(status_code=404, detail="gguf_model_id not in registry")
+        if not path or not Path(path).is_file():
+            raise HTTPException(status_code=409, detail="gguf_path is not a file on disk")
+        harmful, harmless = DEFAULT_HARMFUL, DEFAULT_HARMLESS
+        bl = best_layer(layer_refusal_profile(a, harmful, harmless,
+                                              list(range(getattr(a, "num_layers", 1)))))
+        direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
+        from crucible.weights.gguf_edit import abliterate_gguf
+        result = abliterate_gguf(path, direction, tuple(req.name_filter), dry_run=req.dry_run)
+        result.update({"gguf_path": path, "direction_layer": bl})
+        return result
 
     @app.post("/api/abliteration/tuned-lens")
     def abl_tuned_lens(req: TunedLensRequest) -> dict:
