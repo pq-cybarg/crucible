@@ -77,6 +77,21 @@ export default function AgentConsole(): JSX.Element {
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const runIdRef = useRef<string | null>(null);
+  const [liveRate, setLiveRate] = useState<number | null>(null);
+  const tokCount = useRef(0);
+  const tokStart = useRef(0);
+
+  function countToken(): void {
+    if (tokCount.current === 0) tokStart.current = performance.now();
+    tokCount.current += 1;
+    const elapsed = (performance.now() - tokStart.current) / 1000;
+    if (elapsed > 0) setLiveRate(tokCount.current / elapsed);
+  }
+  function resetRate(): void {
+    tokCount.current = 0;
+    tokStart.current = 0;
+    setLiveRate(null);
+  }
   const nextId = useCallbackRef(() => {
     counter.current += 1;
     return `t${counter.current}`;
@@ -114,6 +129,7 @@ export default function AgentConsole(): JSX.Element {
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    resetRate();
     const runId = `run-${counter.current}-${Math.floor(performance.now())}`;
     runIdRef.current = runId;
     const aborted = (): boolean => controller.signal.aborted;
@@ -137,7 +153,7 @@ export default function AgentConsole(): JSX.Element {
         const reply = await chatDirectStream(
           byo,
           messages,
-          (delta) => setTurns((prev) => reduce(prev, { type: "assistant_delta", data: { delta } }, nextId)),
+          (delta) => { countToken(); setTurns((prev) => reduce(prev, { type: "assistant_delta", data: { delta } }, nextId)); },
           chosenModel,
           512,
           controller.signal,
@@ -191,7 +207,10 @@ export default function AgentConsole(): JSX.Element {
     const status = await runAgent({
       messages,
       permissions: { default: perm, modes: {} },
-      onEvent: (event) => setTurns((prev) => reduce(prev, event, nextId)),
+      onEvent: (event) => {
+        if (event.type === "assistant_delta") countToken();
+        setTurns((prev) => reduce(prev, event, nextId));
+      },
       signal: controller.signal,
       runId,
       ...(upstream ? { upstream } : {}),
@@ -290,6 +309,11 @@ export default function AgentConsole(): JSX.Element {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKey}
           />
+          {liveRate !== null && (
+            <span className="tokrate" title="live generation throughput (≈ tokens/second)">
+              {liveRate.toFixed(1)} tok/s
+            </span>
+          )}
           {busy ? (
             <button type="button" className="btn stop" onClick={stop} title="abort this run">
               stop

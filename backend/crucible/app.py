@@ -79,6 +79,12 @@ class RuntimeActiveRequest(BaseModel):
     model_ids: list[str]
 
 
+class BenchmarkRequest(BaseModel):
+    model_id: str | None = None
+    tokens: int = 64
+    prompt: str = "Write a short paragraph about the ocean and the tides."
+
+
 class ApplyRequest(BaseModel):
     stage: str
     text: str
@@ -859,6 +865,27 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         per = [(int(n), int(c)) for n, c in req.per_task]
         return {"k": req.k, "pass_at_k": aggregate_pass_at_k(per, req.k),
                 "per_task": [pass_at_k(n, c, req.k) for n, c in per]}
+
+    @app.post("/api/runtime/benchmark")
+    def runtime_benchmark(req: BenchmarkRequest) -> dict:
+        """Pre-flight tokens/second speed test for a model — run BEFORE going live. Uses the
+        local adapter for exact prefill/decode counts, else times a remote completion."""
+        from crucible.evals.throughput import estimate_tokens, summarize_benchmark
+        a = abliteration_adapter
+        if a is not None and not req.model_id and hasattr(a, "timed_generate"):
+            r = a.timed_generate(req.prompt, req.tokens)
+            out = summarize_benchmark(r["prompt_tokens"], r["gen_tokens"], r["prefill_s"], r["decode_s"])
+            return {**out, "model": req.model_id or "local-adapter", "sample": r["text"][:200]}
+        solver = _make_solver(req.model_id)
+        if solver is None:
+            raise HTTPException(status_code=503, detail="no model available to benchmark")
+        import time as _t
+        t0 = _t.monotonic()
+        text = solver(req.prompt)
+        decode_s = _t.monotonic() - t0
+        gen = estimate_tokens(text)
+        out = summarize_benchmark(estimate_tokens(req.prompt), gen, 0.0, decode_s)
+        return {**out, "model": req.model_id or "default", "estimated": True, "sample": text[:200]}
 
     @app.post("/api/evals/lmeval")
     def evals_lmeval(req: LmEvalRequest) -> dict:

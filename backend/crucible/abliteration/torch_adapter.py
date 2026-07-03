@@ -115,6 +115,27 @@ class TorchModelAdapter:
         finally:
             handle.remove()
 
+    def timed_generate(self, prompt: str, max_new_tokens: int = 64) -> dict:
+        """Generate and time it: exact prompt/gen token counts + prefill vs decode seconds.
+        The data behind a tokens/second speed test."""
+        import time
+        import torch
+        ids = self._encode(prompt).to(self.device)
+        n_in = int(ids.shape[1])
+        t0 = time.monotonic()
+        with torch.no_grad():
+            self.model(ids)                                  # prefill pass
+        prefill_s = time.monotonic() - t0
+        t1 = time.monotonic()
+        with torch.no_grad():
+            out = self.model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False,
+                                      pad_token_id=getattr(self.tok, "eos_token_id", None))
+        decode_s = time.monotonic() - t1
+        gen = int(out.shape[1]) - n_in
+        text = self.tok.decode(out[0, n_in:], skip_special_tokens=True)
+        return {"text": text, "prompt_tokens": n_in, "gen_tokens": max(gen, 0),
+                "prefill_s": prefill_s, "decode_s": decode_s}
+
     def token_activations(self, prompts: list[str], layer: int,
                           max_tokens: int = 32) -> tuple[np.ndarray, list[str]]:
         """All per-token residuals at `layer` across the prompts, with the decoded token

@@ -727,3 +727,11 @@ body::after {
 .node-probe.bad { color: var(--ember); }
 
 .react-toggle { font-size: 11px; color: var(--steel-text); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; margin-left: 14px; }
+
+/* ---------- tokens/second (live + speed test) ------------------------- */
+.tokrate { font-family: var(--font-mono); font-size: 11px; color: var(--flux); margin-right: 8px; white-space: nowrap; }
+.runtime-speed { font-size: 10.5px; padding: 3px 9px; background: var(--steel-800); border: 1px solid var(--line-bright); color: var(--steel-text); }
+.runtime-speed:hover { color: var(--bone); border-color: var(--amber-dim); }
+.runtime-bench { font-size: 11px; color: var(--steel-text); margin-top: 2px; }
+.runtime-bench b { color: var(--flux); }
+.runtime-est { color: var(--ash); }

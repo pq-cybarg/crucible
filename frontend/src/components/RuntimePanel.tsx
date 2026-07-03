@@ -1,8 +1,8 @@
 import type { JSX } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { getRuntime, setActiveModels, startModel, stopModel } from "../api";
-import type { ModelRow, RuntimeStatus } from "../api";
+import { benchmarkModel, getRuntime, setActiveModels, startModel, stopModel } from "../api";
+import type { BenchmarkResult, ModelRow, RuntimeStatus } from "../api";
 
 function isLaunchable(row: ModelRow): boolean {
   return row.path.endsWith(".gguf") && !row.endpoint;
@@ -12,6 +12,18 @@ export default function RuntimePanel({ rows }: { readonly rows: readonly ModelRo
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [benching, setBenching] = useState<string | null>(null);
+  const [bench, setBench] = useState<Readonly<Record<string, BenchmarkResult>>>({});
+
+  async function speedTest(id: string): Promise<void> {
+    setBenching(id); setErr(null);
+    try {
+      const r = await benchmarkModel(id);
+      setBench((b) => ({ ...b, [id]: r }));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "benchmark failed");
+    } finally { setBenching(null); }
+  }
 
   const refresh = useCallback(async (): Promise<void> => {
     try { setStatus(await getRuntime()); } catch { /* backend offline */ }
@@ -78,7 +90,18 @@ export default function RuntimePanel({ rows }: { readonly rows: readonly ModelRo
                   <input type="checkbox" checked={activeSet.has(row.id)} onChange={() => void toggleActive(row.id)} />
                   active
                 </label>
+                <button className="btn runtime-speed" disabled={benching === row.id}
+                  onClick={() => void speedTest(row.id)} title="pre-flight tokens/second speed test">
+                  {benching === row.id ? "…" : "speed"}
+                </button>
               </div>
+              {bench[row.id] && (
+                <div className="runtime-bench" title={bench[row.id]?.estimated ? "estimated tokens" : "exact token counts"}>
+                  <b>{bench[row.id]?.decode_tok_per_s.toFixed(1)}</b> tok/s decode
+                  {bench[row.id]?.prefill_tok_per_s ? <> · {bench[row.id]?.prefill_tok_per_s.toFixed(0)} prefill</> : null}
+                  {bench[row.id]?.estimated ? <span className="runtime-est"> (est)</span> : null}
+                </div>
+              )}
             </motion.div>
           );
         })}

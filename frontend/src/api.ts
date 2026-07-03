@@ -399,6 +399,27 @@ export async function stopModel(modelId: string): Promise<RuntimeStatus> {
   return ((await r.json()) as { status: RuntimeStatus }).status;
 }
 
+export interface BenchmarkResult {
+  readonly model: string;
+  readonly tok_per_s: number;
+  readonly decode_tok_per_s: number;
+  readonly prefill_tok_per_s: number;
+  readonly gen_tokens: number;
+  readonly total_s: number;
+  readonly estimated?: boolean;
+  readonly sample?: string;
+}
+
+// Pre-flight tokens/second speed test for a model — run before going live.
+export async function benchmarkModel(modelId: string | undefined, tokens = 64): Promise<BenchmarkResult> {
+  const r = await cfetch(API_BASE + "/api/runtime/benchmark", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...(modelId ? { model_id: modelId } : {}), tokens }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `benchmark -> ${r.status}`);
+  return (await r.json()) as BenchmarkResult;
+}
+
 export async function setActiveModels(ids: readonly string[]): Promise<RuntimeStatus> {
   const r = await cfetch(API_BASE + "/api/runtime/active", {
     method: "POST", headers: { "Content-Type": "application/json" },
