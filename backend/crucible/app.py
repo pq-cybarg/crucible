@@ -1002,19 +1002,100 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         from crucible.evals.capability import capability_delta
         return capability_delta(base.path, variant.path, req.task, req.limit)
 
+    # ---- Crucible as an OpenAI-compatible PROVIDER (gateway) ----
+    _pref_path = settings.data_dir / "provider.json"
+
+    def _load_prefs() -> list[str]:
+        try:
+            return list(json.loads(_pref_path.read_text()).get("preferences", []))
+        except Exception:
+            return []
+
+    def _save_prefs(prefs: list[str]) -> None:
+        _pref_path.parent.mkdir(parents=True, exist_ok=True)
+        _pref_path.write_text(json.dumps({"preferences": prefs}, indent=2))
+
+    def _provider_candidates() -> list[str]:
+        ids: list[str] = []
+        if abliteration_adapter is not None:
+            ids.append("crucible")                 # the local abliterated adapter
+        ids.extend(m.id for m in reg.list() if m.endpoint)
+        return ids
+
+    def _provider_available(model_id: str) -> bool:
+        if model_id == "crucible":
+            return abliteration_adapter is not None
+        try:
+            m = reg.get(model_id)
+        except KeyError:
+            return False
+        if not m.endpoint:
+            return False
+        import httpx
+        for probe in ("/health", "/v1/models"):
+            try:
+                if httpx.get(m.endpoint.rstrip("/") + probe, timeout=1.5).status_code < 500:
+                    return True
+            except httpx.HTTPError:
+                continue
+        return False
+
+    def _serve_content(model_id: str, messages: list, max_tokens: int) -> str:
+        if model_id == "crucible":
+            return abliteration_adapter.generate_chat(
+                messages, max_tokens, serve["band_dirs"], serve["coefficient"])
+        from crucible.agent import endpoint_model
+        m = reg.get(model_id)
+        em = endpoint_model(m.endpoint, model_name=m.id, max_tokens=max_tokens)
+        return (em(messages, []) or {}).get("content", "")
+
+    @app.get("/api/provider/preferences")
+    def get_prefs() -> dict:
+        return {"preferences": _load_prefs(), "candidates": _provider_candidates()}
+
+    @app.post("/api/provider/preferences")
+    def set_prefs(body: dict) -> dict:
+        prefs = [str(x) for x in (body.get("preferences") or [])]
+        _save_prefs(prefs)
+        return {"preferences": prefs}
+
     @app.get("/v1/models")
     def v1_models() -> dict:
-        return {"object": "list", "data": [{"id": "crucible", "object": "model", "owned_by": "crucible"}]}
+        data = [{"id": mid, "object": "model", "owned_by": "crucible"}
+                for mid in _provider_candidates()]
+        if not data:
+            data = [{"id": "crucible", "object": "model", "owned_by": "crucible"}]
+        return {"object": "list", "data": data}
 
     @app.post("/v1/chat/completions")
-    def v1_chat(body: dict) -> dict:
-        if abliteration_adapter is None:
-            raise HTTPException(status_code=503, detail="no model adapter loaded")
+    def v1_chat(body: dict):
+        from crucible.routing import choose_model, routing_explain
         messages = body.get("messages", [])
         max_tokens = int(body.get("max_tokens") or 256)
-        content = abliteration_adapter.generate_chat(
-            messages, max_tokens, serve["band_dirs"], serve["coefficient"])
-        return {"id": "chatcmpl-crucible", "object": "chat.completion", "model": "crucible",
+        requested = body.get("model")
+        candidates = _provider_candidates()
+        chosen = choose_model(requested, candidates, _load_prefs(), _provider_available)
+        if chosen is None:
+            raise HTTPException(status_code=503,
+                detail="no backing model available (register a model with an endpoint, or load the adapter)")
+        reason = routing_explain(requested, chosen, _load_prefs())
+        content = _serve_content(chosen, messages, max_tokens)
+
+        if body.get("stream"):
+            def sse():
+                head = {"id": "chatcmpl-crucible", "object": "chat.completion.chunk",
+                        "model": chosen, "system_fingerprint": reason,
+                        "choices": [{"index": 0, "delta": {"role": "assistant", "content": content},
+                                     "finish_reason": None}]}
+                yield "data: " + json.dumps(head) + "\n\n"
+                tail = {"id": "chatcmpl-crucible", "object": "chat.completion.chunk",
+                        "model": chosen, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                yield "data: " + json.dumps(tail) + "\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(sse(), media_type="text/event-stream")
+
+        return {"id": "chatcmpl-crucible", "object": "chat.completion", "model": chosen,
+                "system_fingerprint": reason,
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
                              "finish_reason": "stop"}]}
 

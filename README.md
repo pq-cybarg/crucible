@@ -144,6 +144,25 @@ Two caveats, by design:
   origin) before it will answer a browser. llama.cpp/vLLM generally allow it; for a remote, expose the
   port and (if you set `CRUCIBLE_API_TOKEN`) supply the token in the GUI.
 
+## Crucible as a model provider (for OpenCode)
+
+Crucible exposes an **OpenAI-compatible `/v1`**, so point OpenCode (or any client) straight at
+it and Crucible decides which backing model serves each request: the model you named if it's
+up, else a **preference order** you set in advance, else the **nearest available** model —
+availability tested live at request time. `/v1/models` lists the choices; the response's
+`system_fingerprint` says which was used and why.
+
+```jsonc
+// ~/.config/opencode/opencode.json
+{ "provider": { "crucible": {
+    "npm": "@ai-sdk/openai-compatible",
+    "options": { "baseURL": "http://127.0.0.1:8400/v1" },
+    "models": { "auto": {}, "crucible": {} } } } }
+// then: opencode --model crucible/auto   (auto = nearest/ preferred)
+```
+
+Set the fallback order via `POST /api/provider/preferences {"preferences": ["glm-5.2","crucible"]}`.
+
 ## Drive Crucible from an agent (MCP)
 
 Crucible ships an **MCP server** (`crucible-mcp`) that exposes its capabilities as tools, so
