@@ -19,8 +19,8 @@ class Instance:
     last_used: float = 0.0
 
 
-# launcher(model_id, model_path, port) -> a process handle (anything with .terminate()).
-Launcher = Callable[[str, str, int], object]
+# launcher(model_id, model_path, port, backend, tensor_parallel) -> process handle.
+Launcher = Callable[..., object]
 
 
 class ModelRuntime:
@@ -52,9 +52,10 @@ class ModelRuntime:
         return [i.model_id for i in order[:over]]
 
     # ---- lifecycle ------------------------------------------------------
-    def ensure(self, model_id: str, model_path: str, port: Optional[int] = None) -> Instance:
+    def ensure(self, model_id: str, model_path: str, port: Optional[int] = None,
+               backend: str = "llama", tensor_parallel: int = 1) -> Instance:
         """Return a running instance for model_id, starting it (and evicting LRU models to
-        respect max_resident) if needed. Touches last_used."""
+        respect max_resident) if needed. `backend` selects llama.cpp or vLLM. Touches last_used."""
         inst = self._resident.get(model_id)
         if inst is not None:
             inst.last_used = self._clock()
@@ -63,7 +64,7 @@ class ModelRuntime:
             self.stop(victim)
         p = port if port is not None else self._alloc_port()
         endpoint = f"http://{self._host}:{p}"
-        proc = self._launcher(model_id, model_path, p)
+        proc = self._launcher(model_id, model_path, p, backend, tensor_parallel)
         now = self._clock()
         inst = Instance(model_id=model_id, port=p, endpoint=endpoint, proc=proc,
                         started_at=now, last_used=now)
@@ -115,10 +116,9 @@ class ModelRuntime:
         }
 
     # ---- real launcher (model path; not unit-tested) --------------------
-    def _default_launcher(self, model_id: str, model_path: str, port: int) -> object:
+    def _default_launcher(self, model_id: str, model_path: str, port: int,
+                          backend: str = "llama", tensor_parallel: int = 1) -> object:
         import subprocess
-        return subprocess.Popen(
-            ["llama-server", "--model", model_path, "--port", str(port),
-             "--host", self._host, "--ctx-size", "8192", "--n-gpu-layers", "999"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        from crucible.serving import build_command
+        cmd = build_command(backend, model_path, port, self._host, tensor_parallel)
+        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

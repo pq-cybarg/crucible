@@ -73,6 +73,8 @@ class ConnectRequest(BaseModel):
 class RuntimeStartRequest(BaseModel):
     model_id: str
     port: int | None = None
+    backend: str = "llama"          # "llama" (GGUF) or "vllm" (HF, tensor-parallel GPUs)
+    tensor_parallel: int = 1
 
 
 class RuntimeActiveRequest(BaseModel):
@@ -440,10 +442,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             m = reg.get(req.model_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
-        if not m.path.endswith(".gguf") or not Path(m.path).exists():
+        is_gguf = m.path.endswith(".gguf") and Path(m.path).exists()
+        is_hf_dir = req.backend == "vllm" and Path(m.path).is_dir()
+        if not (is_gguf or is_hf_dir):
             raise HTTPException(status_code=409,
-                detail="runtime can only launch local GGUF models on disk")
-        inst = runtime.ensure(m.id, m.path, req.port)
+                detail="llama backend needs a local .gguf; vllm backend needs a local HF model dir")
+        inst = runtime.ensure(m.id, m.path, req.port, req.backend, req.tensor_parallel)
         from crucible.inference import wait_healthy
         healthy = wait_healthy(inst.endpoint, timeout=90)
         reg.set_endpoint(m.id, inst.endpoint)

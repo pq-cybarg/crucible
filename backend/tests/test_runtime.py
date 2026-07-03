@@ -10,8 +10,9 @@ def mkrt(max_resident=1):
     procs = {}
     clock = {"t": 0.0}
 
-    def launcher(mid, path, port):
-        p = FakeProc(); procs[mid] = p
+    def launcher(mid, path, port, backend="llama", tensor_parallel=1):
+        p = FakeProc(); p.backend = backend; p.tp = tensor_parallel
+        procs[mid] = p
         return p
 
     def tick():
