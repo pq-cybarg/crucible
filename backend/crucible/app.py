@@ -116,6 +116,14 @@ class SaeRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class LoraRequest(BaseModel):
+    base_id: str
+    rank: int = 1
+    coef: float = 1.0
+    mode: str = "unalign"              # "unalign" (remove refusal) or "realign" (restore it)
+    save_path: str | None = None       # optional .npz to persist the adapter tensors
+
+
 class GgufAbliterateRequest(BaseModel):
     base_id: str                       # HF model (loaded adapter) to compute the refusal direction
     gguf_path: str | None = None       # GGUF file to edit; or gguf_model_id
@@ -586,6 +594,43 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return a.generate_chat(msg, 220).strip()
             narr = translate(narr, req.language, _translate)
         return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
+
+    @app.post("/api/abliteration/lora")
+    def abl_lora(req: LoraRequest) -> dict:
+        """Build a portable LoRA adapter that edits refusal as a detachable low-rank update
+        (attach = change, detach = original): mode='unalign' removes refusal, 'realign'
+        restores/strengthens it — no permanent in-place cut."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.lora import alignment_lora, reconstruction_error
+        harmful, harmless = DEFAULT_HARMFUL, DEFAULT_HARMLESS
+        bl = best_layer(layer_refusal_profile(a, harmful, harmless,
+                                              list(range(getattr(a, "num_layers", 1)))))
+        direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
+        r = direction / (float(np.linalg.norm(direction)) or 1.0)
+        sign = 1.0 if req.mode == "realign" else -1.0
+        adapters, total, saved = [], 0, {}
+        for name in a.writing_matrices():
+            W = np.asarray(a.get_matrix(name), dtype=np.float64)
+            if W.ndim != 2 or W.shape[0] != r.shape[0]:
+                continue
+            lora = alignment_lora(W, r, req.coef, req.rank, mode=req.mode)
+            target = sign * req.coef * np.outer(r, r @ W)
+            adapters.append({"matrix": name, "shape": [int(W.shape[0]), int(W.shape[1])],
+                             "rank": lora.rank, "n_params": int(lora.n_params),
+                             "fidelity": round(1.0 - reconstruction_error(lora, target), 6)})
+            total += int(lora.n_params)
+            if req.save_path:
+                saved[name + ".A"] = lora.A; saved[name + ".B"] = lora.B
+        if req.save_path and saved:
+            np.savez(req.save_path, **saved)
+        return {"base_id": req.base_id, "mode": req.mode, "rank": req.rank, "coef": req.coef,
+                "direction_layer": bl, "adapters": adapters,
+                "total_adapter_params": total, "n_matrices": len(adapters),
+                "saved": bool(req.save_path and saved)}
 
     @app.post("/api/abliteration/gguf")
     def abl_gguf(req: GgufAbliterateRequest) -> dict:
