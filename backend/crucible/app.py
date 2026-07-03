@@ -1052,13 +1052,15 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             if tools:
                 # give the adapter (no native function-calling) tool support: describe the
                 # tools + ReAct format, generate, and convert a text action into a real tool_call
-                from crucible.agent_react import (hybrid_preamble, parse_react,
-                                                  react_to_openai_tool_call)
+                from crucible.agent_react import (coerce_tool_name, hybrid_preamble,
+                                                  parse_react, react_to_openai_tool_call)
                 msgs = [{"role": "system", "content": hybrid_preamble(tools)}, *messages]
                 out = abliteration_adapter.generate_chat(
                     msgs, max_tokens, serve["band_dirs"], serve["coefficient"])
                 step = parse_react(out)
                 if step["kind"] == "action":
+                    valid = [t.get("function", t).get("name", "") for t in tools]
+                    step["tool"] = coerce_tool_name(step["tool"], valid)  # snap hallucinated names
                     return {"role": "assistant", "content": None,
                             "tool_calls": [react_to_openai_tool_call(step)]}
                 return {"role": "assistant", "content": step["text"]}

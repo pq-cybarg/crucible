@@ -169,6 +169,31 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
     yield AgentEvent("error", {"reason": "max_iters exceeded"})
 
 
+def coerce_tool_name(name: str, valid: list[str]) -> str:
+    """Snap a hallucinated tool name to the closest valid one (weak models often paraphrase,
+    e.g. 'list_files' -> 'list_dir'). Exact/case-insensitive first, then token overlap, then
+    substring; falls back to the original if nothing is close."""
+    if not valid:
+        return name
+    if name in valid:
+        return name
+    low = name.lower()
+    by_lower = {v.lower(): v for v in valid}
+    if low in by_lower:
+        return by_lower[low]
+    ntok = set(re.split(r"[_\s]+", low))
+    best, best_score = name, 0.0
+    for v in valid:
+        vtok = set(re.split(r"[_\s]+", v.lower()))
+        overlap = len(ntok & vtok)
+        score = overlap / max(1, len(ntok | vtok))
+        if low in v.lower() or v.lower() in low:
+            score = max(score, 0.5)
+        if score > best_score:
+            best, best_score = v, score
+    return best if best_score >= 0.3 else name
+
+
 def react_to_openai_tool_call(step: dict, idx: int = 0) -> dict:
     """Convert a parsed ReAct action into an OpenAI tool_call — so a model that can only do
     text ReAct can still answer a client (OpenCode) with NATIVE function-calling structure."""

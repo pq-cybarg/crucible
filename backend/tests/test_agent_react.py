@@ -127,3 +127,14 @@ def test_hybrid_handles_text_react_from_nonnative_model(tmp_path):
     final = [e for e in events if e.type == "assistant"][-1]
     assert final.data["content"] == "it says hello"   # 'Final Answer:' stripped
     assert events[-1].type == "done"
+
+
+def test_coerce_tool_name_snaps_near_misses():
+    from crucible.agent_react import coerce_tool_name
+    valid = ["list_dir", "read_file", "web_fetch"]
+    assert coerce_tool_name("list_dir", valid) == "list_dir"      # exact
+    assert coerce_tool_name("List_Dir", valid) == "list_dir"      # case
+    assert coerce_tool_name("list_files", valid) == "list_dir"    # token overlap 'list'
+    assert coerce_tool_name("read", valid) == "read_file"         # substring
+    assert coerce_tool_name("xyzzy", valid) == "xyzzy"            # nothing close -> unchanged
+    assert coerce_tool_name("anything", []) == "anything"         # no valid list
