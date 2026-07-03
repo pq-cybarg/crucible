@@ -169,6 +169,13 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
     yield AgentEvent("error", {"reason": "max_iters exceeded"})
 
 
+def react_to_openai_tool_call(step: dict, idx: int = 0) -> dict:
+    """Convert a parsed ReAct action into an OpenAI tool_call — so a model that can only do
+    text ReAct can still answer a client (OpenCode) with NATIVE function-calling structure."""
+    return {"id": f"call_{idx}", "type": "function",
+            "function": {"name": step["tool"], "arguments": json.dumps(step["input"])}}
+
+
 def react_run(model, tools: ToolRegistry, messages: list[dict],
               permissions: PermissionPolicy, audit: AuditLog,
               max_iters: int = 8) -> Iterator[AgentEvent]:

@@ -163,12 +163,18 @@ availability tested live at request time. `/v1/models` lists the choices; the re
 
 Set the fallback order via `POST /api/provider/preferences {"preferences": ["glm-5.2","crucible"]}`.
 
-**Tools through the gateway.** When OpenCode drives Crucible-as-provider it sends its own tool
-definitions and expects `tool_calls` back — Crucible **forwards `tools`/`tool_choice` to the
-backing model and relays its `tool_calls`**, so OpenCode's tools work end-to-end *when routed
-to a tool-capable model*. The local abliterated adapter has no native tool-calling, so for
-OpenCode tool use route to a tool-capable backing model (or use Crucible's own **forge**, whose
-hybrid loop gives tools to any model). Crucible's forge ships the full toolset above.
+**Tools through the gateway — for every backing model.** When OpenCode drives Crucible-as-provider
+it sends its own tool definitions and expects `tool_calls` back. Crucible delivers them two ways:
+- **Proxied endpoints** (llama.cpp/vLLM/remote): `tools`/`tool_choice` are forwarded and the
+  model's native `tool_calls` relayed. Verified end-to-end — `llama-server` returns proper
+  `tool_calls` (even a tiny abliterated GGUF) and Crucible passes them straight through.
+- **The local abliterated adapter** (`crucible`): it has no *native* function-calling, so
+  Crucible bridges it — describes the tools in a ReAct format, generates, and converts the text
+  action into a real OpenAI `tool_call` (`finish_reason: tool_calls`). So an uncensored local
+  model gets tool-calling too, without a tool-capable runtime.
+
+Either way the client sees standard OpenAI tool-calling. Crucible's own **forge** additionally
+ships the full toolset above and gives tools to any model via its hybrid loop.
 
 ## Drive Crucible from an agent (MCP)
 
