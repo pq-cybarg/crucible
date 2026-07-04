@@ -56,12 +56,20 @@ class AgentRunRequest(BaseModel):
     react: bool = False
     # Client-supplied id so a Stop can halt this run server-side (between steps).
     run_id: str | None = None
+    # Fractal sub-agents: give the agent a spawn_agent tool bounded by depth + total (fork-bomb
+    # guard). spawn_depth=0 disables it. Sub-agents run autonomously and can spawn deeper until
+    # the shared budget is spent.
+    spawn_depth: int = 1
+    spawn_total: int = 6
 
 
 class SwarmRequest(BaseModel):
     tasks: list[str]
     model_id: str | None = None
     max_iters: int = 6
+    # Let each swarm sub-agent recursively spawn its own sub-agents (full fractal tree).
+    spawn_depth: int = 1
+    spawn_total: int = 6
 
 
 class CancelRequest(BaseModel):
@@ -2003,6 +2011,26 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         AuditLog(settings.data_dir / "audit.jsonl").record("tool_invoke", {"name": name, "args": args})
         return res.model_dump()
 
+    def _attach_spawn(tools, active_model, max_depth: int, max_total: int, child_iters: int = 6):
+        """Give an agent a recursive spawn_agent tool: each call runs a fresh sub-agent (its own
+        tool loop + clean context) that itself carries a spawn tool one level deeper, until the
+        shared depth/total budget is spent. Sub-agents run autonomously. No-op if depth<=0."""
+        if max_depth <= 0 or max_total <= 0 or active_model is None:
+            return
+        from crucible.agent_react import hybrid_run
+        from crucible.orchestrate import SpawnBudget, collect_final, make_spawn_tool
+        sub_policy = PermissionPolicy(default="allow")
+        sub_audit = AuditLog(settings.data_dir / "audit.jsonl")
+
+        def run_child(task: str, child_budget) -> str:
+            child_tools = default_registry(root)
+            child_tools.register(make_spawn_tool(run_child, child_budget))
+            events = hybrid_run(active_model, child_tools, [{"role": "user", "content": task}],
+                                sub_policy, sub_audit, max_iters=child_iters)
+            return collect_final(events)
+
+        tools.register(make_spawn_tool(run_child, SpawnBudget(max_depth=max_depth, max_total=max_total)))
+
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
         active_model = _resolve_chat_model(req)
@@ -2027,6 +2055,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
         policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
         tools = default_registry(root)
+        _attach_spawn(tools, active_model, req.spawn_depth, req.spawn_total)
         audit = AuditLog(settings.data_dir / "audit.jsonl")
         # 'ask' tools pause the run and wait for the operator to approve/deny via /api/agent/approve
         def _make_approver(run_id):
@@ -2079,12 +2108,13 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         model = _resolve_chat_model(AgentRunRequest(messages=[], model_id=req.model_id))
         if model is None:
             raise HTTPException(status_code=503, detail="no model available for the swarm")
-        tools = default_registry(root)
         policy = PermissionPolicy(default="allow")     # sub-agents run autonomously
         audit = AuditLog(settings.data_dir / "audit.jsonl")
 
         def runner(task: str):
-            return hybrid_run(model, tools, [{"role": "user", "content": task}], policy, audit,
+            task_tools = default_registry(root)
+            _attach_spawn(task_tools, model, req.spawn_depth, req.spawn_total)
+            return hybrid_run(model, task_tools, [{"role": "user", "content": task}], policy, audit,
                               max_iters=req.max_iters)
 
         return run_swarm(req.tasks, runner)

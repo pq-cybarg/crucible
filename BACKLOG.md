@@ -96,17 +96,17 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 - [~] Mixture-of-models by task (task_router) — DONE as the node selector; graph edges TODO
 
 ## Swarm / fractal AI (orchestration primitives)
-- [~] Subagents: /api/agent/swarm runs+merges sub-agents (spawn_agent tool for in-agent recursion TODO)
-- [ ] Recursive agent trees (agents spawning agents) — 'fractal'
+- [x] Subagents: /api/agent/swarm runs+merges sub-agents
+- [x] Recursive agent trees (agents spawning agents) — 'fractal': spawn_agent tool, bounded by a shared depth+total fork-bomb budget; wired into /api/agent/run and the swarm
 - [ ] Task/model sharding across the distributed runtime (multi-node + gateway substrate exists)
 - [ ] Coordination/merge strategies (map-reduce, tournament, debate, blackboard)
 
 ## Component-aware / multimodal anticensorship
 - [x] Composition map: identify parts (vision/audio encoder, connector, language model, moderation head, vocoder) + prescribe per-part technique
-- [ ] Per-part abliteration execution (scope edits to a named part)
+- [x] Per-part abliteration execution (scope edits to a named part) — abliterate_gguf part= filter + part_writing_matrices; composition reports executable_now vs needs_probing
 - [ ] Modality refusal directions (image/audio embedding space), not just text
 - [ ] Cross-modal connector re-alignment (let filtered concepts pass the projection)
-- [ ] Moderation-head DETACH (disable a bolted-on classifier rather than cut a direction)
+- [x] Moderation-head DETACH (disable a bolted-on classifier rather than cut a direction) — detach_part_gguf zeros the classifier tensors; /api/abliteration/detach
 - [ ] Per-part versioning + lineage (each part independently versionable/revertable)
 - [ ] Modality-specific in/out censorship diagnosis (refuses-to-describe-image, refuses-audio, etc.)
 
