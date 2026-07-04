@@ -125,6 +125,7 @@ class TrainRequest(BaseModel):
     lr: float = 2e-4
     target_modules: list[str] = ["q_proj", "v_proj"]
     save_path: str | None = None
+    register_id: str | None = None    # register the saved adapter as a variant model
 
 
 class LoraRequest(BaseModel):
@@ -708,8 +709,20 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         if not path or not Path(path).exists():
             raise HTTPException(status_code=409, detail="model path (local HF dir) not found on disk")
         try:
-            return train_lora_torch(path, data, tuple(req.target_modules), req.rank,
-                                    req.epochs, req.lr, req.save_path)
+            result = train_lora_torch(path, data, tuple(req.target_modules), req.rank,
+                                      req.epochs, req.lr, req.save_path)
+            if req.save_path and result.get("saved") and req.register_id:
+                from datetime import datetime, timezone
+                try:
+                    reg.register(Model(id=req.register_id, name=req.register_id,
+                                       base_id=req.base_id, path=req.save_path, quant="lora",
+                                       kind="steered", endpoint=None,
+                                       created=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                                       notes=f"LoRA retrained from {req.base_id or path}"))
+                    result["registered_variant"] = req.register_id
+                except ValueError:
+                    result["registered_variant"] = None
+            return result
         except ImportError as e:
             raise HTTPException(status_code=503, detail=f"training needs torch + peft: {e}")
         except ValueError as e:

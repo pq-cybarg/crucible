@@ -760,3 +760,10 @@ body::after {
 .pipe-comp-toks { color: var(--steel-text); font-size: 12px; }
 .pipe-data { width: 100%; min-height: 120px; background: var(--void); color: var(--bone); border: 1px solid var(--line-bright);
   border-radius: 6px; font-family: var(--font-mono); font-size: 12px; padding: 10px; resize: vertical; }
+
+
+/* ---------- registry online/offline dots ------------------------------ */
+.model-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.model-dot.on { background: var(--flux); box-shadow: 0 0 6px var(--flux); }
+.model-dot.warm { background: var(--amber); }
+.model-dot.off { background: var(--steel-600); }

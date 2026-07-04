@@ -99,7 +99,7 @@ function Train({ base }: { readonly base: string }): JSX.Element {
     setBusy(true); setErr(null); setRes(null);
     let dataset: unknown;
     try { dataset = JSON.parse(data); } catch { setErr("dataset must be valid JSON"); setBusy(false); return; }
-    try { setRes(await post("/api/train/lora", { base_id: base, dataset, epochs: 3, rank: 8 })); }
+    try { setRes(await post("/api/train/lora", { base_id: base, dataset, epochs: 3, rank: 8, save_path: `models/${base}-lora`, register_id: `${base}-lora` })); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed"); }
     finally { setBusy(false); }
   }
@@ -114,7 +114,7 @@ function Train({ base }: { readonly base: string }): JSX.Element {
       {res && (
         <div className="hint">
           trained <b>{String(res["n_examples"])}</b> examples · {String(res["trainable_params"])} params ·
-          final loss <b>{Number(res["final_loss"]).toFixed(3)}</b> {res["saved"] ? "· saved ✓" : ""}
+          final loss <b>{Number(res["final_loss"]).toFixed(3)}</b> {res["saved"] ? "· saved ✓" : ""} {res["registered_variant"] ? `· registered as ${res["registered_variant"]}` : ""}
         </div>
       )}
     </div>

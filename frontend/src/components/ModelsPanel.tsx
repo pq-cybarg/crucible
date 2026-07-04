@@ -7,6 +7,7 @@ import ServicesPanel from "./ServicesPanel";
 import RuntimePanel from "./RuntimePanel";
 import OllamaPanel from "./OllamaPanel";
 import { getActiveModelId, setActiveModelId } from "../services";
+import { getApiBase } from "../api";
 
 type Load =
   | { readonly state: "loading" }
@@ -16,6 +17,24 @@ type Load =
 export default function ModelsPanel(): JSX.Element {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [activeId, setActiveId] = useState<string | null>(getActiveModelId());
+  const [status, setStatus] = useState<Readonly<Record<string, { online: boolean; launchable: boolean; servable: boolean }>>>({});
+
+  useEffect(() => {
+    let live = true;
+    const poll = (): void => {
+      void fetch(getApiBase() + "/api/models/status")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows: Array<{ id: string; online: boolean; launchable: boolean; servable: boolean }>) => {
+          if (!live) return;
+          const map: Record<string, { online: boolean; launchable: boolean; servable: boolean }> = {};
+          for (const x of rows) map[x.id] = { online: x.online, launchable: x.launchable, servable: x.servable };
+          setStatus(map);
+        }).catch(() => undefined);
+    };
+    poll();
+    const h = window.setInterval(poll, 4000);
+    return () => { live = false; window.clearInterval(h); };
+  }, []);
 
   const selectModel = (id: string): void => {
     const next = activeId === id ? null : id;
@@ -80,7 +99,11 @@ export default function ModelsPanel(): JSX.Element {
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.04 }}
                 >
-                  <td style={{ color: "var(--bone)" }}>{row.id}</td>
+                  <td style={{ color: "var(--bone)" }}>
+                    <span className={`model-dot ${status[row.id]?.online ? "on" : status[row.id]?.launchable ? "warm" : status[row.id]?.servable ? "warm" : "off"}`}
+                      title={status[row.id]?.online ? "online" : status[row.id]?.launchable ? "launchable" : status[row.id]?.servable ? "adapter-servable" : "offline / unservable"} />
+                    {row.id}
+                  </td>
                   <td>{row.name}</td>
                   <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
                   <td>{row.quant}</td>
