@@ -1481,6 +1481,27 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         outputs = execute_graph(req.stages, run_stage, req.initial)
         return {"order": order, "outputs": outputs, "result": final_outputs(req.stages, outputs)}
 
+    @app.post("/api/models/profile")
+    def model_profile(body: dict) -> dict:
+        """Behavioral classifier: probe a registered model with the REAL batteries (EVAL_HARMFUL,
+        XSTest over-refusal, an objective instruction battery, and a real MC benchmark) and
+        classify what it ACTUALLY is — censored/uncensored, over-aligned, instructable, capable,
+        tier + tags. Turns the manual 'which model respects a persona?' hunt into one measured call."""
+        from crucible.evals.datasets import BENCHMARKS
+        from crucible.model_profile import profile_model
+        mid = body.get("model_id")
+        if mid:
+            try:
+                reg.get(mid)
+            except KeyError:
+                raise HTTPException(status_code=404, detail="model not found")
+        solver = _make_solver(mid)
+        if solver is None:
+            raise HTTPException(status_code=503, detail="no model available to profile")
+        cap_items = BENCHMARKS.get("mmlu-sample") if body.get("capability", True) else None
+        prof = profile_model(solver, capability_items=cap_items)
+        return {"model_id": mid, **prof}
+
     @app.post("/api/route")
     def route_task(req: RouteRequest) -> dict:
         """Task-aware routing: classify the prompt and pick the best model for it (or the
