@@ -57,6 +57,12 @@ class AgentRunRequest(BaseModel):
     run_id: str | None = None
 
 
+class SwarmRequest(BaseModel):
+    tasks: list[str]
+    model_id: str | None = None
+    max_iters: int = 6
+
+
 class CancelRequest(BaseModel):
     run_id: str
 
@@ -2005,6 +2011,26 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     _cancels.discard(run_id)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/api/agent/swarm")
+    def agent_swarm(req: SwarmRequest) -> dict:
+        """Swarm: delegate each task to its own sub-agent (a fresh tool loop) and merge the
+        results. The parallel-orchestration primitive; recursion (a sub-agent that swarms)
+        makes it fractal."""
+        from crucible.agent_react import hybrid_run
+        from crucible.orchestrate import run_swarm
+        model = _resolve_chat_model(AgentRunRequest(messages=[], model_id=req.model_id))
+        if model is None:
+            raise HTTPException(status_code=503, detail="no model available for the swarm")
+        tools = default_registry(root)
+        policy = PermissionPolicy(default="allow")     # sub-agents run autonomously
+        audit = AuditLog(settings.data_dir / "audit.jsonl")
+
+        def runner(task: str):
+            return hybrid_run(model, tools, [{"role": "user", "content": task}], policy, audit,
+                              max_iters=req.max_iters)
+
+        return run_swarm(req.tasks, runner)
 
     @app.post("/api/agent/approve")
     def agent_approve(req: ApproveRequest) -> dict:
