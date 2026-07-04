@@ -5,6 +5,7 @@ import { getModels } from "../api";
 import type { ModelRow } from "../api";
 import ServicesPanel from "./ServicesPanel";
 import RuntimePanel from "./RuntimePanel";
+import OllamaPanel from "./OllamaPanel";
 import { getActiveModelId, setActiveModelId } from "../services";
 
 type Load =
@@ -102,6 +103,7 @@ export default function ModelsPanel(): JSX.Element {
       )}
 
       {load.state === "ready" && <RuntimePanel rows={load.rows} />}
+      {load.state === "ready" && <OllamaPanel />}
       <ServicesPanel />
     </div>
   );
