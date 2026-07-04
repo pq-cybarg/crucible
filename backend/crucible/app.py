@@ -1514,6 +1514,44 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "system_fingerprint": reason,
                 "choices": [{"index": 0, "message": message, "finish_reason": finish}]}
 
+    def _media_proxy(kind: str, subpath: str, body: dict) -> dict:
+        from crucible.media import media_endpoint
+        ep = media_endpoint(kind)
+        if not ep:
+            raise HTTPException(status_code=503,
+                detail=f"no {kind} backend — set CRUCIBLE_{kind.upper()}_ENDPOINT")
+        import httpx
+        r = httpx.post(ep + subpath, json=body, timeout=300)
+        r.raise_for_status()
+        return r.json() if r.text else {}
+
+    @app.post("/v1/embeddings")
+    def v1_embeddings(body: dict) -> dict:
+        """Embeddings, brokered to the configured embeddings backend (OpenAI-compatible)."""
+        return _media_proxy("embed", "/v1/embeddings", body)
+
+    @app.post("/v1/images/generations")
+    def v1_images(body: dict) -> dict:
+        """Text-to-image, brokered to the configured image backend (ComfyUI or OpenAI-images)."""
+        from crucible.media import comfyui_txt2img, media_endpoint
+        ep = media_endpoint("image")
+        if not ep:
+            raise HTTPException(status_code=503, detail="no image backend — set CRUCIBLE_IMAGE_ENDPOINT")
+        if "8188" in ep or ep.endswith("/prompt"):
+            return _media_proxy("image", "/prompt" if not ep.endswith("/prompt") else "",
+                                comfyui_txt2img(body.get("prompt", "")))
+        return _media_proxy("image", "/v1/images/generations", body)
+
+    @app.post("/v1/audio/transcriptions")
+    def v1_stt(body: dict) -> dict:
+        """Speech-to-text, brokered to the configured STT backend."""
+        return _media_proxy("stt", "/v1/audio/transcriptions", body)
+
+    @app.post("/v1/audio/speech")
+    def v1_tts(body: dict) -> dict:
+        """Text-to-speech, brokered to the configured TTS backend."""
+        return _media_proxy("tts", "/v1/audio/speech", body)
+
     @app.get("/api/inference/recipe")
     def get_serve_recipe() -> dict:
         return {"active": serve["recipe"]}
