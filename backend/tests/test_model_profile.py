@@ -88,4 +88,4 @@ def test_profile_capability_uses_real_benchmark():
     prof = profile_model(lambda p: "A", capability_items=items)
     expected = sum(1 for it in items if it["answer"] == "A") / len(items)
     assert prof["capability_accuracy"] == round(expected, 3)
-    assert prof["capability_scored"] is True
+    assert prof["capability_n"] == len(items)
