@@ -116,6 +116,17 @@ class SaeRequest(BaseModel):
     harmless: list[str] | None = None
 
 
+class TrainRequest(BaseModel):
+    base_id: str | None = None
+    model_path: str | None = None
+    dataset: list[dict]
+    rank: int = 8
+    epochs: int = 1
+    lr: float = 2e-4
+    target_modules: list[str] = ["q_proj", "v_proj"]
+    save_path: str | None = None
+
+
 class LoraRequest(BaseModel):
     base_id: str
     rank: int = 1
@@ -674,6 +685,30 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return a.generate_chat(msg, 220).strip()
             narr = translate(narr, req.language, _translate)
         return {"base_id": req.base_id, "best_layer": bl, "narrative": narr}
+
+    @app.post("/api/train/lora")
+    def train_lora(req: TrainRequest) -> dict:
+        """Retrain: fine-tune a LoRA adapter on {prompt, response} pairs via real gradient
+        SFT (not a training-free edit). Needs torch + peft and a local HF model dir."""
+        from crucible.training import train_lora_torch, validate_dataset
+        data = validate_dataset(req.dataset)
+        if not data:
+            raise HTTPException(status_code=422, detail="need at least one {prompt, response} pair")
+        path = req.model_path
+        if path is None and req.base_id:
+            try:
+                path = reg.get(req.base_id).path
+            except KeyError:
+                raise HTTPException(status_code=404, detail="base model not found")
+        if not path or not Path(path).exists():
+            raise HTTPException(status_code=409, detail="model path (local HF dir) not found on disk")
+        try:
+            return train_lora_torch(path, data, tuple(req.target_modules), req.rank,
+                                    req.epochs, req.lr, req.save_path)
+        except ImportError as e:
+            raise HTTPException(status_code=503, detail=f"training needs torch + peft: {e}")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     @app.post("/api/abliteration/lora")
     def abl_lora(req: LoraRequest) -> dict:
