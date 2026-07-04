@@ -22,6 +22,13 @@ function withAuth(init?: RequestInit): RequestInit {
 }
 
 import { demoRespond, isDemo } from "./demo";
+import {
+  abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
+  diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
+  heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
+  publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP, startResultP, statusWrapP,
+  suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
+} from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
     const path = input.startsWith(API_BASE) ? input.slice(API_BASE.length) : input;
@@ -149,21 +156,19 @@ export async function getHealth(): Promise<boolean> {
 export async function getModels(): Promise<readonly ModelRow[]> {
   const r = await cfetch(API_BASE + "/api/models");
   if (!r.ok) throw new Error(`GET /api/models -> ${r.status}`);
-  const body: unknown = await r.json();
-  return Array.isArray(body) ? (body as readonly ModelRow[]) : [];
+  return modelRowsP(await r.json());
 }
 
 export async function getPresets(): Promise<readonly SystemPromptPreset[]> {
   const r = await cfetch(API_BASE + "/api/guardrails/presets");
   if (!r.ok) throw new Error(`GET /api/guardrails/presets -> ${r.status}`);
-  const body: unknown = await r.json();
-  return Array.isArray(body) ? (body as readonly SystemPromptPreset[]) : [];
+  return presetsP(await r.json());
 }
 
 export async function getGuardrailConfig(): Promise<GuardrailConfig> {
   const r = await cfetch(API_BASE + "/api/guardrails/config");
   if (!r.ok) throw new Error(`GET /api/guardrails/config -> ${r.status}`);
-  return (await r.json()) as GuardrailConfig;
+  return guardrailConfigP(await r.json());
 }
 
 export async function putGuardrailConfig(config: GuardrailConfig): Promise<GuardrailConfig> {
@@ -173,7 +178,7 @@ export async function putGuardrailConfig(config: GuardrailConfig): Promise<Guard
     body: JSON.stringify(config),
   });
   if (!r.ok) throw new Error(`PUT /api/guardrails/config -> ${r.status}`);
-  return (await r.json()) as GuardrailConfig;
+  return guardrailConfigP(await r.json());
 }
 
 export async function previewGuardrail(stage: Stage, text: string, config: GuardrailConfig): Promise<GuardrailResult> {
@@ -183,7 +188,7 @@ export async function previewGuardrail(stage: Stage, text: string, config: Guard
     body: JSON.stringify({ stage, text, config }),
   });
   if (!r.ok) throw new Error(`POST /api/guardrails/apply -> ${r.status}`);
-  return (await r.json()) as GuardrailResult;
+  return guardrailResultP(await r.json());
 }
 
 export interface UpstreamOverride {
@@ -303,7 +308,7 @@ export async function createPreset(preset: SystemPromptPreset): Promise<SystemPr
   });
   if (r.status === 409) throw new Error("a preset with that id already exists");
   if (!r.ok) throw new Error(`POST /api/guardrails/presets -> ${r.status}`);
-  return (await r.json()) as SystemPromptPreset;
+  return systemPromptPresetP(await r.json());
 }
 
 export async function updatePreset(id: string, preset: SystemPromptPreset): Promise<SystemPromptPreset> {
@@ -313,7 +318,7 @@ export async function updatePreset(id: string, preset: SystemPromptPreset): Prom
     body: JSON.stringify(preset),
   });
   if (!r.ok) throw new Error(`PUT /api/guardrails/presets/${id} -> ${r.status}`);
-  return (await r.json()) as SystemPromptPreset;
+  return systemPromptPresetP(await r.json());
 }
 
 export async function deletePreset(id: string): Promise<void> {
@@ -324,7 +329,7 @@ export async function deletePreset(id: string): Promise<void> {
 export async function resetPresets(): Promise<readonly SystemPromptPreset[]> {
   const r = await cfetch(API_BASE + "/api/guardrails/presets/reset", { method: "POST" });
   if (!r.ok) throw new Error(`POST /api/guardrails/presets/reset -> ${r.status}`);
-  return (await r.json()) as readonly SystemPromptPreset[];
+  return presetsP(await r.json());
 }
 
 export interface LayerProfile {
@@ -389,7 +394,7 @@ export async function probeNode(base: string, token: string): Promise<{ ok: bool
 export async function getRuntime(): Promise<RuntimeStatus> {
   const r = await cfetch(API_BASE + "/api/runtime");
   if (!r.ok) throw new Error(`GET /api/runtime -> ${r.status}`);
-  return (await r.json()) as RuntimeStatus;
+  return runtimeStatusP(await r.json());
 }
 
 export async function startModel(modelId: string): Promise<{ healthy: boolean; status: RuntimeStatus }> {
@@ -398,7 +403,7 @@ export async function startModel(modelId: string): Promise<{ healthy: boolean; s
     body: JSON.stringify({ model_id: modelId }),
   });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `start -> ${r.status}`);
-  return (await r.json()) as { healthy: boolean; status: RuntimeStatus };
+  return startResultP(await r.json());
 }
 
 export async function stopModel(modelId: string): Promise<RuntimeStatus> {
@@ -407,7 +412,7 @@ export async function stopModel(modelId: string): Promise<RuntimeStatus> {
     body: JSON.stringify({ model_id: modelId }),
   });
   if (!r.ok) throw new Error(`stop -> ${r.status}`);
-  return ((await r.json()) as { status: RuntimeStatus }).status;
+  return statusWrapP(await r.json()).status;
 }
 
 export interface BenchmarkResult {
@@ -428,7 +433,7 @@ export async function benchmarkModel(modelId: string | undefined, tokens = 64): 
     body: JSON.stringify({ ...(modelId ? { model_id: modelId } : {}), tokens }),
   });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? `benchmark -> ${r.status}`);
-  return (await r.json()) as BenchmarkResult;
+  return benchmarkResultP(await r.json());
 }
 
 export async function setActiveModels(ids: readonly string[]): Promise<RuntimeStatus> {
@@ -437,7 +442,7 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
     body: JSON.stringify({ model_ids: ids }),
   });
   if (!r.ok) throw new Error(`active -> ${r.status}`);
-  return (await r.json()) as RuntimeStatus;
+  return runtimeStatusP(await r.json());
 }
 
 export interface PlainNarrative {
@@ -484,7 +489,7 @@ export async function diagnoseCensorship(baseId: string): Promise<DiagnoseResult
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "no-base" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as DiagnosisReport };
+  return { kind: "report", report: diagnosisReportP(await resp.json()) };
 }
 
 export interface AbliterateRequestBody {
@@ -514,7 +519,7 @@ export async function abliterate(body: AbliterateRequestBody): Promise<Abliterat
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "no-base" };
   if (!resp.ok) return { kind: "offline" };
-  const out = (await resp.json()) as { variant: ModelRow; card: ModelCard };
+  const out = abliterateOutP(await resp.json());
   return { kind: "done", variant: out.variant, card: out.card };
 }
 
@@ -554,13 +559,13 @@ export type BenchmarksInfo = {
 export async function getBenchmarks(): Promise<BenchmarksInfo> {
   const r = await cfetch(API_BASE + "/api/evals/benchmarks");
   if (!r.ok) throw new Error(`benchmarks ${r.status}`);
-  return (await r.json()) as BenchmarksInfo;
+  return benchmarksInfoP(await r.json());
 }
 
 export async function getPublished(): Promise<PublishedPayload> {
   const r = await cfetch(API_BASE + "/api/evals/published");
   if (!r.ok) throw new Error(`published ${r.status}`);
-  return (await r.json()) as PublishedPayload;
+  return publishedPayloadP(await r.json());
 }
 
 export type EvalRunResult =
@@ -580,7 +585,7 @@ export async function runLocalEval(benchmark: string): Promise<EvalRunResult> {
   }
   if (resp.status === 503) return { kind: "no-model" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "score", score: (await resp.json()) as BenchScore };
+  return { kind: "score", score: benchScoreP(await resp.json()) };
 }
 
 export async function exportHeadToHead(benchmark: string): Promise<readonly HHItem[]> {
@@ -589,7 +594,7 @@ export async function exportHeadToHead(benchmark: string): Promise<readonly HHIt
     body: JSON.stringify({ benchmark }),
   });
   if (!r.ok) throw new Error(`export ${r.status}`);
-  return ((await r.json()) as { items: readonly HHItem[] }).items;
+  return hhItemsWrapP(await r.json()).items;
 }
 
 export async function scoreHeadToHead(benchmark: string, answers: Readonly<Record<string, string>>): Promise<BenchScore> {
@@ -598,7 +603,7 @@ export async function scoreHeadToHead(benchmark: string, answers: Readonly<Recor
     body: JSON.stringify({ benchmark, answers }),
   });
   if (!r.ok) throw new Error(`score ${r.status}`);
-  return (await r.json()) as BenchScore;
+  return benchScoreP(await r.json());
 }
 
 export interface SuiteTask {
@@ -619,7 +624,7 @@ export interface LmEvalRow {
 export async function getSuite(): Promise<readonly SuiteTask[]> {
   const r = await cfetch(API_BASE + "/api/evals/suite");
   if (!r.ok) throw new Error(`suite ${r.status}`);
-  return (await r.json()) as readonly SuiteTask[];
+  return suiteP(await r.json());
 }
 
 export type LmEvalResult =
@@ -641,7 +646,7 @@ export async function runLmEval(modelId: string, tasks: readonly string[], limit
   if (resp.status === 404) return { kind: "no-model" };
   if (resp.status === 409) return { kind: "no-endpoint" };
   if (!resp.ok) return { kind: "offline" };
-  const out = (await resp.json()) as { results: readonly LmEvalRow[] };
+  const out = lmEvalWrapP(await resp.json());
   return { kind: "results", rows: out.results };
 }
 
@@ -682,7 +687,7 @@ export async function getWeights(modelId: string): Promise<WeightsResult> {
   }
   if (resp.status === 404) return { kind: "no-file" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "view", view: (await resp.json()) as WeightsView };
+  return { kind: "view", view: weightsViewP(await resp.json()) };
 }
 
 export interface BeforeAfter {
@@ -735,7 +740,7 @@ export async function verifyAbliteration(baseId: string, variantId: string): Pro
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as VerifyReport };
+  return { kind: "report", report: verifyReportP(await resp.json()) };
 }
 
 export async function sweepStrength(baseId: string): Promise<SweepResult> {
@@ -751,7 +756,7 @@ export async function sweepStrength(baseId: string): Promise<SweepResult> {
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as SweepReport };
+  return { kind: "report", report: sweepReportP(await resp.json()) };
 }
 
 export interface RuntimeSteerReport {
@@ -784,7 +789,7 @@ export async function runtimeSteer(baseId: string, rank: number, coefficient: nu
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as RuntimeSteerReport };
+  return { kind: "report", report: runtimeSteerReportP(await resp.json()) };
 }
 
 export interface AutotuneConfigResult {
@@ -824,7 +829,7 @@ export async function autotuneAbliteration(baseId: string): Promise<AutotuneResu
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as AutotuneReport };
+  return { kind: "report", report: autotuneReportP(await resp.json()) };
 }
 
 export interface ManualReport {
@@ -867,13 +872,13 @@ export async function manualSteer(baseId: string, layers: readonly number[], ran
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as ManualReport };
+  return { kind: "report", report: manualReportP(await resp.json()) };
 }
 
 export async function getRecipes(): Promise<readonly RecipeRow[]> {
   const r = await cfetch(API_BASE + "/api/abliteration/recipes");
   if (!r.ok) return [];
-  return (await r.json()) as readonly RecipeRow[];
+  return recipesP(await r.json());
 }
 
 export async function saveRecipe(recipe: RecipeRow): Promise<void> {
@@ -912,7 +917,7 @@ export async function getHeatmap(baseId: string, prompt: string): Promise<Heatma
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as HeatmapReport };
+  return { kind: "report", report: heatmapReportP(await resp.json()) };
 }
 
 export interface FeatureTrigger { readonly prompt: string; readonly refusal: string }
@@ -946,7 +951,7 @@ export async function getFeatureCard(baseId: string): Promise<FeatureCardResult>
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", card: (await resp.json()) as FeatureCard };
+  return { kind: "report", card: featureCardP(await resp.json()) };
 }
 
 export interface EditCommit {
@@ -964,7 +969,7 @@ export interface EditHistory { readonly branch: string; readonly commits: readon
 export async function getHistory(): Promise<EditHistory> {
   const r = await cfetch(API_BASE + "/api/inference/history");
   if (!r.ok) return { branch: "main", commits: [] };
-  return (await r.json()) as EditHistory;
+  return editHistoryP(await r.json());
 }
 
 export async function revertCommit(id: string): Promise<boolean> {
@@ -1008,7 +1013,7 @@ export async function runProbe(baseId: string, layers: readonly number[], rank: 
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", rows: ((await resp.json()) as { rows: readonly ProbeRow[] }).rows };
+  return { kind: "report", rows: probeWrapP(await resp.json()).rows };
 }
 
 export interface FlowCarrier { readonly layer: number; readonly component: string; readonly mass: number }
@@ -1037,5 +1042,5 @@ export async function getFlow(baseId: string): Promise<FlowResult> {
   if (resp.status === 503) return { kind: "no-weights" };
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
-  return { kind: "report", report: (await resp.json()) as FlowReport };
+  return { kind: "report", report: flowReportP(await resp.json()) };
 }
