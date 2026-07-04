@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
 import { getApiBase, getApiToken, getModels } from "../api";
+import AnalysisPanel from "./AnalysisPanel";
 
 // Self-contained pipeline surface: quantization fidelity, piecemeal alignment components,
 // and LoRA retraining — each hitting its backend endpoint directly (no api.ts edits).
@@ -160,8 +161,8 @@ export default function PipelinePanel(): JSX.Element {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h1>pipeline <em>quantize · components · retrain</em></h1>
-        <p>The rest of the dev loop: measure quantization cost, decompose alignment into pickable parts, and retrain a LoRA on your own data.</p>
+        <h1>pipeline <em>analyze · edit · quantize · retrain</em></h1>
+        <p>The rest of the dev loop: causal-trace + sparse features + safety, decompose alignment into pickable parts, measure quantization cost, and retrain a LoRA on your own data.</p>
       </div>
       <div className="pipe-model">
         <span>model</span>
@@ -170,6 +171,7 @@ export default function PipelinePanel(): JSX.Element {
         </select>
         <span className="hint" style={{ margin: 0 }}>(needs the HF adapter loaded)</span>
       </div>
+      <AnalysisPanel base={base} />
       <Quantize base={base} />
       <Components base={base} />
       <Train base={base} />
