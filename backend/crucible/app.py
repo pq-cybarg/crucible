@@ -435,6 +435,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
 
+    def _endpoint_alive(endpoint: str) -> bool:
+        import httpx
+        for probe in ("/health", "/v1/models"):
+            try:
+                if httpx.get(endpoint.rstrip("/") + probe, timeout=1.5).status_code < 500:
+                    return True
+            except httpx.HTTPError:
+                continue
+        return False
+
+    @app.get("/api/models/status")
+    def models_status() -> list[dict]:
+        """Autodetect which registered models are reachable so the GUI never routes to a dead one."""
+        out = []
+        for m in reg.list():
+            launchable = m.path.endswith(".gguf") and Path(m.path).is_file()
+            online = bool(m.endpoint and _endpoint_alive(m.endpoint))
+            out.append({"id": m.id, "endpoint": m.endpoint, "online": online,
+                        "launchable": launchable,
+                        "servable": online or launchable or abliteration_adapter is not None})
+        return out
+
     @app.post("/api/models/connect", status_code=201)
     def connect_model(req: ConnectRequest) -> Model:
         """Register a BYO OpenAI-compatible endpoint as a base model so the agent can
@@ -464,7 +486,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             m = reg.get(req.model_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
-        is_gguf = m.path.endswith(".gguf") and Path(m.path).exists()
+        is_gguf = m.path.endswith(".gguf") and Path(m.path).is_file()
         is_hf_dir = req.backend == "vllm" and Path(m.path).is_dir()
         if not (is_gguf or is_hf_dir):
             raise HTTPException(status_code=409,
@@ -472,6 +494,9 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         inst = runtime.ensure(m.id, m.path, req.port, req.backend, req.tensor_parallel)
         from crucible.inference import wait_healthy
         healthy = wait_healthy(inst.endpoint, timeout=90)
+        if not healthy:
+            runtime.stop(m.id)
+            raise HTTPException(status_code=502, detail=f"model {m.id} failed to become healthy")
         reg.set_endpoint(m.id, inst.endpoint)
         return {"started": m.id, "endpoint": inst.endpoint, "healthy": healthy,
                 "status": runtime.status()}
@@ -1537,14 +1562,20 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 m = reg.get(req.model_id)
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"model '{req.model_id}' not in registry")
-            if m.endpoint:
+            if m.endpoint and _endpoint_alive(m.endpoint):
                 return endpoint_model(m.endpoint, model_name=m.id)
-            # local GGUF with no endpoint -> launch it on demand (round-robin manager)
-            if m.path.endswith(".gguf") and Path(m.path).exists():
+            # endpoint missing/offline -> (re)launch a local GGUF file on demand
+            if m.path.endswith(".gguf") and Path(m.path).is_file():
                 inst = runtime.ensure(m.id, m.path)
                 from crucible.inference import wait_healthy
-                wait_healthy(inst.endpoint, timeout=90)
+                if not wait_healthy(inst.endpoint, timeout=90):
+                    runtime.stop(m.id)
+                    raise HTTPException(status_code=502, detail=f"model {m.id} failed to start")
+                reg.set_endpoint(m.id, inst.endpoint)
                 return endpoint_model(inst.endpoint, model_name=m.id)
+            if m.endpoint:
+                raise HTTPException(status_code=502,
+                    detail=f"model {m.id} endpoint {m.endpoint} is offline and not a launchable local GGUF")
             if abliteration_adapter is not None:
                 return _adapter_chat_model(abliteration_adapter)
             raise HTTPException(status_code=409,
