@@ -76,3 +76,66 @@ Deferred / planned work, captured so nothing is lost.
 ## Harness (all DONE)
 - [x] Full skillset: read/write/edit/multi_edit/list_dir/grep/glob/bash/web_fetch/web_search/todo_write
 - [x] Hybrid tool loop (native + text ReAct) so tools work with any model, no toggle
+
+
+# Roadmap — next phase (from design brainstorms)
+Legend: [x] shipped · [~] partial/foundation laid · [ ] open
+
+## Multimodality — I/O across audio, voice, video, image, document
+- [ ] Provider passthrough of multimodal content (image_url / input_audio) to VLM/audio backing models
+- [ ] Media endpoints: /v1/audio/transcriptions (STT), /v1/audio/speech (TTS), /v1/images/generations, /v1/embeddings
+- [ ] Route image/video generation to the already-detected ComfyUI backend
+- [ ] Media tools for the agent + /api/tools (transcribe, speak, generate_image, describe_image)
+- [ ] Document I/O (parse PDFs/docs in, render documents out)
+- [ ] Mixed / asymmetric / changing input-output structures (per-request modality shapes)
+
+## Multi-model systems / subsystems (model graphs)
+- [ ] Model-graph engine: compose routed model calls into pipelines/DAGs (e.g. STT -> LLM -> TTS; image -> VLM -> text -> image)
+- [ ] Cascades (cheap -> escalate) and verifier / judge ensembles as graph nodes
+- [ ] Per-subsystem config + versioning; asymmetric modality edges between stages
+- [~] Mixture-of-models by task (task_router) — DONE as the node selector; graph edges TODO
+
+## Swarm / fractal AI (orchestration primitives)
+- [ ] Subagents: a spawn_agent tool + orchestrator (reuse the agent loop) — 'swarm'
+- [ ] Recursive agent trees (agents spawning agents) — 'fractal'
+- [ ] Task/model sharding across the distributed runtime (multi-node + gateway substrate exists)
+- [ ] Coordination/merge strategies (map-reduce, tournament, debate, blackboard)
+
+## Component-aware / multimodal anticensorship
+- [x] Composition map: identify parts (vision/audio encoder, connector, language model, moderation head, vocoder) + prescribe per-part technique
+- [ ] Per-part abliteration execution (scope edits to a named part)
+- [ ] Modality refusal directions (image/audio embedding space), not just text
+- [ ] Cross-modal connector re-alignment (let filtered concepts pass the projection)
+- [ ] Moderation-head DETACH (disable a bolted-on classifier rather than cut a direction)
+- [ ] Per-part versioning + lineage (each part independently versionable/revertable)
+- [ ] Modality-specific in/out censorship diagnosis (refuses-to-describe-image, refuses-audio, etc.)
+
+## Model intelligence / routing
+- [x] Task-aware routing (classify -> route; user level fast/balanced/max); /api/route + auto:task
+- [ ] Model-based task classifier (replace heuristics); eval-driven selection using measured safety/capability
+- [ ] Hand-labeled model tags/tiers in the registry (override inferred tags)
+
+## Integration / exposure
+- [x] MCP server (crucible-mcp) + MCP client (bidirectional)
+- [x] Embeddable tool exposers: GET /api/tools catalog + POST /api/tools/invoke
+- [ ] Tool-manifest export + JS/Python client SDKs for embedding in other apps
+- [ ] Richer MCP server surface (expose more of the pipeline as MCP tools)
+- [ ] Slash-command sets importable from other harnesses/models (Claude Code / OpenCode packs)
+
+## Context & memory
+- [ ] Context compaction (summarize old turns when the window fills)
+- [ ] Persistent project memory (CLAUDE.md-style) surfaced to the agent
+- [ ] Web-forge session persistence (history survives reload; CLI already has sessions)
+
+## Harness parity (Claude Code / OpenCode)
+- [ ] Plan mode (read-only 'propose before acting')
+- [ ] File-edit checkpointing / undo (revert the agent's file changes)
+- [ ] Agent hooks (pre/post-tool)
+- [ ] Slash commands in the web GUI (CLI has them)
+- [ ] LSP integration; usage/cost/token accounting; vision input; IDE extension
+
+## Platform / infra (worth adding)
+- [ ] Prompt/response caching; budget/cost caps
+- [ ] RAG / embeddings store
+- [ ] Observability / tracing of agent + graph runs
+- [ ] Plugin system; batch/queue processing; streaming tool results
