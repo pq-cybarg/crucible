@@ -87,6 +87,11 @@ class RuntimeActiveRequest(BaseModel):
     model_ids: list[str]
 
 
+class RouteRequest(BaseModel):
+    prompt: str
+    user_level: str = "balanced"       # fast | balanced | max
+
+
 class BenchmarkRequest(BaseModel):
     model_id: str | None = None
     tokens: int = 64
@@ -1401,6 +1406,31 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         _save_prefs(prefs)
         return {"preferences": prefs}
 
+    @app.post("/api/route")
+    def route_task(req: RouteRequest) -> dict:
+        """Task-aware routing: classify the prompt and pick the best model for it (or the
+        user's level). Turns the registry into a mixture of experts."""
+        from crucible.task_router import infer_tags, route
+        models = []
+        for m in reg.list():
+            tags, tier = infer_tags(m.name or m.id, m.quant)
+            models.append({"id": m.id, "tags": tags, "tier": tier})
+
+        def avail(mid: str) -> bool:
+            try:
+                m = reg.get(mid)
+            except KeyError:
+                return False
+            if m.endpoint:
+                return _endpoint_alive(m.endpoint)
+            if _is_gguf_file(m.path):
+                return True
+            return abliteration_adapter is not None
+
+        decision = route(req.prompt, models, req.user_level, avail)
+        decision["candidates"] = models
+        return decision
+
     @app.get("/v1/models")
     def v1_models() -> dict:
         data = [{"id": mid, "object": "model", "owned_by": "crucible"}
@@ -1416,7 +1446,21 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         max_tokens = int(body.get("max_tokens") or 256)
         requested = body.get("model")
         candidates = _provider_candidates()
-        chosen = choose_model(requested, candidates, _load_prefs(), _provider_available)
+        if isinstance(requested, str) and requested.startswith("auto:"):
+            from crucible.task_router import infer_tags as _tags, route as _troute
+            level = requested.split(":", 1)[1] or "balanced"
+            last = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+            tagged = []
+            for mid in candidates:
+                if mid == "crucible":
+                    tagged.append({"id": "crucible", "tags": ["chat"], "tier": 1})
+                else:
+                    mm = reg.get(mid); tg, ti = _tags(mm.name or mm.id, mm.quant)
+                    tagged.append({"id": mid, "tags": tg, "tier": ti})
+            chosen = _troute(last, tagged, level, _provider_available)["chosen"] \
+                or choose_model("auto", candidates, _load_prefs(), _provider_available)
+        else:
+            chosen = choose_model(requested, candidates, _load_prefs(), _provider_available)
         if chosen is None:
             raise HTTPException(status_code=503,
                 detail="no backing model available (register a model with an endpoint, or load the adapter)")
