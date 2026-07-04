@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useState } from "react";
 import { getApiBase, getApiToken } from "../api";
+import PlainCard from "./PlainCard";
 
 // Self-contained analysis surface: causal trace, sparse-autoencoder features, safety suites.
 // Each hits its backend endpoint directly. Shares the Pipeline tab's model selection via prop.
@@ -14,6 +15,7 @@ async function post(path: string, body: unknown): Promise<Record<string, unknown
   if (!r.ok) throw new Error((j["detail"] as string) ?? `${path} -> ${r.status}`);
   return j;
 }
+
 
 function Causal({ base }: { readonly base: string }): JSX.Element {
   const [res, setRes] = useState<Record<string, unknown> | null>(null);
@@ -34,6 +36,7 @@ function Causal({ base }: { readonly base: string }): JSX.Element {
         {err && <span className="runtime-err">{err}</span>}
         {res && <span className="hint" style={{ margin: 0 }}>peak <b>layer {String(res["peak_layer"])}</b> · restoration {(Number(res["peak_restoration"]) * 100).toFixed(0)}%</span>}
       </div>
+      <PlainCard res={res} />
       {rows.length > 0 && (
         <div className="layer-chart">
           {rows.map((r) => (
@@ -68,6 +71,7 @@ function Sae({ base }: { readonly base: string }): JSX.Element {
         {err && <span className="runtime-err">{err}</span>}
         {res && <span className="hint" style={{ margin: 0 }}>R² {(Number(res["r2"]) * 100).toFixed(0)}% · sparsity {(Number(res["sparsity"]) * 100).toFixed(0)}%</span>}
       </div>
+      <PlainCard res={res} />
       {feats.slice(0, 8).map((f) => (
         <div key={String(f["feature"])} className="pipe-comp">
           <span className="pipe-comp-name">feature {String(f["feature"])}</span>

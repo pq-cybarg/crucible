@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { useEffect, useState } from "react";
 import { getApiBase, getApiToken, getModels } from "../api";
 import AnalysisPanel from "./AnalysisPanel";
+import PlainCard from "./PlainCard";
 
 // Self-contained pipeline surface: quantization fidelity, piecemeal alignment components,
 // and LoRA retraining — each hitting its backend endpoint directly (no api.ts edits).
@@ -119,6 +120,7 @@ function Components({ base }: { readonly base: string }): JSX.Element {
           <div><span className="pipe-lbl">edited</span> {String(preview["edited"])}</div>
         </div>
       )}
+      <PlainCard res={preview} />
     </div>
   );
 }

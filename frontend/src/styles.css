@@ -754,6 +754,15 @@ body::after {
 .pipe-card h3 { font-family: var(--font-display); font-size: 15px; color: var(--bone); font-weight: 600; }
 .pipe-card h3 em { color: var(--ash); font-style: normal; font-weight: 400; font-size: 12px; }
 .pipe-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+/* Plain-language diagnosis card — the jargon-free explanation attached to every analysis result. */
+.plain-card { background: var(--void); border: 1px solid var(--line-bright); border-left: 3px solid var(--amber-bright);
+  border-radius: 6px; padding: 11px 13px; margin: 12px 0; }
+.plain-headline { font-family: var(--font-display); color: var(--bone); font-size: 13.5px; font-weight: 600; margin-bottom: 7px; }
+.plain-line { color: var(--steel-text); font-size: 12.5px; line-height: 1.5; margin: 5px 0; }
+.plain-tag { display: inline-block; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
+.plain-caveat { color: var(--ash); }
+.plain-caveat .plain-tag { color: var(--ash); }
 .pipe-comp { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
 .pipe-comp-share { font-family: var(--font-mono); color: var(--amber-bright); font-size: 13px; width: 44px; }
 .pipe-comp-name { font-family: var(--font-display); color: var(--bone); font-size: 12.5px; width: 120px; }

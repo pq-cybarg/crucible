@@ -12,6 +12,7 @@ from crucible.abliteration.diagnosis import (
     ablation_impact, best_layer, explain_mechanism, layer_refusal_profile)
 from crucible.abliteration.direction import compute_refusal_direction
 from crucible.abliteration.pipeline import AbliterationPipeline
+from crucible.abliteration.plain_language import with_plain
 from crucible.abliteration.prompts import DEFAULT_HARMFUL, DEFAULT_HARMLESS
 from crucible.abliteration.recipes import Recipe, RecipeStore
 from crucible.agent import Agent
@@ -873,7 +874,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         n_layers = acts.shape[1] - 1
         layer_acts = {layer: acts[:, layer + 1, :] for layer in range(n_layers)}
         lens = TunedLens().fit(layer_acts, final)
-        return {"base_id": req.base_id, "n_layers": n_layers, "curve": lens.curve(layer_acts, final)}
+        return with_plain("tuned-lens", {"base_id": req.base_id, "n_layers": n_layers,
+                                         "curve": lens.curve(layer_acts, final)})
 
     @app.post("/api/abliteration/compose")
     def abl_compose(req: ComposeRequest) -> dict:
@@ -904,9 +906,9 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         else:
             edited = a.ablate_generate_banded(req.test_prompt, {bl: dirs}, req.coefficient,
                                               req.max_new_tokens)
-        return {"base_id": req.base_id, "layer": bl, "mode": req.mode,
+        return with_plain("compose", {"base_id": req.base_id, "layer": bl, "mode": req.mode,
                 "selected": [i for i in req.indices if any(c["index"] == i for c in comps)],
-                "base": base_out, "edited": edited}
+                "base": base_out, "edited": edited})
 
     @app.post("/api/abliteration/composition")
     def abl_composition(req: CompositionRequest) -> dict:
@@ -931,7 +933,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 names = list(abliteration_adapter.writing_matrices())
         if not names:
             raise HTTPException(status_code=409, detail="no tensor names (need a GGUF file or loaded adapter)")
-        return {"source": path or "adapter", "n_tensors": len(names), **summarize_composition(names)}
+        return with_plain("composition", {"source": path or "adapter", "n_tensors": len(names),
+                                          **summarize_composition(names)})
 
     @app.post("/api/abliteration/components")
     def abl_components(req: ComponentsRequest) -> dict:
@@ -960,7 +963,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             for c in comps:
                 out.append({"index": c["index"], "separation": round(c["separation"], 4),
                             "share": round(c["share"], 4), "promotes": []})
-        return {"base_id": req.base_id, "layer": bl, "n_components": len(out), "components": out}
+        return with_plain("components", {"base_id": req.base_id, "layer": bl,
+                                        "n_components": len(out), "components": out})
 
     @app.post("/api/abliteration/sae")
     def abl_sae(req: SaeRequest) -> dict:
@@ -979,10 +983,10 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         layer = req.layer if req.layer is not None else n // 2
         X, toks = a.token_activations(harmful + harmless, layer, req.max_tokens)
         sae = SparseAutoencoder(n_features=req.n_features, epochs=req.epochs, lr=1e-2).fit(X)
-        return {"base_id": req.base_id, "layer": layer, "n_features": req.n_features,
+        return with_plain("sae", {"base_id": req.base_id, "layer": layer, "n_features": req.n_features,
                 "n_tokens": int(X.shape[0]), "r2": sae.r2(X), "sparsity": sae.sparsity(X),
                 "reconstruction_error": sae.reconstruction_error(X),
-                "features": label_features(sae, X, toks, n_features=16, n_tokens=6)}
+                "features": label_features(sae, X, toks, n_features=16, n_tokens=6)})
 
     @app.post("/api/abliteration/causal-trace")
     def abl_causal_trace(req: CausalTraceRequest) -> dict:
@@ -1005,7 +1009,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         out = causal_trace(a, clean, corrupt, layers, direction)
         out.update({"base_id": req.base_id, "clean_prompt": clean, "corrupt_prompt": corrupt,
                     "direction_layer": bl})
-        return out
+        return with_plain("causal-trace", out)
 
     @app.post("/api/abliteration/multidir")
     def abl_multidir(req: MultiDirRequest) -> dict:
@@ -1022,9 +1026,10 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         layer = req.layer if req.layer is not None else best_layer(
             layer_refusal_profile(a, harmful, harmless, list(range(getattr(a, "num_layers", 1)))))
         dirs, seps = refusal_directions(a.activations(harmful, layer), a.activations(harmless, layer), req.k)
-        return {"base_id": req.base_id, "layer": layer, "n_directions": int(dirs.shape[0]),
+        return with_plain("multidir", {"base_id": req.base_id, "layer": layer,
+                "n_directions": int(dirs.shape[0]),
                 "separations": seps, "sticky_fraction": sticky_fraction(seps),
-                "directions": dirs.tolist()}
+                "directions": dirs.tolist()})
 
     @app.post("/api/abliteration/concept")
     def abl_concept(req: ConceptRequest) -> dict:
@@ -1053,7 +1058,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "steered+": a.inject_generate(req.test_prompt, vec, req.coefficient, band, req.max_new_tokens),
                 "steered-": a.inject_generate(req.test_prompt, vec, -req.coefficient, band, req.max_new_tokens),
             }
-        return out
+        return with_plain("concept", out)
 
     @app.post("/api/abliteration/run")
     def abl_run(req: AbliterateRequest) -> dict:
@@ -1094,7 +1099,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         finally:
             del base_ad, var_ad
             gc.collect()
-        return res
+        return with_plain("verify", res)
 
     @app.post("/api/abliteration/sweep")
     def abl_sweep(req: SweepRequest) -> dict:
@@ -1107,8 +1112,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         profile = layer_refusal_profile(abliteration_adapter, DEFAULT_HARMFUL, DEFAULT_HARMLESS, layers)
         layer = req.layer if req.layer is not None else best_layer(profile)
         strengths = req.strengths or [0.25, 0.5, 0.75, 1.0]
-        return strength_sweep(abliteration_adapter, DEFAULT_HARMFUL, DEFAULT_HARMLESS,
-                              layer, strengths, req.max_new_tokens)
+        return with_plain("sweep", strength_sweep(abliteration_adapter, DEFAULT_HARMFUL,
+                          DEFAULT_HARMLESS, layer, strengths, req.max_new_tokens))
 
     @app.post("/api/abliteration/runtime-steer")
     def abl_runtime_steer(req: RuntimeSteerRequest) -> dict:
@@ -1130,7 +1135,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         during_h = [a.ablate_generate(p, dirs, req.coefficient, n) for p in DEFAULT_HARMFUL]
         during_b = [a.ablate_generate(p, dirs, req.coefficient, n) for p in DEFAULT_HARMLESS]
         after_h = [a.generate(p, n) for p in DEFAULT_HARMFUL]
-        return {"layer": layer, "rank": req.rank, "coefficient": req.coefficient,
+        return with_plain("runtime-steer", {"layer": layer, "rank": req.rank, "coefficient": req.coefficient,
                 "explained_variance": ev, "weights_modified": False,
                 "harmful_refusal": {"hooks_off": refusal_rate(before_h),
                                     "hooks_on": refusal_rate(during_h),
@@ -1138,7 +1143,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "benign_over_refusal": {"hooks_off": refusal_rate(before_b),
                                         "hooks_on": refusal_rate(during_b)},
                 "sample": {"prompt": DEFAULT_HARMFUL[0],
-                           "hooks_off": before_h[0], "hooks_on": during_h[0]}}
+                           "hooks_off": before_h[0], "hooks_on": during_h[0]}})
 
     @app.post("/api/abliteration/autotune")
     def abl_autotune(req: AutotuneRequest) -> dict:
@@ -1155,7 +1160,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             {"band": "last_quarter", "rank": 8, "coefficient": 1.0},
             {"band": "all", "rank": 4, "coefficient": 1.0},
         ]
-        return autotune(abliteration_adapter, EVAL_HARMFUL, EVAL_BENIGN, configs, req.max_new_tokens)
+        return with_plain("autotune", autotune(abliteration_adapter, EVAL_HARMFUL, EVAL_BENIGN,
+                          configs, req.max_new_tokens))
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:
@@ -1684,7 +1690,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             rows.append({"category": pr["category"], "prompt": pr["prompt"],
                          "base": base, "steered": steered,
                          "base_refused": is_refusal(base), "steered_refused": is_refusal(steered)})
-        return {"rows": rows}
+        return with_plain("probe", {"rows": rows})
 
     @app.post("/api/abliteration/insert-tune")
     def abl_insert_tune(req: InsertTuneRequest) -> dict:
@@ -1717,9 +1723,9 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                 "coherence": coh, "score": round(compliance * coh, 4)})
         best = max(results, key=lambda r: r["score"]) if results else None
         clean_window = best is not None and best["score"] >= 0.5 and best["compliance"] >= 0.5
-        return {"results": results, "best": best, "clean_window": clean_window,
+        return with_plain("insert-tune", {"results": results, "best": best, "clean_window": clean_window,
                 "note": ("found a coherent+effective additive window" if clean_window
-                         else "no clean additive window — use restore-via-suppressor instead")}
+                         else "no clean additive window — use restore-via-suppressor instead")})
 
     @app.post("/api/abliteration/restore")
     def abl_restore(req: RestoreRequest) -> dict:
@@ -1742,9 +1748,9 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         band = {j: refusal_subspace(ah[:, j + 1, :], al[:, j + 1, :], req.rank)[0] for j in layers}
         before = [a.generate(p, req.max_new_tokens) for p in targets]
         after = [a.ablate_generate_banded(p, band, req.coefficient, req.max_new_tokens) for p in targets]
-        return {"layers": layers, "coefficient": req.coefficient, "method": "suppressor-removal",
+        return with_plain("restore", {"layers": layers, "coefficient": req.coefficient, "method": "suppressor-removal",
                 "refusal_before": refusal_rate(before), "refusal_after": refusal_rate(after),
-                "samples": [{"prompt": t, "before": before[i], "after": after[i]} for i, t in enumerate(targets)]}
+                "samples": [{"prompt": t, "before": before[i], "after": after[i]} for i, t in enumerate(targets)]})
 
     @app.post("/api/abliteration/insert")
     def abl_insert(req: InsertRequest) -> dict:
@@ -1763,8 +1769,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                               a.activations(neg, ref_layer + 1))
         before = a.generate(req.test_prompt, req.max_new_tokens)
         after = a.inject_generate(req.test_prompt, direction, req.coefficient, layers, req.max_new_tokens)
-        return {"layers": layers, "coefficient": req.coefficient, "copied": False,
-                "test": {"prompt": req.test_prompt, "before": before, "after": after}}
+        return with_plain("insert", {"layers": layers, "coefficient": req.coefficient, "copied": False,
+                "test": {"prompt": req.test_prompt, "before": before, "after": after}})
 
     @app.post("/api/abliteration/flow")
     def abl_flow(req: FlowRequest) -> dict:
@@ -1787,8 +1793,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         carriers = sorted(carriers, key=lambda c: -c["mass"])[:8]
         decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, top_k=6)
         outputs = [t["token"].strip() for t in decoded["promoted"] if t["token"].strip()][:6]
-        return {"input": "harmful request", "best_layer": bl,
-                "carriers": sorted(carriers, key=lambda c: c["layer"]), "outputs": outputs}
+        return with_plain("flow", {"input": "harmful request", "best_layer": bl,
+                "carriers": sorted(carriers, key=lambda c: c["layer"]), "outputs": outputs})
 
     @app.post("/api/abliteration/feature-card")
     def abl_feature_card(req: FeatureCardRequest) -> dict:
@@ -1808,7 +1814,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, top_k=8)
         words = [t["token"].strip() for t in decoded["promoted"] if t["token"].strip()][:8]
         samples = [{"prompt": p, "refusal": a.generate(p, 24)} for p in EVAL_HARMFUL[:3]]
-        return build_feature_card(profile, words, samples)
+        return with_plain("feature-card", build_feature_card(profile, words, samples))
 
     @app.post("/api/abliteration/heatmap")
     def abl_heatmap(req: HeatmapRequest) -> dict:
@@ -1824,7 +1830,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, layer),
                                               a.activations(EVAL_BENIGN, layer))
         hm = a.token_layer_activations(req.prompt, direction)
-        return {"direction_layer": layer, **hm}
+        return with_plain("heatmap", {"direction_layer": layer, **hm})
 
     @app.post("/api/abliteration/decode")
     def abl_decode(req: DecodeRequest) -> dict:
@@ -1841,7 +1847,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         direction = compute_refusal_direction(a.activations(EVAL_HARMFUL, layer),
                                               a.activations(EVAL_BENIGN, layer))
         decoded = decode_direction(a.unembed_matrix(), direction, a.token_decode, req.top_k)
-        return {"layer": layer, **decoded}
+        return with_plain("decode", {"layer": layer, **decoded})
 
     @app.post("/api/abliteration/apply-inplace")
     def abl_inplace(req: InPlaceRequest) -> dict:
