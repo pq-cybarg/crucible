@@ -87,6 +87,11 @@ class RuntimeActiveRequest(BaseModel):
     model_ids: list[str]
 
 
+class GraphRequest(BaseModel):
+    stages: list[dict]                 # [{id, inputs:[...], kind: model|tool|transform, config}]
+    initial: str = ""
+
+
 class RouteRequest(BaseModel):
     prompt: str
     user_level: str = "balanced"       # fast | balanced | max
@@ -1435,6 +1440,39 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         prefs = [str(x) for x in (body.get("preferences") or [])]
         _save_prefs(prefs)
         return {"preferences": prefs}
+
+    @app.post("/api/graph/run")
+    def graph_run(req: GraphRequest) -> dict:
+        """Run a model graph — compose subsystems (routed model calls, tools, transforms) into
+        a pipeline/DAG. Each stage's inputs are its dependency outputs; model stages route+chat,
+        tool stages invoke a tool, transform stages join."""
+        from crucible.graph import execute_graph, final_outputs, topo_order
+
+        def run_stage(stage: dict, inputs: dict):
+            kind = stage.get("kind", "model")
+            cfg = stage.get("config", {}) or {}
+            merged = "\n".join(str(v) for v in inputs.values())
+            if kind == "tool":
+                tools = default_registry(root)
+                name = cfg.get("name")
+                if name not in {t.name for t in tools.all()}:
+                    return f"error: no tool '{name}'"
+                res = tools.get(name).run(**(cfg.get("args") or {}))
+                return res.output or res.error or ""
+            if kind == "transform":
+                return merged
+            solver = _make_solver(cfg.get("model_id"))
+            if solver is None:
+                raise HTTPException(status_code=503, detail="no model available for a graph model-stage")
+            prompt = str(cfg.get("prompt", "{input}")).replace("{input}", merged)
+            return solver(prompt)
+
+        try:
+            order = topo_order(req.stages)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid graph: {e}")
+        outputs = execute_graph(req.stages, run_stage, req.initial)
+        return {"order": order, "outputs": outputs, "result": final_outputs(req.stages, outputs)}
 
     @app.post("/api/route")
     def route_task(req: RouteRequest) -> dict:
