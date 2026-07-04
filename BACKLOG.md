@@ -82,21 +82,21 @@ Deferred / planned work, captured so nothing is lost.
 Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 
 ## Multimodality — I/O across audio, voice, video, image, document
-- [ ] Provider passthrough of multimodal content (image_url / input_audio) to VLM/audio backing models
-- [ ] Media endpoints: /v1/audio/transcriptions (STT), /v1/audio/speech (TTS), /v1/images/generations, /v1/embeddings
-- [ ] Route image/video generation to the already-detected ComfyUI backend
-- [ ] Media tools for the agent + /api/tools (transcribe, speak, generate_image, describe_image)
+- [x] Provider passthrough of multimodal content (image_url / input_audio) to VLM/audio backing models
+- [x] Media endpoints: /v1/audio/transcriptions (STT), /v1/audio/speech (TTS), /v1/images/generations, /v1/embeddings
+- [~] Route image/video generation to the already-detected ComfyUI backend (generate_image tool + routes)
+- [x] Media tools for the agent + /api/tools (transcribe, speak, generate_image, describe_image)
 - [ ] Document I/O (parse PDFs/docs in, render documents out)
 - [ ] Mixed / asymmetric / changing input-output structures (per-request modality shapes)
 
 ## Multi-model systems / subsystems (model graphs)
-- [ ] Model-graph engine: compose routed model calls into pipelines/DAGs (e.g. STT -> LLM -> TTS; image -> VLM -> text -> image)
+- [x] Model-graph engine: compose routed model calls into pipelines/DAGs (e.g. STT -> LLM -> TTS; image -> VLM -> text -> image)
 - [ ] Cascades (cheap -> escalate) and verifier / judge ensembles as graph nodes
 - [ ] Per-subsystem config + versioning; asymmetric modality edges between stages
 - [~] Mixture-of-models by task (task_router) — DONE as the node selector; graph edges TODO
 
 ## Swarm / fractal AI (orchestration primitives)
-- [ ] Subagents: a spawn_agent tool + orchestrator (reuse the agent loop) — 'swarm'
+- [~] Subagents: /api/agent/swarm runs+merges sub-agents (spawn_agent tool for in-agent recursion TODO)
 - [ ] Recursive agent trees (agents spawning agents) — 'fractal'
 - [ ] Task/model sharding across the distributed runtime (multi-node + gateway substrate exists)
 - [ ] Coordination/merge strategies (map-reduce, tournament, debate, blackboard)
@@ -112,7 +112,7 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 
 ## Model intelligence / routing
 - [x] Task-aware routing (classify -> route; user level fast/balanced/max); /api/route + auto:task
-- [ ] Model-based task classifier (replace heuristics); eval-driven selection using measured safety/capability
+- [~] Model-based task classifier (replace heuristics); eval-driven selection using measured safety/capability
 - [ ] Hand-labeled model tags/tiers in the registry (override inferred tags)
 
 ## Integration / exposure
