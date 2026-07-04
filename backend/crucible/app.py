@@ -435,6 +435,18 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
 
+    def _is_gguf_file(path: str) -> bool:
+        """A launchable GGUF is any file whose first bytes are the GGUF magic — regardless of
+        extension (Ollama stores blobs as sha256-<hash> with no .gguf suffix)."""
+        p = Path(path)
+        if not p.is_file():
+            return False
+        try:
+            with open(p, "rb") as fh:
+                return fh.read(4) == b"GGUF"
+        except OSError:
+            return False
+
     def _endpoint_alive(endpoint: str) -> bool:
         import httpx
         for probe in ("/health", "/v1/models"):
@@ -450,7 +462,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         """Autodetect which registered models are reachable so the GUI never routes to a dead one."""
         out = []
         for m in reg.list():
-            launchable = m.path.endswith(".gguf") and Path(m.path).is_file()
+            launchable = _is_gguf_file(m.path)
             online = bool(m.endpoint and _endpoint_alive(m.endpoint))
             out.append({"id": m.id, "endpoint": m.endpoint, "online": online,
                         "launchable": launchable,
@@ -486,7 +498,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             m = reg.get(req.model_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="model not found")
-        is_gguf = m.path.endswith(".gguf") and Path(m.path).is_file()
+        is_gguf = _is_gguf_file(m.path)
         is_hf_dir = req.backend == "vllm" and Path(m.path).is_dir()
         if not (is_gguf or is_hf_dir):
             raise HTTPException(status_code=409,
@@ -512,6 +524,42 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         concurrently; when capped, they round-robin (LRU eviction) on demand."""
         runtime.set_active(req.model_ids)
         return runtime.status()
+
+    @app.get("/api/models/ollama")
+    def list_ollama() -> list[dict]:
+        """List locally-pulled Ollama models (their GGUF blobs) available to import."""
+        from crucible.ollama_import import list_ollama_models, registry_id_for
+        rows = list_ollama_models()
+        have = {m.id for m in reg.list()}
+        for r in rows:
+            r["suggested_id"] = registry_id_for(r["name"])
+            r["imported"] = r["suggested_id"] in have
+        return rows
+
+    @app.post("/api/models/import-ollama", status_code=201)
+    def import_ollama(body: dict) -> Model:
+        """Register an Ollama model's GGUF blob as a first-class Crucible model — now
+        uncensorable, editable, quantizable, retrainable, and servable via llama.cpp."""
+        from datetime import datetime, timezone
+        from crucible.ollama_import import find_ollama_model, registry_id_for
+        name = body.get("name")
+        if not name:
+            raise HTTPException(status_code=422, detail="name required")
+        try:
+            m = find_ollama_model(name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"ollama model not found: {name}")
+        except FileNotFoundError:
+            raise HTTPException(status_code=409, detail="model blob missing on disk")
+        mid = body.get("id") or registry_id_for(name)
+        model = Model(id=mid, name=name, base_id=None, path=m["gguf_path"], quant="gguf",
+                      kind="base", endpoint=None,
+                      created=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                      notes=f"imported from Ollama ({name})")
+        try:
+            return reg.register(model)
+        except ValueError:
+            return reg.get(mid)
 
     @app.get("/api/models/{model_id}/lineage")
     def lineage(model_id: str) -> list[Model]:
@@ -1565,7 +1613,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             if m.endpoint and _endpoint_alive(m.endpoint):
                 return endpoint_model(m.endpoint, model_name=m.id)
             # endpoint missing/offline -> (re)launch a local GGUF file on demand
-            if m.path.endswith(".gguf") and Path(m.path).is_file():
+            if _is_gguf_file(m.path):
                 inst = runtime.ensure(m.id, m.path)
                 from crucible.inference import wait_healthy
                 if not wait_healthy(inst.endpoint, timeout=90):
