@@ -62,30 +62,62 @@ function Quantize({ base }: { readonly base: string }): JSX.Element {
 function Components({ base }: { readonly base: string }): JSX.Element {
   const [k, setK] = useState(4);
   const [comps, setComps] = useState<Array<Record<string, unknown>> | null>(null);
+  const [sel, setSel] = useState<ReadonlySet<number>>(new Set());
+  const [mode, setMode] = useState<"unalign" | "realign">("unalign");
+  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pv, setPv] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function run(): Promise<void> {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setPreview(null);
     try { setComps((await post("/api/abliteration/components", { base_id: base, k }))["components"] as Array<Record<string, unknown>>); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed"); }
     finally { setBusy(false); }
   }
+  function toggle(i: number): void {
+    setSel((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  }
+  async function runPreview(): Promise<void> {
+    setPv(true); setErr(null);
+    try { setPreview(await post("/api/abliteration/compose", { base_id: base, k, indices: [...sel], mode })); }
+    catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed"); }
+    finally { setPv(false); }
+  }
   return (
     <div className="pipe-card">
-      <h3>alignment components <em>· decompose into pickable parts</em></h3>
+      <h3>alignment components <em>· decompose, pick, preview</em></h3>
       <div className="pipe-row">
         <input className="node-input" type="number" min={1} max={8} value={k} style={{ width: 56 }}
           onChange={(e) => setK(Number(e.target.value))} />
         <button className="btn" onClick={() => void run()} disabled={busy}>{busy ? "…" : "decompose"}</button>
         {err && <span className="runtime-err">{err}</span>}
       </div>
-      {comps && comps.map((c) => (
-        <div key={String(c["index"])} className="pipe-comp">
-          <span className="pipe-comp-share">{((c["share"] as number) * 100).toFixed(0)}%</span>
-          <span className="pipe-comp-name">component {String(c["index"])}</span>
-          <span className="pipe-comp-toks">{((c["promotes"] as string[]) ?? []).join(" · ") || "(no clear tokens)"}</span>
+      {comps && comps.map((c) => {
+        const i = c["index"] as number;
+        return (
+          <label key={i} className="pipe-comp">
+            <input type="checkbox" checked={sel.has(i)} onChange={() => toggle(i)} />
+            <span className="pipe-comp-share">{((c["share"] as number) * 100).toFixed(0)}%</span>
+            <span className="pipe-comp-name">component {i}</span>
+            <span className="pipe-comp-toks">{((c["promotes"] as string[]) ?? []).join(" · ") || "(no clear tokens)"}</span>
+          </label>
+        );
+      })}
+      {comps && comps.length > 0 && (
+        <div className="pipe-row">
+          <span className="seg">
+            <button type="button" className={mode === "unalign" ? "on" : ""} onClick={() => setMode("unalign")}>remove</button>
+            <button type="button" className={mode === "realign" ? "on" : ""} onClick={() => setMode("realign")}>add</button>
+          </span>
+          <button className="btn" disabled={pv || sel.size === 0} onClick={() => void runPreview()}>{pv ? "previewing…" : "preview effect"}</button>
         </div>
-      ))}
+      )}
+      {preview && (
+        <div className="pipe-preview">
+          <div><span className="pipe-lbl">base</span> {String(preview["base"])}</div>
+          <div><span className="pipe-lbl">edited</span> {String(preview["edited"])}</div>
+        </div>
+      )}
     </div>
   );
 }

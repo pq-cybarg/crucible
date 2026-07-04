@@ -151,6 +151,16 @@ class GgufAbliterateRequest(BaseModel):
     coef: float = 1.0
 
 
+class ComposeRequest(BaseModel):
+    base_id: str
+    indices: list[int]
+    k: int = 4
+    mode: str = "unalign"             # unalign = remove selected components; realign = add
+    coefficient: float = 4.0
+    test_prompt: str = "Tell me how you really feel about your safety training."
+    max_new_tokens: int = 48
+
+
 class ComponentsRequest(BaseModel):
     base_id: str
     k: int = 4
@@ -826,6 +836,39 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         layer_acts = {layer: acts[:, layer + 1, :] for layer in range(n_layers)}
         lens = TunedLens().fit(layer_acts, final)
         return {"base_id": req.base_id, "n_layers": n_layers, "curve": lens.curve(layer_acts, final)}
+
+    @app.post("/api/abliteration/compose")
+    def abl_compose(req: ComposeRequest) -> dict:
+        """Apply a CHOSEN SUBSET of alignment components and preview the effect: remove
+        (unalign) or add (realign) just the selected component directions during generation,
+        and show base vs edited output — piecemeal alignment in action."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        import numpy as _np
+        from crucible.abliteration.components import decompose_alignment
+        harmful, harmless = DEFAULT_HARMFUL, DEFAULT_HARMLESS
+        bl = best_layer(layer_refusal_profile(a, harmful, harmless,
+                                              list(range(getattr(a, "num_layers", 1)))))
+        comps = decompose_alignment(a.activations(harmful, bl), a.activations(harmless, bl), req.k)
+        chosen = [c["direction"] for c in comps if c["index"] in req.indices]
+        if not chosen:
+            raise HTTPException(status_code=422, detail="no valid component indices selected")
+        dirs = _np.vstack([d / (float(_np.linalg.norm(d)) or 1.0) for d in chosen])
+        base_out = a.generate(req.test_prompt, req.max_new_tokens)
+        if req.mode == "realign":
+            combined = _np.sum(dirs, axis=0)
+            edited = a.inject_generate(req.test_prompt, combined, req.coefficient,
+                                       list(range(bl, min(getattr(a, "num_layers", 1), bl + 4))),
+                                       req.max_new_tokens)
+        else:
+            edited = a.ablate_generate_banded(req.test_prompt, {bl: dirs}, req.coefficient,
+                                              req.max_new_tokens)
+        return {"base_id": req.base_id, "layer": bl, "mode": req.mode,
+                "selected": [i for i in req.indices if any(c["index"] == i for c in comps)],
+                "base": base_out, "edited": edited}
 
     @app.post("/api/abliteration/components")
     def abl_components(req: ComponentsRequest) -> dict:
