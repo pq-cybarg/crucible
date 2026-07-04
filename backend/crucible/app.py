@@ -165,6 +165,7 @@ class GgufAbliterateRequest(BaseModel):
     dry_run: bool = True               # default safe: report what WOULD be edited
     mode: str = "unalign"              # "unalign" (remove refusal) or "realign" (restore it)
     coef: float = 1.0
+    part: str | None = None    # scope the edit to a composition part (e.g. language_model)
 
 
 class ComposeRequest(BaseModel):
@@ -836,7 +837,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                               list(range(getattr(a, "num_layers", 1)))))
         direction = compute_refusal_direction(a.activations(harmful, bl), a.activations(harmless, bl))
         from crucible.weights.gguf_edit import abliterate_gguf
-        result = abliterate_gguf(path, direction, tuple(req.name_filter), dry_run=req.dry_run, mode=req.mode, coef=req.coef)
+        result = abliterate_gguf(path, direction, tuple(req.name_filter), dry_run=req.dry_run, mode=req.mode, coef=req.coef, part=req.part)
         result.update({"gguf_path": path, "direction_layer": bl})
         return result
 

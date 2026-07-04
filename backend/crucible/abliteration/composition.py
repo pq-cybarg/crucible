@@ -84,3 +84,11 @@ def summarize_composition(tensor_names: list[str]) -> dict:
             + "; ".join(f"{p['part']} -> {p['technique']}" for p in parts if p["editable"])
         ) or "single-part model — standard residual abliteration",
     }
+
+
+def part_writing_matrices(tensor_names: list[str], part: str,
+                          writing=("o_proj", "down_proj")) -> list[str]:
+    """The writing-matrix tensor names that belong to a given part — the abliteration targets
+    scoped to that subsystem."""
+    return [n for n in tensor_names
+            if part_of(n) == part and any(w in n for w in writing)]

@@ -94,7 +94,8 @@ def tensor_matrix_shape(dims: list[int]) -> tuple[int, int]:
 
 
 def abliterate_gguf(path: str, direction, name_filter=("o_proj", "down_proj"),
-                    dry_run: bool = False, mode: str = "unalign", coef: float = 1.0) -> dict:
+                    dry_run: bool = False, mode: str = "unalign", coef: float = 1.0,
+                    part: str | None = None) -> dict:
     """Abliterate a GGUF in place (edits the file unless dry_run). Patches 2-D writing
     matrices whose name contains one of name_filter, when their type is directly editable."""
     from crucible.weights.gguf_reader import parse_gguf
@@ -105,6 +106,11 @@ def abliterate_gguf(path: str, direction, name_filter=("o_proj", "down_proj"),
     for t in parsed["tensors"]:
         if len(t["shape"]) != 2 or not any(k in t["name"] for k in name_filter):
             continue
+        if part is not None:
+            from crucible.abliteration.composition import part_of
+            if part_of(t["name"]) != part:
+                skipped.append({"name": t["name"], "dtype": t["dtype"], "reason": f"not in part '{part}'"})
+                continue
         out_dim, in_dim = tensor_matrix_shape(t["shape"])
         if t["dtype"] not in DIRECT:
             skipped.append({"name": t["name"], "dtype": t["dtype"], "reason": "quant not directly editable"})
