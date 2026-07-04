@@ -106,6 +106,7 @@ def _execute(tools: ToolRegistry, audit: AuditLog, name: str, args: dict) -> dic
 def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
     """Authorize + run a tool, yielding a permission_request (when mode='ask' and an approver
     exists) then the tool_result. Returns the observation string (via generator return)."""
+    name = coerce_tool_name(name, [t.name for t in tools.all()])   # snap hallucinated names
     mode = permissions.mode_for(name)
     if mode == "deny":
         result = {"ok": False, "output": "", "error": "denied by policy"}
