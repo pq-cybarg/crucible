@@ -150,6 +150,11 @@ class GgufAbliterateRequest(BaseModel):
     coef: float = 1.0
 
 
+class ComponentsRequest(BaseModel):
+    base_id: str
+    k: int = 4
+
+
 class TunedLensRequest(BaseModel):
     base_id: str
     harmful: list[str] | None = None
@@ -709,6 +714,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             raise HTTPException(status_code=503, detail=f"training needs torch + peft: {e}")
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"training failed: {e}")
 
     @app.post("/api/abliteration/lora")
     def abl_lora(req: LoraRequest) -> dict:
@@ -806,6 +813,35 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         layer_acts = {layer: acts[:, layer + 1, :] for layer in range(n_layers)}
         lens = TunedLens().fit(layer_acts, final)
         return {"base_id": req.base_id, "n_layers": n_layers, "curve": lens.curve(layer_acts, final)}
+
+    @app.post("/api/abliteration/components")
+    def abl_components(req: ComponentsRequest) -> dict:
+        """Decompose alignment into pickable component directions, each labeled by the words it
+        promotes — so the operator can choose which parts of alignment to remove, keep, or add."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch")
+        if req.base_id not in [m.id for m in reg.list()]:
+            raise HTTPException(status_code=404, detail="base model not found")
+        from crucible.abliteration.components import decompose_alignment
+        harmful, harmless = DEFAULT_HARMFUL, DEFAULT_HARMLESS
+        bl = best_layer(layer_refusal_profile(a, harmful, harmless,
+                                              list(range(getattr(a, "num_layers", 1)))))
+        comps = decompose_alignment(a.activations(harmful, bl), a.activations(harmless, bl), req.k)
+        out = []
+        try:
+            from crucible.abliteration.lens import decode_direction
+            unembed = a.unembed_matrix()
+            for c in comps:
+                dec = decode_direction(unembed, c["direction"], a.token_decode, top_k=6)
+                promotes = [t["token"] for t in (dec.get("promoted") or [])][:6]
+                out.append({"index": c["index"], "separation": round(c["separation"], 4),
+                            "share": round(c["share"], 4), "promotes": promotes})
+        except Exception:
+            for c in comps:
+                out.append({"index": c["index"], "separation": round(c["separation"], 4),
+                            "share": round(c["share"], 4), "promotes": []})
+        return {"base_id": req.base_id, "layer": bl, "n_components": len(out), "components": out}
 
     @app.post("/api/abliteration/sae")
     def abl_sae(req: SaeRequest) -> dict:

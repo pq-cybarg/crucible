@@ -746,3 +746,17 @@ body::after {
 .perm-done { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px; display: inline-block; }
 .perm-done.approved { color: var(--flux); }
 .perm-done.denied { color: var(--ember); }
+
+
+/* ---------- pipeline tab (quantize / components / retrain) ------------- */
+.pipe-model { display: flex; align-items: center; gap: 10px; margin: 4px 0 18px; font-size: 12px; color: var(--steel-text); }
+.pipe-card { background: var(--steel-900); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+.pipe-card h3 { font-family: var(--font-display); font-size: 15px; color: var(--bone); font-weight: 600; }
+.pipe-card h3 em { color: var(--ash); font-style: normal; font-weight: 400; font-size: 12px; }
+.pipe-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+.pipe-comp { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
+.pipe-comp-share { font-family: var(--font-mono); color: var(--amber-bright); font-size: 13px; width: 44px; }
+.pipe-comp-name { font-family: var(--font-display); color: var(--bone); font-size: 12.5px; width: 120px; }
+.pipe-comp-toks { color: var(--steel-text); font-size: 12px; }
+.pipe-data { width: 100%; min-height: 120px; background: var(--void); color: var(--bone); border: 1px solid var(--line-bright);
+  border-radius: 6px; font-family: var(--font-mono); font-size: 12px; padding: 10px; resize: vertical; }
