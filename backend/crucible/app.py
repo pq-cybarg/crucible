@@ -1811,6 +1811,29 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return _adapter_chat_model(abliteration_adapter)
         return None
 
+    @app.get("/api/tools")
+    def tools_catalog() -> dict:
+        """Embeddable tool catalog — the OpenAI-tools/JSON-Schema for every agent tool, so any
+        app you build can discover and use Crucible's tools over plain HTTP (or via MCP)."""
+        return {"tools": default_registry(root).schemas()}
+
+    @app.post("/api/tools/invoke")
+    def tools_invoke(body: dict) -> dict:
+        """Invoke one tool directly and get its result — lets an external app use a single
+        Crucible tool without the agent loop. Token-gated when CRUCIBLE_API_TOKEN is set."""
+        name = body.get("name")
+        args = body.get("args") or {}
+        tools = default_registry(root)
+        if name not in {t.name for t in tools.all()}:
+            raise HTTPException(status_code=404, detail=f"no such tool: {name}")
+        policy = PermissionPolicy(default=body.get("permission", "allow"))
+        decision = policy.check(name, args)
+        if not decision.allowed:
+            raise HTTPException(status_code=403, detail=decision.reason)
+        res = tools.get(name).run(**args)
+        AuditLog(settings.data_dir / "audit.jsonl").record("tool_invoke", {"name": name, "args": args})
+        return res.model_dump()
+
     @app.post("/api/agent/run")
     def agent_run(req: AgentRunRequest):
         active_model = _resolve_chat_model(req)
