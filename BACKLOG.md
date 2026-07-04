@@ -48,3 +48,31 @@ Deferred / planned work, captured so nothing is lost.
 ## Benchmarks
 - [x] lm-eval integration (canonical suite, capability retention)
 - [x] loglikelihood MC tasks via HF backend (MMLU/ARC/HellaSwag)
+
+
+## Full AI dev & analysis pipeline (all DONE)
+- [x] Causal interpretability: activation patching / causal trace (proves WHERE, not just correlates)
+- [x] Multiple refusal directions (refusal isn't rank-1) + CAA/RepE concept steering
+- [x] Sparse autoencoders — monosemantic feature dictionaries (+ token labels)
+- [x] Tuned lens — faithful per-layer decodability curve
+- [x] Plain-language surgical diagnosis (where/how-we-know/target/repair/risk; translatable)
+- [x] Piecemeal alignment: decompose into components → pick → preview remove/add
+- [x] Un-alignment AND re-alignment — in-place OR portable LoRA (exact inverse; reversible)
+- [x] Direct GGUF abliteration (edit the quantized model in place; F16/BF16/F32/Q8_0)
+- [x] Quantization analysis (per-tensor fidelity/compression for a target type)
+- [x] Retraining pipeline — real gradient LoRA SFT (peft), saved + auto-registered as a variant
+- [x] Eval rigor: safety suites (XSTest/HarmBench/AdvBench/StrongREJECT), LLM-judge, refusal
+      classifier, pass@k, contamination
+
+## Serving, models, ops (all DONE)
+- [x] Runtime manager: load/stop, multi-active round-robin, tok/s speed test; llama.cpp OR vLLM
+- [x] Online/offline autodetection; health-checked routing; GGUF detected by magic bytes
+- [x] Import from Ollama (grab the raw GGUF blobs → editable/retrainable/servable)
+- [x] Crucible as an OpenAI-compatible provider/gateway (chosen/preferred/nearest routing)
+- [x] Tool-calling for EVERY backing model (native relay + ReAct bridge + name coercion)
+- [x] Interactive 'ask' tool approval; server-side cancellation; live + pre-flight tok/s
+- [x] Crucible MCP server — drive/evolve the whole system from any agent
+
+## Harness (all DONE)
+- [x] Full skillset: read/write/edit/multi_edit/list_dir/grep/glob/bash/web_fetch/web_search/todo_write
+- [x] Hybrid tool loop (native + text ReAct) so tools work with any model, no toggle
