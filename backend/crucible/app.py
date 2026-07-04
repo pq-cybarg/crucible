@@ -166,6 +166,11 @@ class ComposeRequest(BaseModel):
     max_new_tokens: int = 48
 
 
+class CompositionRequest(BaseModel):
+    model_id: str | None = None
+    gguf_path: str | None = None
+
+
 class ComponentsRequest(BaseModel):
     base_id: str
     k: int = 4
@@ -874,6 +879,31 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         return {"base_id": req.base_id, "layer": bl, "mode": req.mode,
                 "selected": [i for i in req.indices if any(c["index"] == i for c in comps)],
                 "base": base_out, "edited": edited}
+
+    @app.post("/api/abliteration/composition")
+    def abl_composition(req: CompositionRequest) -> dict:
+        """Map a composed / multimodal model into its PARTS and prescribe the right anticensorship
+        technique per part (text refusal -> residual; vision/audio gate -> modality direction;
+        connector -> re-align; moderation head -> detach)."""
+        from crucible.abliteration.composition import summarize_composition
+        names: list[str] = []
+        path = req.gguf_path
+        if path is None and req.model_id:
+            try:
+                path = reg.get(req.model_id).path
+            except KeyError:
+                raise HTTPException(status_code=404, detail="model not found")
+        if path and Path(path).is_file() and _is_gguf_file(path):
+            from crucible.weights.gguf_reader import parse_gguf
+            names = [t["name"] for t in parse_gguf(path)["tensors"]]
+        elif abliteration_adapter is not None:
+            try:
+                names = [n for n, _ in abliteration_adapter.model.named_parameters()]
+            except Exception:
+                names = list(abliteration_adapter.writing_matrices())
+        if not names:
+            raise HTTPException(status_code=409, detail="no tensor names (need a GGUF file or loaded adapter)")
+        return {"source": path or "adapter", "n_tensors": len(names), **summarize_composition(names)}
 
     @app.post("/api/abliteration/components")
     def abl_components(req: ComponentsRequest) -> dict:
