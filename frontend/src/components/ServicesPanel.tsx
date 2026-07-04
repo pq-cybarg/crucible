@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   connectService,
@@ -9,7 +9,8 @@ import {
   setActiveChatService,
 } from "../services";
 import type { ChatMode, DetectedService } from "../services";
-import { getApiBase, getApiToken, getHealth } from "../api";
+import { getApiBase, getApiToken, getHealth, getMediaStatus } from "../api";
+import type { MediaStatus } from "../api";
 
 type Scan =
   | { readonly state: "idle" }
@@ -18,6 +19,41 @@ type Scan =
 
 function svcKey(s: DetectedService): string {
   return `${s.type}@${s.baseUrl}`;
+}
+
+// Honest media capability readout: image/stt/tts/embed are brokered to external backends —
+// nothing is generated in-process — so show which are wired and the env var to set for the rest.
+function MediaCapabilities(): JSX.Element | null {
+  const [st, setSt] = useState<MediaStatus | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getMediaStatus()
+      .then((s) => { if (alive) setSt(s); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+  if (failed || st === null) return null;   // backend offline / not reachable — stay quiet
+  const rows = Object.values(st.backends);
+  return (
+    <div className="media-caps">
+      <div className="engrave">media modalities · {st.n_configured}/{st.n_total} configured</div>
+      <div className="media-grid">
+        {rows.map((b) => (
+          <div key={b.kind} className={`media-cap ${b.configured ? "on" : "off"}`}>
+            <span className="media-dot" />
+            <div className="media-cap-body">
+              <span className="media-cap-label">{b.label}</span>
+              {b.configured
+                ? <code className="media-cap-ep">{b.endpoint}</code>
+                : <span className="media-cap-hint">not configured — set <code>{b.env}</code></span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="media-note">{st.note}</p>
+    </div>
+  );
 }
 
 export default function ServicesPanel(): JSX.Element {
@@ -190,6 +226,8 @@ export default function ServicesPanel(): JSX.Element {
           })}
         </div>
       )}
+
+      <MediaCapabilities />
     </div>
   );
 }

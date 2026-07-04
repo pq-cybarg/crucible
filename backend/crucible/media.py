@@ -10,9 +10,48 @@ _ENV = {"image": "CRUCIBLE_IMAGE_ENDPOINT", "stt": "CRUCIBLE_STT_ENDPOINT",
         "tts": "CRUCIBLE_TTS_ENDPOINT", "embed": "CRUCIBLE_EMBED_ENDPOINT"}
 
 
+_LABELS = {"image": "text-to-image (ComfyUI / OpenAI-images)",
+           "stt": "speech-to-text (transcription)", "tts": "text-to-speech",
+           "embed": "embeddings (OpenAI-compatible)"}
+
+
 def media_endpoint(kind: str) -> str:
     """Resolve a media backend endpoint (image/stt/tts/embed) from the environment."""
     return os.environ.get(_ENV.get(kind, ""), "").rstrip("/")
+
+
+def _probe_endpoint(url: str, timeout: float = 2.0) -> bool:
+    """Best-effort reachability: did the host answer at all? Any HTTP response (even 404) means
+    the service is up; only a connect/timeout error counts as unreachable. Never raises."""
+    try:
+        import httpx
+    except ImportError:
+        return False
+    try:
+        httpx.get(url, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def media_status(probe: bool = False, timeout: float = 2.0) -> dict:
+    """Honest capability map for the sibling modalities. Nothing is generated in-process — each
+    modality is BROKERED to an external OpenAI-compatible / ComfyUI backend, configured per env.
+    Reports, for image/stt/tts/embed: the env var, whether it's configured, and (with probe=True)
+    whether the host currently answers. So the GUI can show 'audio: not configured — set X'
+    instead of the operator discovering it only when a request 503s."""
+    backends: dict[str, dict] = {}
+    for kind, env in _ENV.items():
+        ep = media_endpoint(kind)
+        entry = {"kind": kind, "label": _LABELS.get(kind, kind), "env": env,
+                 "endpoint": ep or None, "configured": bool(ep), "reachable": None}
+        if probe and ep:
+            entry["reachable"] = _probe_endpoint(ep, timeout)
+        backends[kind] = entry
+    n_conf = sum(1 for e in backends.values() if e["configured"])
+    return {"backends": backends, "n_configured": n_conf, "n_total": len(backends),
+            "note": ("Media modalities are brokered to external backends — nothing is generated "
+                     "in-process. Set the listed env var for each modality you need, then restart.")}
 
 
 def comfyui_txt2img(prompt: str, ckpt: str = "model.safetensors", steps: int = 20,

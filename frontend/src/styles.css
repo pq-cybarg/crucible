@@ -763,6 +763,20 @@ body::after {
   color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
 .plain-caveat { color: var(--ash); }
 .plain-caveat .plain-tag { color: var(--ash); }
+/* Media capability readout in the Services panel — which sibling modalities are wired. */
+.media-caps { margin-top: 22px; }
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 10px 0; }
+.media-cap { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 7px; background: var(--steel-900); }
+.media-cap.off { opacity: 0.7; }
+.media-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; background: var(--ash); }
+.media-cap.on .media-dot { background: var(--amber-bright); box-shadow: 0 0 6px var(--amber-bright); }
+.media-cap-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.media-cap-label { font-family: var(--font-display); color: var(--bone); font-size: 12.5px; }
+.media-cap-ep { font-family: var(--font-mono); color: var(--steel-text); font-size: 11px; overflow-wrap: anywhere; }
+.media-cap-hint { color: var(--ash); font-size: 11px; }
+.media-cap-hint code { font-family: var(--font-mono); color: var(--amber); font-size: 10.5px; }
+.media-note { color: var(--ash); font-size: 11px; margin-top: 8px; }
 /* Badge for a cited-but-unverified published figure (secondary reporting, not measured here). */
 .unverified-badge { display: inline-block; margin-left: 6px; font-family: var(--font-mono); font-size: 9px;
   text-transform: uppercase; letter-spacing: 0.04em; color: var(--void); background: var(--ash);

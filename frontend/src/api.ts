@@ -26,8 +26,8 @@ import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP, startResultP, statusWrapP,
-  suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
+  mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP, startResultP,
+  statusWrapP, suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
 } from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -443,6 +443,29 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
   });
   if (!r.ok) throw new Error(`active -> ${r.status}`);
   return runtimeStatusP(await r.json());
+}
+
+export interface MediaBackend {
+  readonly kind: string;
+  readonly label: string;
+  readonly env: string;
+  readonly endpoint: string | null;
+  readonly configured: boolean;
+  readonly reachable: boolean | null;
+}
+export interface MediaStatus {
+  readonly backends: Readonly<Record<string, MediaBackend>>;
+  readonly n_configured: number;
+  readonly n_total: number;
+  readonly note: string;
+}
+
+// Honest media capability map: which sibling modalities (image/stt/tts/embed) have an external
+// backend configured. Nothing is generated in-process, so this shows what's actually wired.
+export async function getMediaStatus(): Promise<MediaStatus> {
+  const r = await cfetch(API_BASE + "/api/media/status");
+  if (!r.ok) throw new Error(`media status ${r.status}`);
+  return mediaStatusP(await r.json());
 }
 
 export interface PlainNarrative {

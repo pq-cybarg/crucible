@@ -1607,6 +1607,14 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "system_fingerprint": reason,
                 "choices": [{"index": 0, "message": message, "finish_reason": finish}]}
 
+    @app.get("/api/media/status")
+    def media_status_route(probe: bool = False) -> dict:
+        """Honest capability map for image/stt/tts/embed: which modality backends are configured
+        (and optionally reachable). Media is brokered to external services — nothing is generated
+        in-process — so this shows the operator what's wired before they hit a 503."""
+        from crucible.media import media_status
+        return media_status(probe=probe)
+
     def _media_proxy(kind: str, subpath: str, body: dict) -> dict:
         from crucible.media import media_endpoint
         ep = media_endpoint(kind)

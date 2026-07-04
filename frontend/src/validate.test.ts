@@ -3,7 +3,7 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, guardrailConfigP, modelRowP, modelRowsP, publishedPayloadP,
+  benchmarksInfoP, guardrailConfigP, mediaStatusP, modelRowP, modelRowsP, publishedPayloadP,
   runtimeStatusP, verifyReportP,
 } from "./schemas";
 
@@ -116,6 +116,22 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
       disclaimer: "context only",
     });
     expect(pub.providers["GLM"]?.["SWE"]?.verified).toBe(false);
+  });
+
+  it("mediaStatusP parses the capability map with nullable reachable/endpoint", () => {
+    const st = mediaStatusP({
+      backends: {
+        image: { kind: "image", label: "text-to-image", env: "CRUCIBLE_IMAGE_ENDPOINT",
+          endpoint: "http://x:8188", configured: true, reachable: null },
+        stt: { kind: "stt", label: "speech-to-text", env: "CRUCIBLE_STT_ENDPOINT",
+          endpoint: null, configured: false, reachable: null },
+      },
+      n_configured: 1, n_total: 2, note: "brokered",
+    });
+    expect(st.backends["image"]?.configured).toBe(true);
+    expect(st.backends["stt"]?.endpoint).toBeNull();
+    expect(() => mediaStatusP({ backends: { x: { kind: "x" } }, n_configured: 0, n_total: 1, note: "" }))
+      .toThrow(/label/);   // missing required fields fail loudly
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {

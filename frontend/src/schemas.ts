@@ -7,10 +7,10 @@ import type {
   AblationImpact, AutotuneConfigResult, AutotuneReport, BenchScore, BenchmarkResult,
   BenchmarksInfo, BeforeAfter, DiagnosisReport, EditCommit, EditHistory, FeatureCard,
   FeatureTrigger, FlowCarrier, FlowReport, GuardrailAction, GuardrailConfig, GuardrailResult,
-  HHItem, HeatmapReport, LayerProfile, LmEvalRow, MCResult, ManualReport, ModelCard, ModelRow,
-  PlainNarrative, ProbeRow, PublishedCell, PublishedPayload, RecipeRow, RegexRule,
-  RuntimeInstance, RuntimeSteerReport, RuntimeStatus, SuiteTask, SweepPoint, SweepReport,
-  SystemPromptPreset, TensorInfo, VerifyReport, WeightSummary, WeightsView,
+  HHItem, HeatmapReport, LayerProfile, LmEvalRow, MCResult, ManualReport, MediaBackend,
+  MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow, PublishedCell, PublishedPayload,
+  RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport, RuntimeStatus, SuiteTask,
+  SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport, WeightSummary, WeightsView,
 } from "./api";
 import type { Parser } from "./validate";
 import { array, bool, literals, nullable, num, object, optional, record, str, unknown } from "./validate";
@@ -81,6 +81,13 @@ export const publishedPayloadP: Parser<PublishedPayload> =
   object({ providers: record(record(publishedCellP)), disclaimer: str });
 export const benchmarksInfoP: Parser<BenchmarksInfo> =
   object({ benchmarks: record(num), kind: str, note: str });
+
+export const mediaBackendP: Parser<MediaBackend> = object({
+  kind: str, label: str, env: str, endpoint: nullable(str), configured: bool, reachable: nullable(bool),
+});
+export const mediaStatusP: Parser<MediaStatus> = object({
+  backends: record(mediaBackendP), n_configured: num, n_total: num, note: str,
+});
 
 export const suiteTaskP: Parser<SuiteTask> =
   object({ task: str, label: str, detail: str, primary: str });

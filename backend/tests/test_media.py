@@ -1,5 +1,6 @@
 from crucible.media import (comfyui_txt2img, content_modalities, embeddings_request,
-                            is_multimodal_content, media_endpoint, openai_image_request)
+                            is_multimodal_content, media_endpoint, media_status,
+                            openai_image_request)
 from crucible.tools import default_registry
 from crucible.tools.media import GenerateImage, Transcribe
 
@@ -43,3 +44,27 @@ def test_media_tools_error_without_backend(monkeypatch):
 def test_media_endpoint_env(monkeypatch):
     monkeypatch.setenv("CRUCIBLE_IMAGE_ENDPOINT", "http://127.0.0.1:8188/")
     assert media_endpoint("image") == "http://127.0.0.1:8188"
+
+
+def test_media_status_maps_configured_backends(monkeypatch):
+    for k in ("EMBED", "IMAGE", "STT", "TTS"):
+        monkeypatch.delenv(f"CRUCIBLE_{k}_ENDPOINT", raising=False)
+    monkeypatch.setenv("CRUCIBLE_IMAGE_ENDPOINT", "http://127.0.0.1:8188/")
+    st = media_status()   # probe=False -> no network
+    assert st["n_total"] == 4 and st["n_configured"] == 1
+    img = st["backends"]["image"]
+    assert img["configured"] is True and img["endpoint"] == "http://127.0.0.1:8188"
+    assert img["env"] == "CRUCIBLE_IMAGE_ENDPOINT" and img["reachable"] is None
+    # an unconfigured modality is honestly reported, with the env var to set
+    audio = st["backends"]["stt"]
+    assert audio["configured"] is False and audio["endpoint"] is None
+    assert audio["env"] == "CRUCIBLE_STT_ENDPOINT" and "speech-to-text" in audio["label"]
+    assert "brokered" in st["note"]
+
+
+def test_media_status_probe_marks_unreachable(monkeypatch):
+    # a configured-but-dead endpoint probes as unreachable (never raises)
+    monkeypatch.setenv("CRUCIBLE_EMBED_ENDPOINT", "http://127.0.0.1:1/")   # nothing listening
+    st = media_status(probe=True, timeout=0.2)
+    assert st["backends"]["embed"]["configured"] is True
+    assert st["backends"]["embed"]["reachable"] is False
