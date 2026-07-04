@@ -139,6 +139,40 @@ def abliterate_gguf(path: str, direction, name_filter=("o_proj", "down_proj"),
             "n_skipped": len(skipped), "dry_run": dry_run}
 
 
+def detach_matrix(W: np.ndarray) -> np.ndarray:
+    """Zero a matrix — DISABLES the component. A moderation/safety head whose weights are zero
+    always emits its bias, so it can no longer discriminate. This is the 'detach' treatment for
+    a bolted-on classifier (a separate subsystem to disable), NOT a rank-1 direction cut."""
+    return np.zeros_like(np.asarray(W, dtype=np.float32))
+
+
+def detach_part_gguf(path: str, part: str = "moderation", dry_run: bool = False) -> dict:
+    """Disable a whole part in place by zeroing its directly-editable 2-D tensors — e.g. a
+    moderation/safety head. Returns what was detached / skipped."""
+    from crucible.abliteration.composition import part_of
+    from crucible.weights.gguf_reader import parse_gguf
+    parsed = parse_gguf(path)
+    detached, skipped, patches = [], [], []
+    for t in parsed["tensors"]:
+        if len(t["shape"]) != 2 or part_of(t["name"]) != part:
+            continue
+        if t["dtype"] not in DIRECT:
+            skipped.append({"name": t["name"], "dtype": t["dtype"], "reason": "quant not directly editable"})
+            continue
+        nbytes = _tensor_nbytes(t["dtype"], t["n_params"])
+        zeros = quantize(np.zeros(t["n_params"], dtype=np.float32), t["dtype"])
+        if len(zeros) != nbytes:
+            skipped.append({"name": t["name"], "reason": "size mismatch"}); continue
+        patches.append((t["abs_offset"], zeros))
+        detached.append({"name": t["name"], "dtype": t["dtype"]})
+    if not dry_run and patches:
+        with open(path, "r+b") as f:
+            for off, b in patches:
+                f.seek(off); f.write(b)
+    return {"part": part, "detached": detached, "skipped": skipped,
+            "n_detached": len(detached), "dry_run": dry_run}
+
+
 def _tensor_nbytes(dtype: str, n: int) -> int:
     if dtype == "F32":
         return n * 4

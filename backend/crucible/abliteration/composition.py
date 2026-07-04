@@ -22,19 +22,22 @@ PART_SIGNALS: list[tuple[str, list[str]]] = [
 
 # Per-part prescription: which technique targets the censorship in that part.
 PRESCRIPTION: dict[str, dict] = {
-    "language_model": {"technique": "residual", "editable": True,
-                       "note": "text refusal — residual refusal-direction abliteration on the writing matrices"},
+    "language_model": {"technique": "residual", "editable": True, "needs": "",
+                       "note": "text refusal — residual refusal-direction abliteration (executable now, part-scoped)"},
     "vision_encoder": {"technique": "modality_direction", "editable": True,
-                       "note": "image safety gate — modality refusal direction on image embeddings, or bypass the gate"},
+                       "needs": "multimodal probing (image inputs) to compute the direction",
+                       "note": "image safety gate — edit mechanism ready via part-scoped abliteration; the direction must be measured by probing with images"},
     "audio_encoder": {"technique": "modality_direction", "editable": True,
-                      "note": "audio safety gate — modality refusal direction on audio embeddings"},
+                      "needs": "multimodal probing (audio inputs) to compute the direction",
+                      "note": "audio safety gate — edit mechanism ready via part-scoped abliteration; the direction must be measured by probing with audio"},
     "connector": {"technique": "realign_projection", "editable": True,
-                  "note": "cross-modal filter — re-align the projection so filtered concepts pass through"},
-    "moderation": {"technique": "detach", "editable": True,
-                   "note": "separate classifier — DETACH/disable the moderation head, don't cut a direction"},
-    "vocoder": {"technique": "none", "editable": False,
+                  "needs": "multimodal probing to compute the projection shift",
+                  "note": "cross-modal filter — realign mechanism ready (part-scoped, mode=realign); the shift must be measured from cross-modal activations"},
+    "moderation": {"technique": "detach", "editable": True, "needs": "",
+                   "note": "separate classifier — DETACH/disable the moderation head (executable now: /api/abliteration/detach)"},
+    "vocoder": {"technique": "none", "editable": False, "needs": "n/a",
                 "note": "output synthesis — usually no censorship; leave intact"},
-    "other": {"technique": "inspect", "editable": False,
+    "other": {"technique": "inspect", "editable": False, "needs": "manual inspection",
               "note": "unclassified — inspect before touching"},
 }
 
@@ -61,7 +64,10 @@ def identify_parts(tensor_names: list[str]) -> list[dict]:
         if role in groups:
             p = PRESCRIPTION.get(role, PRESCRIPTION["other"])
             parts.append({"part": role, "tensors": groups[role],
-                          "technique": p["technique"], "editable": p["editable"], "note": p["note"]})
+                          "technique": p["technique"], "editable": p["editable"],
+                          "needs": p.get("needs", ""),
+                          "executable_now": bool(p["editable"]) and not p.get("needs"),
+                          "note": p["note"]})
     return parts
 
 
@@ -72,6 +78,8 @@ def summarize_composition(tensor_names: list[str]) -> dict:
     roles = {p["part"] for p in parts}
     multimodal = bool(roles & {"vision_encoder", "audio_encoder", "connector", "vocoder"})
     has_moderation = "moderation" in roles
+    now = [p for p in parts if p.get("executable_now")]
+    later = [p for p in parts if p["editable"] and not p.get("executable_now")]
     return {
         "parts": parts,
         "n_parts": len(parts),
@@ -79,6 +87,8 @@ def summarize_composition(tensor_names: list[str]) -> dict:
         "composed": len(roles - {"other"}) > 1,
         "has_moderation_head": has_moderation,
         "text_refusal_part": "language_model" if "language_model" in roles else None,
+        "executable_now": [f"{p['part']} -> {p['technique']}" for p in now],
+        "needs_probing": [f"{p['part']} -> {p['technique']} ({p['needs']})" for p in later],
         "recommendation": (
             "Treat each part separately: "
             + "; ".join(f"{p['part']} -> {p['technique']}" for p in parts if p["editable"])

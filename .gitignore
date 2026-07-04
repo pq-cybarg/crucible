@@ -9,3 +9,7 @@ models/
 dist-bin/
 *.spec
 frontend/dist/
+# Exported conversation transcripts / session dumps — never commit (opsec: they contain full chat content)
+*-this-session-is-being-continued-*.txt
+*-export.txt
+claude-export-*.txt

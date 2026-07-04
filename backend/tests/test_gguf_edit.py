@@ -126,3 +126,33 @@ def test_edit_matrix_modes():
 
 def test_edit_matrix_realign():   # marker
     pass
+
+
+def test_detach_matrix_zeros():
+    import numpy as np
+    from crucible.weights.gguf_edit import detach_matrix
+    W = np.random.default_rng(0).standard_normal((4, 4)).astype(np.float32)
+    assert np.count_nonzero(detach_matrix(W)) == 0
+
+
+def test_detach_part_gguf_disables_moderation_head(tmp_path):
+    import numpy as np
+    from crucible.weights.gguf_edit import detach_part_gguf
+    from crucible.weights.gguf_reader import parse_gguf
+    W = np.random.default_rng(1).standard_normal((8, 4)).astype(np.float32)   # 32 = mult of block
+    p = tmp_path / "m.gguf"
+    _write_min_gguf(p, "safety_head.classifier.weight", W)     # -> part 'moderation'
+    res = detach_part_gguf(str(p), part="moderation")
+    assert res["n_detached"] == 1
+    t = [t for t in parse_gguf(str(p))["tensors"] if "safety_head" in t["name"]][0]
+    raw = p.read_bytes()[t["abs_offset"]:t["abs_offset"] + 8 * 4 * 4]
+    assert np.count_nonzero(np.frombuffer(raw, dtype="<f4")) == 0   # head zeroed on disk = disabled
+
+
+def test_detach_skips_wrong_part(tmp_path):
+    import numpy as np
+    from crucible.weights.gguf_edit import detach_part_gguf
+    W = np.random.default_rng(2).standard_normal((8, 4)).astype(np.float32)
+    p = tmp_path / "m.gguf"
+    _write_min_gguf(p, "blk.0.attn_output.o_proj.weight", W)   # language_model, not moderation
+    assert detach_part_gguf(str(p), part="moderation")["n_detached"] == 0

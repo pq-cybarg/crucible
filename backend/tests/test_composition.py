@@ -39,6 +39,24 @@ def test_summarize_flags_multimodal_and_moderation():
     assert "moderation -> detach" in r["recommendation"]
 
 
+def test_executable_now_vs_needs_probing_is_honest():
+    # The two parts we can act on WITHOUT extra measurement (residual text refusal, moderation
+    # detach) are executable_now; the encoder/connector edits are wired but need probing first.
+    parts = {p["part"]: p for p in identify_parts(VLM)}
+    assert parts["language_model"]["executable_now"] is True and parts["language_model"]["needs"] == ""
+    assert parts["moderation"]["executable_now"] is True and parts["moderation"]["needs"] == ""
+    assert parts["vision_encoder"]["executable_now"] is False and parts["vision_encoder"]["needs"]
+    assert parts["connector"]["executable_now"] is False and parts["connector"]["needs"]
+
+    r = summarize_composition(VLM)
+    assert set(r["executable_now"]) == {"language_model -> residual", "moderation -> detach"}
+    assert any("vision_encoder" in x for x in r["needs_probing"])
+    # nothing is claimed executable_now unless it truly needs no further measurement
+    for p in parts.values():
+        if p["executable_now"]:
+            assert p["editable"] and not p["needs"]
+
+
 def test_single_part_llm():
     names = ["model.layers.0.self_attn.o_proj.weight", "model.layers.0.mlp.down_proj.weight"]
     r = summarize_composition(names)

@@ -813,6 +813,22 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 for name in a.writing_matrices()}
         return {"base_id": req.base_id, **quantization_report(mats, req.dtype)}
 
+    @app.post("/api/abliteration/detach")
+    def abl_detach(req: GgufAbliterateRequest) -> dict:
+        """Detach (disable) a whole model part by zeroing its tensors in place — the treatment
+        for a bolted-on moderation/safety head (a separate classifier, not a direction to cut).
+        Defaults to the 'moderation' part."""
+        path = req.gguf_path
+        if path is None and req.gguf_model_id:
+            try:
+                path = reg.get(req.gguf_model_id).path
+            except KeyError:
+                raise HTTPException(status_code=404, detail="gguf_model_id not in registry")
+        if not path or not Path(path).is_file():
+            raise HTTPException(status_code=409, detail="gguf_path is not a file on disk")
+        from crucible.weights.gguf_edit import detach_part_gguf
+        return detach_part_gguf(path, part=req.part or "moderation", dry_run=req.dry_run)
+
     @app.post("/api/abliteration/gguf")
     def abl_gguf(req: GgufAbliterateRequest) -> dict:
         """Abliterate a GGUF directly (in place) — no HF round-trip. Computes the refusal
