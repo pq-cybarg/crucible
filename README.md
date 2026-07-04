@@ -20,10 +20,14 @@ works, quantifies *exactly* what a cut removes, and verifies the removal was sur
 CRUCIBLE_HF_MODEL="$PWD/models/qwen-hf" ./run.sh
 ```
 
+Optional extras: `pip install -e ".[torch]"` for live weight editing/diagnosis on real HF
+weights, or `".[train]"` to also get the **retraining** pipeline (LoRA SFT via `peft`). The
+numpy control plane, agent, guardrails, evals, registry, and GUI need none of these.
+
 Run the test suite:
 
 ```bash
-source .venv/bin/activate && pytest -q          # 188 backend tests
+source .venv/bin/activate && pytest -q          # 382 backend tests
 cd frontend && npm run build                     # hardened TypeScript, zero errors
 ```
 
@@ -35,10 +39,12 @@ cd frontend && npm run build                     # hardened TypeScript, zero err
 |---|---|
 | **Agent** | Claude-Code-style tool loop with a full skillset — **read · write · edit · multi_edit · list_dir · grep · glob · bash · web_fetch · todo_write** — allow/ask/deny permissions, audit log, token-streamed SSE with a **Stop** button. Works with **any** model (native tool-calls or text ReAct, auto). |
 | **Guardrails** | System-prompt presets + regex/redaction filters + constitutional self-critique — **full editorial CRUD** over every rail, built-ins included; live test bench |
-| **Uncensor** | Censorship **diagnosis** (per-layer refusal localization, per-component impact, why/how/removal, surgical verdict) → abliteration → reversible activation steering → lineage-tracked variants |
-| **Weights** | GGUF tensor browser — architecture, layers, shapes, quantization mix — read straight from the header |
-| **Benchmarks** | EleutherAI **lm-evaluation-harness** (the real thing) over the canonical suite, with per-metric standard error, vs cited frontier numbers |
-| **Models** | Registry with immutable originals + variant lineage |
+| **Uncensor** | Censorship **diagnosis** in **plain language** (where it's decided, proven by causal **activation patching**, what to remove, how safe) → **abliteration / un-alignment / re-alignment** (in-place *or* portable LoRA) → reversible steering. Plus **SAEs** (monosemantic features), **tuned lens**, **multiple refusal directions**, **CAA concept steering**, and **piecemeal alignment** (decompose → pick → preview). |
+| **Pipeline** | The rest of the dev loop: **quantization** fidelity analysis, **alignment components** (decompose/pick/preview remove-or-add), and **retraining** — real gradient **LoRA SFT** on your `{prompt,response}` data, saved + auto-registered as a variant |
+| **Weights** | GGUF tensor browser + **direct GGUF abliteration** (edit the quantized model in place, no HF round-trip) |
+| **Benchmarks** | EleutherAI **lm-evaluation-harness** + standardized **safety suites** (XSTest over-refusal, HarmBench/AdvBench/StrongREJECT loaders), **LLM-as-judge**, trained refusal classifier, pass@k, contamination |
+| **Models** | Registry with immutable originals + variant lineage; **online/offline autodetection**; **runtime manager** (load/stop, multi-active **round-robin**, tok/s speed test; llama.cpp **or vLLM**); **import from Ollama** (grab the raw GGUF blobs → editable/retrainable) |
+| **Provider** | Crucible is itself an **OpenAI-compatible provider** — point OpenCode at it and it routes to your chosen / preferred / nearest-available model, with tool-calling for *every* backing model (native relay or ReAct bridge) |
 
 ## Architecture — control plane + inference node
 
@@ -104,9 +110,9 @@ sourced); frontier numbers that can't be reliably sourced are left blank rather 
 ```
 backend/crucible/   registry . inference . agent . tools . permissions . audit
                     guardrails/ . abliteration/ (+torch_adapter) . evals/ (+lmeval) . weights/
-backend/tests/      188 tests
+backend/tests/      382 tests
 backend/scripts/    smoke.py . abliterate_hf.py
-frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models)
+frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmarks/Models/Pipeline)
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
 ```
 

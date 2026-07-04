@@ -13,6 +13,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
+# Live weight editing / diagnosis on real HF weights (the abliteration adapter).
+torch = ["torch>=2.2", "transformers>=4.40"]
+# The retraining pipeline (LoRA SFT) additionally needs peft.
+train = ["torch>=2.2", "transformers>=4.40", "peft>=0.11"]
 
 [project.scripts]
 crucible = "crucible.cli:main"
