@@ -11,8 +11,13 @@ def mkapp(tmp_path, monkeypatch, model=None):
 
 def test_benchmarks_and_published(tmp_path, monkeypatch):
     c = TestClient(mkapp(tmp_path, monkeypatch))
-    assert "mmlu-sample" in c.get("/api/evals/benchmarks").json()
-    assert "GLM-5.2 family" in c.get("/api/evals/published").json()
+    bm = c.get("/api/evals/benchmarks").json()
+    assert "mmlu-sample" in bm["benchmarks"]
+    # honest labeling: bundled sets are a quick screen, not a full benchmark
+    assert bm["kind"] == "quick-screen samples" and "lm-eval" in bm["note"]
+    # and they're now a meaningful size, not a 3-item toy
+    assert bm["benchmarks"]["mmlu-sample"] >= 25 and bm["benchmarks"]["gpqa-sample"] >= 15
+    assert "GLM-5.2 family" in c.get("/api/evals/published").json()["providers"]
 
 
 def test_run_requires_model(tmp_path, monkeypatch):

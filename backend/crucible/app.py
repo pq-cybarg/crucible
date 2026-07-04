@@ -18,8 +18,8 @@ from crucible.abliteration.recipes import Recipe, RecipeStore
 from crucible.agent import Agent
 from crucible.audit import AuditLog
 from crucible.config import get_settings
-from crucible.evals.datasets import BENCHMARKS
-from crucible.evals.published import PUBLISHED
+from crucible.evals.datasets import BENCHMARKS, SAMPLE_NOTE, is_quick_screen
+from crucible.evals.published import PUBLISHED_PAYLOAD
 from crucible.evals.runner import format_mc_prompt, run_mc_benchmark
 from crucible.evals.lmeval import run_lmeval
 from crucible.evals.suite import CANONICAL_SUITE
@@ -1165,11 +1165,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
     @app.get("/api/evals/benchmarks")
     def evals_benchmarks() -> dict:
-        return {name: len(items) for name, items in BENCHMARKS.items()}
+        return {"benchmarks": {name: len(items) for name, items in BENCHMARKS.items()},
+                "kind": "quick-screen samples", "note": SAMPLE_NOTE}
 
     @app.get("/api/evals/published")
     def evals_published() -> dict:
-        return PUBLISHED
+        return PUBLISHED_PAYLOAD
 
     @app.post("/api/evals/run")
     def evals_run(req: EvalRunRequest) -> dict:
@@ -1182,7 +1183,11 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             msg = model([{"role": "user", "content": prompt}], [])
             return msg.get("content") or ""
 
-        return run_mc_benchmark(BENCHMARKS[req.benchmark], solver)
+        res = run_mc_benchmark(BENCHMARKS[req.benchmark], solver)
+        if is_quick_screen(req.benchmark):
+            res["quick_screen"] = True
+            res["note"] = SAMPLE_NOTE
+        return res
 
     @app.post("/api/evals/headtohead/export")
     def evals_export(req: EvalRunRequest) -> dict:

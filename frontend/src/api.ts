@@ -536,18 +536,31 @@ export interface HHItem {
   readonly prompt: string;
 }
 
-export type PublishedTable = Readonly<Record<string, Readonly<Record<string, { readonly value: number | null; readonly source: string }>>>>;
+export type PublishedCell = {
+  readonly value: number | null;
+  readonly source: string;
+  readonly source_type?: string;
+  readonly verified?: boolean;
+  readonly note?: string;
+};
+export type PublishedTable = Readonly<Record<string, Readonly<Record<string, PublishedCell>>>>;
+export type PublishedPayload = { readonly providers: PublishedTable; readonly disclaimer: string };
 
-export async function getBenchmarks(): Promise<Readonly<Record<string, number>>> {
+export type BenchmarksInfo = {
+  readonly benchmarks: Readonly<Record<string, number>>;
+  readonly kind: string;
+  readonly note: string;
+};
+export async function getBenchmarks(): Promise<BenchmarksInfo> {
   const r = await cfetch(API_BASE + "/api/evals/benchmarks");
   if (!r.ok) throw new Error(`benchmarks ${r.status}`);
-  return (await r.json()) as Readonly<Record<string, number>>;
+  return (await r.json()) as BenchmarksInfo;
 }
 
-export async function getPublished(): Promise<PublishedTable> {
+export async function getPublished(): Promise<PublishedPayload> {
   const r = await cfetch(API_BASE + "/api/evals/published");
   if (!r.ok) throw new Error(`published ${r.status}`);
-  return (await r.json()) as PublishedTable;
+  return (await r.json()) as PublishedPayload;
 }
 
 export type EvalRunResult =

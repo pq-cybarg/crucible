@@ -763,6 +763,10 @@ body::after {
   color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
 .plain-caveat { color: var(--ash); }
 .plain-caveat .plain-tag { color: var(--ash); }
+/* Badge for a cited-but-unverified published figure (secondary reporting, not measured here). */
+.unverified-badge { display: inline-block; margin-left: 6px; font-family: var(--font-mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--void); background: var(--ash);
+  border-radius: 3px; padding: 0 4px; vertical-align: middle; cursor: help; }
 .pipe-comp { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
 .pipe-comp-share { font-family: var(--font-mono); color: var(--amber-bright); font-size: 13px; width: 44px; }
 .pipe-comp-name { font-family: var(--font-display); color: var(--bone); font-size: 12.5px; width: 120px; }

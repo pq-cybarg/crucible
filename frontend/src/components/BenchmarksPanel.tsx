@@ -8,6 +8,7 @@ export default function BenchmarksPanel(): JSX.Element {
   const [models, setModels] = useState<readonly ModelRow[]>([]);
   const [suite, setSuite] = useState<readonly SuiteTask[]>([]);
   const [published, setPublished] = useState<PublishedTable>({});
+  const [disclaimer, setDisclaimer] = useState("");
   const [modelId, setModelId] = useState("");
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set(["gsm8k"]));
   const [limit, setLimit] = useState(25);
@@ -21,7 +22,8 @@ export default function BenchmarksPanel(): JSX.Element {
         if (!alive) return;
         setModels(m);
         setSuite(s);
-        setPublished(p);
+        setPublished(p.providers);
+        setDisclaimer(p.disclaimer);
         const live = m.find((row) => row.endpoint !== null);
         if (live) setModelId(live.id);
       })
@@ -123,14 +125,21 @@ export default function BenchmarksPanel(): JSX.Element {
               <td style={{ color: "var(--bone)" }}>{metric}</td>
               {modelNames.map((name) => {
                 const cell = published[name]?.[metric];
-                return <td key={name}>{cell && cell.value !== null ? pct(cell.value) : <span style={{ color: "var(--ash)" }}>cite</span>}</td>;
+                if (!cell || cell.value === null) return <td key={name}><span style={{ color: "var(--ash)" }}>cite</span></td>;
+                return (
+                  <td key={name} title={cell.note ?? cell.source}>
+                    {pct(cell.value)}
+                    {cell.verified === false && <span className="unverified-badge" title={cell.note ?? cell.source}>unverified</span>}
+                  </td>
+                );
               })}
             </tr>
           ))}
         </tbody>
       </table>
-      <p style={{ color: "var(--ash)", fontSize: 11, marginTop: 10 }}>
-        Measured = run locally via lm-eval. Model columns = published/cited (GLM-5 family sourced; Opus left uncited rather than guessed). Note: chat-endpoint runs favour generative tasks (gsm8k, ifeval); loglikelihood MC tasks need the completions backend.
+      {disclaimer && <p style={{ color: "var(--ash)", fontSize: 11, marginTop: 10 }}>{disclaimer}</p>}
+      <p style={{ color: "var(--ash)", fontSize: 11, marginTop: 6 }}>
+        Measured = run locally via lm-eval. Model columns = published/cited (GLM-5 family from secondary reporting, badged unverified; Opus left uncited rather than guessed). Note: chat-endpoint runs favour generative tasks (gsm8k, ifeval); loglikelihood MC tasks need the completions backend.
       </p>
     </div>
   );
