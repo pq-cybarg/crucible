@@ -855,10 +855,32 @@ export interface WeightSummary {
   readonly architecture: string | null;
 }
 
+// Plain-language guide to the model — what it is, how text flows through it, where behaviors live.
+export interface WeightsExplainCard {
+  readonly headline: string;
+  readonly what_it_is: string;
+  readonly how_it_works: string;
+  readonly size_meaning: string;
+  readonly how_to_change: string;
+}
+export interface WeightsLayerRole {
+  readonly layer: number;
+  readonly band: string;      // early | middle | late
+  readonly role: string;
+  readonly params: number;
+  readonly components: readonly string[];
+}
+export interface WeightsExplain {
+  readonly model: WeightsExplainCard;
+  readonly layers: readonly WeightsLayerRole[];
+  readonly legend: Readonly<Record<string, string>>;
+}
+
 export interface WeightsView {
   readonly summary: WeightSummary;
   readonly tensors: readonly TensorInfo[];
   readonly metadata: Readonly<Record<string, unknown>>;
+  readonly explain?: WeightsExplain;
 }
 
 export type WeightsResult =

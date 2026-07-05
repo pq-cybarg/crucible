@@ -12,7 +12,7 @@ import type {
   ModalityDirection, ModelCard, ModelRow, PlainCardData, PlainNarrative, ProbeRow, PublishedCell,
   PublishedPayload, RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport, RuntimeStatus,
   SuiteTask, SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport, WeightSummary,
-  WeightsView,
+  WeightsExplain, WeightsView,
 } from "./api";
 import type { Parser } from "./validate";
 import { array, bool, literals, nullable, num, object, optional, record, str, unknown } from "./validate";
@@ -141,8 +141,15 @@ export const tensorInfoP: Parser<TensorInfo> =
 export const weightSummaryP: Parser<WeightSummary> = object({
   n_tensors: num, total_params: num, n_layers: num, dtypes: record(num), architecture: nullable(str),
 });
-export const weightsViewP: Parser<WeightsView> =
-  object({ summary: weightSummaryP, tensors: array(tensorInfoP), metadata: record(unknown) });
+export const weightsExplainP: Parser<WeightsExplain> = object({
+  model: object({ headline: str, what_it_is: str, how_it_works: str, size_meaning: str, how_to_change: str }),
+  layers: array(object({ layer: num, band: str, role: str, params: num, components: array(str) })),
+  legend: record(str),
+});
+export const weightsViewP: Parser<WeightsView> = object({
+  summary: weightSummaryP, tensors: array(tensorInfoP), metadata: record(unknown),
+  explain: optional(weightsExplainP),
+});
 
 export const verifyReportP: Parser<VerifyReport> = object({
   harmful_refusal_rate: beforeAfterP, harmful_compliance_rate: beforeAfterP,

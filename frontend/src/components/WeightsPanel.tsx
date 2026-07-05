@@ -71,7 +71,9 @@ export default function WeightsPanel(): JSX.Element {
     <div className="panel">
       <div className="panel-head">
         <h1>weight <em>explorer</em></h1>
-        <p>Read the GGUF structure directly — architecture, layer count, per-tensor shapes and quantization — without loading a byte of weight data. The map you navigate before you cut.</p>
+        <p>See what a model is actually made of — explained in plain language first (what it is, how it
+          thinks, where behaviors live and how to change them), with the exact technical structure below
+          for when you need it. Nothing is loaded into memory; this just reads the map.</p>
       </div>
 
       <div className="abl-controls">
@@ -89,6 +91,34 @@ export default function WeightsPanel(): JSX.Element {
 
       {view !== null && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          {view.explain && (
+            <>
+              <div className="plain-card">
+                <div className="plain-headline">{view.explain.model.headline}</div>
+                <p className="plain-line"><span className="plain-tag">what it is</span>{view.explain.model.what_it_is}</p>
+                <p className="plain-line"><span className="plain-tag">how it works</span>{view.explain.model.how_it_works}</p>
+                <p className="plain-line"><span className="plain-tag">its size</span>{view.explain.model.size_meaning}</p>
+                <p className="plain-line"><span className="plain-tag">how to change it</span>{view.explain.model.how_to_change}</p>
+              </div>
+
+              <div className="engrave">the layer journey · early → late</div>
+              <div className="layer-journey">
+                {view.explain.layers.map((l) => (
+                  <div key={l.layer} className={`journey-seg band-${l.band}`}
+                    title={`layer ${l.layer} (${l.band}): ${l.role}`} />
+                ))}
+              </div>
+              <div className="journey-legend">
+                {Object.entries(view.explain.legend).map(([band, role]) => (
+                  <span key={band} className="journey-key">
+                    <i className={`band-dot band-${band}`} /><b>{band}</b> — {role}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="engrave">by the numbers</div>
           <div className="w-summary">
             <div className="w-stat"><div className="v">{view.summary.architecture ?? "—"}</div><div className="k">architecture</div></div>
             <div className="w-stat"><div className="v">{human(view.summary.total_params)}</div><div className="k">parameters</div></div>

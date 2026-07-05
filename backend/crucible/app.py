@@ -1395,8 +1395,11 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         if not Path(m.path).exists():
             raise HTTPException(status_code=404, detail="model file not found on disk")
         parsed = parse_gguf(m.path)
-        return {"summary": weight_summary(parsed),
+        from crucible.weights.plain import explain_weights
+        summary = weight_summary(parsed)
+        return {"summary": summary,
                 "tensors": parsed["tensors"][:6000],
+                "explain": explain_weights(summary, parsed["tensors"]),
                 "metadata": {k: v for k, v in parsed["metadata"].items() if not isinstance(v, list)}}
 
     @app.post("/api/abliteration/manual")

@@ -5,7 +5,7 @@ import {
 import {
   benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, memoryNodeP,
   memoryTreeP, modalityDirectionP, modelRowP, modelRowsP, publishedPayloadP, runtimeStatusP,
-  verifyReportP,
+  verifyReportP, weightsViewP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -203,6 +203,25 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     // a malformed node inside the tree fails loudly (with a path)
     expect(() => memoryTreeP({ tree: [{ key: "m-1", label: "x", summary: "s", kind: "leaf", session: "s", size: "big", ref: null }] }))
       .toThrow(/size/);
+  });
+
+  it("weightsViewP parses the humanized explain payload (optional)", () => {
+    const v = weightsViewP({
+      summary: { n_tensors: 2, total_params: 100, n_layers: 2, dtypes: { F16: 2 }, architecture: "x" },
+      tensors: [], metadata: {},
+      explain: {
+        model: { headline: "h", what_it_is: "a", how_it_works: "b", size_meaning: "c", how_to_change: "d" },
+        layers: [{ layer: 0, band: "early", role: "r", params: 50, components: ["attention"] }],
+        legend: { early: "e", middle: "m", late: "l" },
+      },
+    });
+    expect(v.explain?.model.headline).toBe("h");
+    expect(v.explain?.layers[0]?.band).toBe("early");
+    // explain is optional — a view without it still parses
+    expect(weightsViewP({
+      summary: { n_tensors: 0, total_params: 0, n_layers: 0, dtypes: {}, architecture: null },
+      tensors: [], metadata: {},
+    }).explain).toBeUndefined();
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {
