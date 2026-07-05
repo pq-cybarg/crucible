@@ -59,3 +59,77 @@ def final_outputs(stages: list[dict], outputs: dict) -> dict:
         depended.update(s.get("inputs", []))
     terminals = [s["id"] for s in stages if s["id"] not in depended]
     return {t: outputs.get(t) for t in terminals}
+
+
+# --- graph node PATTERNS: cascade (cheap -> escalate) + verifier ensemble (fan out -> vote) ---
+# These are the two workhorse compositions. They're pure (producers/outputs are passed in), so the
+# control logic is unit-tested here; the endpoint supplies producers that actually call models.
+
+def make_acceptor(min_len: int = 1, must_include=None, must_exclude=None) -> Callable[[str], bool]:
+    """Build an accept predicate for a cascade: an output passes if it's at least `min_len` chars,
+    contains every `must_include` substring, and none of `must_exclude` (e.g. exclude "i don't
+    know" / "as an ai" so a weak/hedged answer escalates to the stronger model)."""
+    inc = [s.lower() for s in (must_include or [])]
+    exc = [s.lower() for s in (must_exclude or [])]
+
+    def accept(out: str) -> bool:
+        o = (out or "").strip()
+        if len(o) < max(1, min_len):
+            return False
+        lo = o.lower()
+        if any(s not in lo for s in inc):
+            return False
+        if any(s in lo for s in exc):
+            return False
+        return True
+
+    return accept
+
+
+def cascade(candidates: list[tuple], accept: Callable[[str], bool]) -> dict:
+    """Cheap -> escalate. Run producers in order until one is ACCEPTED; return that output. If none
+    pass, return the last (strongest) attempt. candidates: [(label, producer)] where producer()->str.
+    Pure given the producers, so the escalation logic is testable without a live model."""
+    tried: list[str] = []
+    label, out = None, ""
+    for label, producer in candidates:
+        out = producer() or ""
+        tried.append(label)
+        if accept(out):
+            return {"chosen": label, "output": out, "tried": tried,
+                    "escalated": len(tried) > 1, "accepted": True}
+    return {"chosen": label, "output": out, "tried": tried,
+            "escalated": len(tried) > 1, "accepted": False}
+
+
+def majority(outputs: list[str]) -> str:
+    """Most-common output (normalized on stripped text); ties resolve to the first seen. [] -> ''."""
+    from collections import Counter
+    norm = [(o or "").strip() for o in outputs if (o or "").strip()]
+    if not norm:
+        return ""
+    counts = Counter(norm)
+    return max(norm, key=lambda o: (counts[o], -norm.index(o)))
+
+
+def vote(outputs: list[str], strategy: str = "majority") -> dict:
+    """Verifier-ensemble merge over N outputs. 'majority' -> most common (with an agreement score);
+    'concat' -> all joined; 'first' -> first non-empty. Returns {strategy, result, n, agreement}."""
+    clean = [(o or "").strip() for o in outputs]
+    nonempty = [o for o in clean if o]
+    if strategy == "concat":
+        result = "\n\n".join(clean)
+    elif strategy == "first":
+        result = nonempty[0] if nonempty else ""
+    else:
+        result = majority(outputs)
+    agreement = (sum(1 for o in nonempty if o == result) / len(nonempty)) if nonempty else 0.0
+    return {"strategy": strategy, "result": result, "n": len(outputs), "agreement": round(agreement, 3)}
+
+
+def stage_text(value) -> str:
+    """Extract the passable text from a stage output — cascade/vote stages return rich dicts, so
+    downstream stages read their 'output'/'result' field rather than stringifying the whole dict."""
+    if isinstance(value, dict):
+        return str(value.get("output", value.get("result", "")))
+    return "" if value is None else str(value)

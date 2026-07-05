@@ -7,8 +7,8 @@ import type {
   AblationImpact, AutotuneConfigResult, AutotuneReport, BenchScore, BenchmarkResult,
   BenchmarksInfo, BeforeAfter, DiagnosisReport, EditCommit, EditHistory, FeatureCard,
   FeatureTrigger, FlowCarrier, FlowReport, GuardrailAction, GuardrailConfig, GuardrailResult,
-  CompactMessage, CompactResult, HHItem, HeatmapReport, LayerProfile, LmEvalRow, MCResult,
-  ManualReport, MediaBackend, MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow,
+  CompactMessage, CompactResult, GraphResult, HHItem, HeatmapReport, LayerProfile, LmEvalRow,
+  MCResult, ManualReport, MediaBackend, MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow,
   PublishedCell, PublishedPayload, RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport,
   RuntimeStatus, SuiteTask, SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport,
   WeightSummary, WeightsView,
@@ -88,6 +88,10 @@ export const mediaBackendP: Parser<MediaBackend> = object({
 });
 export const mediaStatusP: Parser<MediaStatus> = object({
   backends: record(mediaBackendP), n_configured: num, n_total: num, note: str,
+});
+
+export const graphResultP: Parser<GraphResult> = object({
+  order: array(str), outputs: record(unknown), result: record(unknown),
 });
 
 export const compactMessageP: Parser<CompactMessage> = object({ role: str, content: str });

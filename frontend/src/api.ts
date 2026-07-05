@@ -26,8 +26,9 @@ import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  compactResultP, mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP,
-  startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
+  compactResultP, graphResultP, mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP,
+  runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
+  verifyReportP, weightsViewP,
 } from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -480,6 +481,31 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
   });
   if (!r.ok) throw new Error(`active -> ${r.status}`);
   return runtimeStatusP(await r.json());
+}
+
+// Model graphs: compose subsystems into a DAG. Stages are model / tool / transform / vote
+// (verifier ensemble) / cascade (cheap -> escalate). Outputs are opaque (a string, or a rich
+// dict for vote/cascade stages), so they stay `unknown` and the panel narrows per-kind.
+export type GraphStage = {
+  readonly id: string;
+  readonly kind: string;
+  readonly inputs: readonly string[];
+  readonly config?: Readonly<Record<string, unknown>>;
+};
+export interface GraphResult {
+  readonly order: readonly string[];
+  readonly outputs: Readonly<Record<string, unknown>>;
+  readonly result: Readonly<Record<string, unknown>>;
+}
+export async function runGraph(stages: readonly GraphStage[], initial = ""): Promise<GraphResult> {
+  const r = await cfetch(API_BASE + "/api/graph/run", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stages, initial }),
+  });
+  if (r.status === 422) throw new Error(((await r.json().catch(() => ({}))) as { detail?: string }).detail ?? "invalid graph");
+  if (r.status === 503) throw new Error("no model available for a graph model-stage");
+  if (!r.ok) throw new Error(`graph ${r.status}`);
+  return graphResultP(await r.json());
 }
 
 export interface MediaBackend {

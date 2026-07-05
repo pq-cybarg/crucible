@@ -763,6 +763,29 @@ body::after {
   color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
 .plain-caveat { color: var(--ash); }
 .plain-caveat .plain-tag { color: var(--ash); }
+/* Model-graph builder panel. */
+.graph-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }
+.btn.ghost { background: transparent; border: 1px solid var(--line-bright); color: var(--steel-text); }
+.btn.ghost:hover { border-color: var(--amber-bright); color: var(--bone); }
+.graph-stages { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
+.graph-stage { border: 1px solid var(--line); border-left: 3px solid var(--amber); border-radius: 7px;
+  padding: 11px 13px; background: var(--steel-900); display: flex; flex-direction: column; gap: 8px; }
+.graph-stage-head { display: flex; align-items: center; gap: 10px; }
+.graph-id { font-family: var(--font-mono); color: var(--amber-bright); font-size: 12px; }
+.graph-del { margin-left: auto; background: transparent; border: none; color: var(--ash); cursor: pointer; font-size: 13px; }
+.graph-del:hover { color: var(--danger, #e06c6c); }
+.graph-inputs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.graph-lbl { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; color: var(--ash); }
+.graph-hint { color: var(--ash); font-size: 11px; font-style: italic; }
+.graph-chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--steel-text); }
+.graph-prompt { width: 100%; background: var(--void); color: var(--bone); border: 1px solid var(--line-bright);
+  border-radius: 6px; font-family: var(--font-mono); font-size: 12px; padding: 8px; resize: vertical; }
+.graph-cfg { display: flex; flex-direction: column; gap: 6px; }
+.graph-actions { display: flex; align-items: center; gap: 10px; margin: 8px 0 18px; }
+.graph-result { border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; margin: 8px 0; background: var(--steel-900); }
+.graph-result.terminal { border-left: 3px solid var(--amber-bright); }
+.graph-meta { font-family: var(--font-mono); font-size: 11px; color: var(--amber); margin: 3px 0 5px; }
+.graph-out-text { color: var(--bone); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Context-compaction controls in the agent composer. */
 .ctx-controls { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .ctx-meter { font-family: var(--font-mono); font-size: 11px; color: var(--ash); padding: 1px 6px;

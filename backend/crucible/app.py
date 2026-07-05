@@ -1501,12 +1501,14 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         """Run a model graph — compose subsystems (routed model calls, tools, transforms) into
         a pipeline/DAG. Each stage's inputs are its dependency outputs; model stages route+chat,
         tool stages invoke a tool, transform stages join."""
-        from crucible.graph import execute_graph, final_outputs, topo_order
+        from crucible.graph import (cascade, execute_graph, final_outputs, make_acceptor,
+                                    stage_text, topo_order, vote)
 
         def run_stage(stage: dict, inputs: dict):
             kind = stage.get("kind", "model")
             cfg = stage.get("config", {}) or {}
-            merged = "\n".join(str(v) for v in inputs.values())
+            texts = [stage_text(v) for v in inputs.values()]
+            merged = "\n".join(texts)
             if kind == "tool":
                 tools = default_registry(root)
                 name = cfg.get("name")
@@ -1516,6 +1518,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 return res.output or res.error or ""
             if kind == "transform":
                 return merged
+            if kind == "vote":
+                # verifier ensemble: merge the upstream stage outputs by a voting strategy
+                return vote(texts, cfg.get("strategy", "majority"))
+            if kind == "cascade":
+                # cheap -> escalate: try each model in order until the output is accepted
+                model_ids = cfg.get("models")
+                if not model_ids:
+                    raise HTTPException(status_code=422, detail="cascade stage needs config.models (a list)")
+                acc = cfg.get("accept") or {}
+                accept = make_acceptor(int(acc.get("min_len", 1)),
+                                       acc.get("must_include"), acc.get("must_exclude"))
+                tmpl = str(cfg.get("prompt", "{input}"))
+
+                def producer_for(mid):
+                    def produce():
+                        solver = _make_solver(mid)
+                        if solver is None:
+                            raise HTTPException(status_code=503, detail=f"cascade: no model for '{mid}'")
+                        return solver(tmpl.replace("{input}", merged))
+                    return produce
+
+                return cascade([(str(mid), producer_for(mid)) for mid in model_ids], accept)
             solver = _make_solver(cfg.get("model_id"))
             if solver is None:
                 raise HTTPException(status_code=503, detail="no model available for a graph model-stage")

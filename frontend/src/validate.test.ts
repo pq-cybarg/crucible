@@ -3,8 +3,8 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, compactResultP, guardrailConfigP, mediaStatusP, modelRowP, modelRowsP,
-  publishedPayloadP, runtimeStatusP, verifyReportP,
+  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, modelRowP,
+  modelRowsP, publishedPayloadP, runtimeStatusP, verifyReportP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -148,6 +148,18 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
       stats: { before_tokens: 5, after_tokens: 5, summarized_turns: 0, token_estimate: "heuristic" },
       tokens: 5,
     }).summary).toBeNull();
+  });
+
+  it("graphResultP parses the DAG result with opaque per-stage outputs", () => {
+    const g = graphResultP({
+      order: ["a", "vote"],
+      outputs: { a: "ECHO:hi", vote: { strategy: "majority", result: "ECHO:hi", n: 3, agreement: 1 } },
+      result: { vote: { result: "ECHO:hi" } },
+    });
+    expect(g.order).toEqual(["a", "vote"]);
+    expect(typeof g.outputs["a"]).toBe("string");
+    expect((g.outputs["vote"] as { agreement: number }).agreement).toBe(1);
+    expect(() => graphResultP({ order: "nope", outputs: {}, result: {} })).toThrow(/order/);
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {
