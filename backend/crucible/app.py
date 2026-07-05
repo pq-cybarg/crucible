@@ -205,6 +205,12 @@ class CompositionRequest(BaseModel):
     gguf_path: str | None = None
 
 
+class ModalityDirectionRequest(BaseModel):
+    modality: str = "image"                                 # image | audio | video
+    harmful_embeddings: list[list[float]] | None = None     # n x dim, from the modality's encoder
+    benign_embeddings: list[list[float]] | None = None
+
+
 class ComponentsRequest(BaseModel):
     base_id: str
     k: int = 4
@@ -956,6 +962,30 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             raise HTTPException(status_code=409, detail="no tensor names (need a GGUF file or loaded adapter)")
         return with_plain("composition", {"source": path or "adapter", "n_tensors": len(names),
                                           **summarize_composition(names)})
+
+    @app.post("/api/abliteration/modality-direction")
+    def abl_modality_direction(req: ModalityDirectionRequest) -> dict:
+        """Compute a MODALITY safety/refusal direction (image/audio/video) in the encoder's
+        embedding space from paired harmful/benign embeddings — the same contrastive math as text
+        refusal, but on encoder vectors, so an image/audio gate can be edited out of the encoder or
+        connector (part-scoped). Supply REAL embeddings from the modality's encoder (e.g. CLIP for
+        image, whisper for audio); nothing is fabricated. With no embeddings and no multimodal
+        adapter to probe them, this says so honestly rather than inventing a direction."""
+        from crucible.abliteration.modality import MODALITIES, summarize_modality
+        if req.modality not in MODALITIES:
+            raise HTTPException(status_code=422, detail=f"modality must be one of {list(MODALITIES)}")
+        if req.harmful_embeddings and req.benign_embeddings:
+            try:
+                out = summarize_modality(req.harmful_embeddings, req.benign_embeddings, req.modality)
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            return with_plain("modality-direction", out)
+        # No embeddings supplied and no multimodal adapter that can probe them -> honest 503.
+        raise HTTPException(status_code=503, detail=(
+            f"no {req.modality} embeddings provided and no multimodal adapter with {req.modality} "
+            f"probing is loaded. Run harmful vs benign {req.modality} inputs through the encoder "
+            f"(e.g. CLIP for image, whisper for audio) and POST the two embedding arrays "
+            "(harmful_embeddings / benign_embeddings)."))
 
     @app.post("/api/abliteration/components")
     def abl_components(req: ComponentsRequest) -> dict:

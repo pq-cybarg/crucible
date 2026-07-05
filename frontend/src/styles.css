@@ -763,6 +763,11 @@ body::after {
   color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
 .plain-caveat { color: var(--ash); }
 .plain-caveat .plain-tag { color: var(--ash); }
+/* Modality safety-direction control (Analysis panel). */
+.modality-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+.modality-grid .pipe-data { min-height: 90px; }
+.mod-yes { color: var(--amber-bright); font-weight: 600; }
+.mod-no { color: var(--ash); }
 /* Model-graph builder panel. */
 .graph-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 14px; }
 .btn.ghost { background: transparent; border: 1px solid var(--line-bright); color: var(--steel-text); }

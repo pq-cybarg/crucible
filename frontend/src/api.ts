@@ -26,9 +26,9 @@ import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  compactResultP, graphResultP, mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP,
-  runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
-  verifyReportP, weightsViewP,
+  compactResultP, graphResultP, mediaStatusP, modalityDirectionP, publishedPayloadP, recipesP,
+  runtimeSteerReportP, runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP,
+  systemPromptPresetP, verifyReportP, weightsViewP,
 } from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -481,6 +481,46 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
   });
   if (!r.ok) throw new Error(`active -> ${r.status}`);
   return runtimeStatusP(await r.json());
+}
+
+// A plain-language card (attached to interpretability results) — jargon-free explanation.
+export interface PlainCardData {
+  readonly technique?: string;
+  readonly headline: string;
+  readonly what_it_is: string;
+  readonly what_we_found: string;
+  readonly what_it_means: string;
+  readonly caveat: string;
+}
+
+// Modality safety/refusal direction (image/audio/video) in an encoder's embedding space, scored
+// by HELD-OUT (cross-validated) separability so it's honest (~0 for unrelated data).
+export interface ModalityDirection {
+  readonly modality: string;
+  readonly n_harmful: number;
+  readonly n_benign: number;
+  readonly dim: number;
+  readonly separability: number;
+  readonly separability_kind: string;
+  readonly in_sample_separability: number;
+  readonly reliable: boolean;
+  readonly reliability_note: string;
+  readonly linearly_encoded: boolean;
+  readonly direction_norm: number;
+  readonly direction: readonly number[];
+  readonly plain: PlainCardData;
+}
+export async function computeModalityDirection(
+  modality: string, harmful: readonly (readonly number[])[], benign: readonly (readonly number[])[],
+): Promise<ModalityDirection> {
+  const r = await cfetch(API_BASE + "/api/abliteration/modality-direction", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ modality, harmful_embeddings: harmful, benign_embeddings: benign }),
+  });
+  const detail = (): Promise<string> => r.json().then((j: { detail?: string }) => j.detail ?? `modality ${r.status}`).catch(() => `modality ${r.status}`);
+  if (r.status === 422 || r.status === 503) throw new Error(await detail());
+  if (!r.ok) throw new Error(`modality ${r.status}`);
+  return modalityDirectionP(await r.json());
 }
 
 // Model graphs: compose subsystems into a DAG. Stages are model / tool / transform / vote

@@ -8,10 +8,10 @@ import type {
   BenchmarksInfo, BeforeAfter, DiagnosisReport, EditCommit, EditHistory, FeatureCard,
   FeatureTrigger, FlowCarrier, FlowReport, GuardrailAction, GuardrailConfig, GuardrailResult,
   CompactMessage, CompactResult, GraphResult, HHItem, HeatmapReport, LayerProfile, LmEvalRow,
-  MCResult, ManualReport, MediaBackend, MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow,
-  PublishedCell, PublishedPayload, RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport,
-  RuntimeStatus, SuiteTask, SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport,
-  WeightSummary, WeightsView,
+  MCResult, ManualReport, MediaBackend, MediaStatus, ModalityDirection, ModelCard, ModelRow,
+  PlainCardData, PlainNarrative, ProbeRow, PublishedCell, PublishedPayload, RecipeRow, RegexRule,
+  RuntimeInstance, RuntimeSteerReport, RuntimeStatus, SuiteTask, SweepPoint, SweepReport,
+  SystemPromptPreset, TensorInfo, VerifyReport, WeightSummary, WeightsView,
 } from "./api";
 import type { Parser } from "./validate";
 import { array, bool, literals, nullable, num, object, optional, record, str, unknown } from "./validate";
@@ -92,6 +92,16 @@ export const mediaStatusP: Parser<MediaStatus> = object({
 
 export const graphResultP: Parser<GraphResult> = object({
   order: array(str), outputs: record(unknown), result: record(unknown),
+});
+
+export const plainCardP: Parser<PlainCardData> = object({
+  technique: optional(str), headline: str, what_it_is: str, what_we_found: str,
+  what_it_means: str, caveat: str,
+});
+export const modalityDirectionP: Parser<ModalityDirection> = object({
+  modality: str, n_harmful: num, n_benign: num, dim: num, separability: num,
+  separability_kind: str, in_sample_separability: num, reliable: bool, reliability_note: str,
+  linearly_encoded: bool, direction_norm: num, direction: array(num), plain: plainCardP,
 });
 
 export const compactMessageP: Parser<CompactMessage> = object({ role: str, content: str });

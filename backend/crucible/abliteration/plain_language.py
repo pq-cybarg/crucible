@@ -334,6 +334,29 @@ def _decode(r: dict) -> dict:
         "This is a vocabulary read-out of one direction; it names the axis, it doesn't prove the edit is safe.")
 
 
+def _modality_direction(r: dict) -> dict:
+    mod = r.get("modality", "image")
+    sep = r.get("separability")
+    encoded = bool(r.get("linearly_encoded"))
+    reliable = bool(r.get("reliable"))
+    return _card(
+        (f"Found the {mod} safety direction — cleanly encoded." if encoded
+         else f"No confident {mod} safety direction here yet." if not reliable
+         else f"The {mod} safety direction is only weakly encoded here."),
+        f"An {mod} safety gate lives in the encoder's embedding space, not the text stream. We build "
+        f"its direction the same way as text refusal — the contrast between harmful and benign {mod} "
+        "inputs — so it can be lifted out of the encoder/connector instead of the language part.",
+        (f"Across {r.get('n_harmful')} harmful and {r.get('n_benign')} benign {mod} embeddings "
+         f"(dim {r.get('dim')}), the safety concept separates with a held-out score of {_num(sep)} "
+         f"({r.get('reliability_note', '')})."),
+        (f"Orthogonalizing the {mod} encoder against this direction should lift the gate (part-scoped)."
+         if encoded else
+         f"Gather more/sharper harmful vs benign {mod} pairs — the split isn't strong or stable enough "
+         "to edit on yet."),
+        "The score is HELD-OUT (cross-validated), so it's ~0 for unrelated data — but it's noisy on few "
+        f"samples. It names the direction on the {mod} embeddings you supplied; it doesn't prove the edit is safe.")
+
+
 def _compose(r: dict) -> dict:
     mode = r.get("mode", "unalign")
     sel = r.get("selected") or []
@@ -387,6 +410,7 @@ _EXPLAINERS: dict[str, Callable[[dict], dict]] = {
     "decode": _decode,
     "compose": _compose,
     "composition": _composition,
+    "modality-direction": _modality_direction, "modality_direction": _modality_direction,
 }
 
 

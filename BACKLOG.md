@@ -91,7 +91,7 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 
 ## Multi-model systems / subsystems (model graphs)
 - [x] Model-graph engine: compose routed model calls into pipelines/DAGs (e.g. STT -> LLM -> TTS; image -> VLM -> text -> image)
-- [ ] Cascades (cheap -> escalate) and verifier / judge ensembles as graph nodes
+- [x] Cascades (cheap -> escalate) and verifier / judge ensembles as graph nodes — cascade()/make_acceptor() + vote()/majority(); kinds in /api/graph/run; Graph tab builder UI
 - [ ] Per-subsystem config + versioning; asymmetric modality edges between stages
 - [~] Mixture-of-models by task (task_router) — DONE as the node selector; graph edges TODO
 
@@ -104,7 +104,7 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 ## Component-aware / multimodal anticensorship
 - [x] Composition map: identify parts (vision/audio encoder, connector, language model, moderation head, vocoder) + prescribe per-part technique
 - [x] Per-part abliteration execution (scope edits to a named part) — abliterate_gguf part= filter + part_writing_matrices; composition reports executable_now vs needs_probing
-- [ ] Modality refusal directions (image/audio embedding space), not just text
+- [x] Modality refusal directions (image/audio embedding space), not just text — modality.py contrastive direction on encoder embeddings, HELD-OUT (cross-validated) separability so the score is honest; /api/abliteration/modality-direction + Analysis-tab control (honest 503 when no embeddings/multimodal adapter)
 - [ ] Cross-modal connector re-alignment (let filtered concepts pass the projection)
 - [x] Moderation-head DETACH (disable a bolted-on classifier rather than cut a direction) — detach_part_gguf zeros the classifier tensors; /api/abliteration/detach
 - [ ] Per-part versioning + lineage (each part independently versionable/revertable)
@@ -123,7 +123,7 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 - [ ] Slash-command sets importable from other harnesses/models (Claude Code / OpenCode packs)
 
 ## Context & memory
-- [ ] Context compaction (summarize old turns when the window fills)
+- [x] Context compaction (summarize old turns when the window fills) — context.py (heuristic token estimate + summarize old / keep recent); /api/agent/compact + auto_compact on runs; composer meter + "compact" button + "auto" toggle
 - [ ] Persistent project memory (CLAUDE.md-style) surfaced to the agent
 - [ ] Web-forge session persistence (history survives reload; CLI already has sessions)
 

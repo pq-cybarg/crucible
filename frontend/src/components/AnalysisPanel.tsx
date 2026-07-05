@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useState } from "react";
-import { getApiBase, getApiToken } from "../api";
+import { computeModalityDirection, getApiBase, getApiToken } from "../api";
+import type { ModalityDirection } from "../api";
 import PlainCard from "./PlainCard";
 
 // Self-contained analysis surface: causal trace, sparse-autoencoder features, safety suites.
@@ -113,11 +114,97 @@ function Safety({ base }: { readonly base: string }): JSX.Element {
   );
 }
 
+// Parse a textarea of embeddings into a number[][] — accepts a JSON 2D array, or one
+// comma/space-separated vector per line. Returns null on anything unparseable.
+function parseEmbeddings(text: string): number[][] | null {
+  const t = text.trim();
+  if (t.length === 0) return null;
+  try {
+    const j = JSON.parse(t);
+    if (Array.isArray(j) && j.every((row) => Array.isArray(row) && row.every((n) => typeof n === "number"))) {
+      return j as number[][];
+    }
+  } catch { /* fall through to line parsing */ }
+  const rows = t.split("\n").map((line) => line.trim()).filter(Boolean)
+    .map((line) => line.split(/[,\s]+/).map(Number));
+  if (rows.length > 0 && rows.every((r) => r.length > 0 && r.every((n) => Number.isFinite(n)))) return rows;
+  return null;
+}
+
+// Modality safety-direction control: bring paired harmful/benign embeddings FROM THE MODALITY'S
+// encoder (CLIP for image, whisper for audio, …) and compute the encoder-space safety direction.
+// Nothing is fabricated — with no embeddings the backend honestly says it needs them.
+function Modality(): JSX.Element {
+  const [modality, setModality] = useState("image");
+  const [harmful, setHarmful] = useState("");
+  const [benign, setBenign] = useState("");
+  const [res, setRes] = useState<ModalityDirection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    setErr(null); setRes(null);
+    const h = parseEmbeddings(harmful);
+    const b = parseEmbeddings(benign);
+    if (h === null || b === null) {
+      setErr("paste embeddings as a JSON 2D array, or one vector per line (comma/space separated)");
+      return;
+    }
+    setBusy(true);
+    try { setRes(await computeModalityDirection(modality, h, b)); }
+    catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed"); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="pipe-card">
+      <h3>modality safety direction <em>· image / audio / video encoder space</em></h3>
+      <p className="hint" style={{ marginTop: 0 }}>
+        An image/audio safety gate lives in the <b>encoder's</b> embedding space, not the text stream.
+        Run harmful vs benign {modality} inputs through the encoder (CLIP, whisper, the model's own tower)
+        and paste the two embedding sets — Crucible finds the safety direction (held-out separability, so
+        the score is honest) to orthogonalize the encoder/connector against. Nothing is fabricated.
+      </p>
+      <div className="pipe-row">
+        <select className="byo-modelsel" value={modality} onChange={(e) => setModality(e.target.value)}>
+          <option value="image">image</option>
+          <option value="audio">audio</option>
+          <option value="video">video</option>
+        </select>
+        <button className="btn" onClick={() => void run()} disabled={busy}>{busy ? "computing…" : "find direction"}</button>
+        {err && <span className="runtime-err">{err}</span>}
+      </div>
+      <div className="modality-grid">
+        <label className="fld">harmful {modality} embeddings
+          <textarea className="pipe-data" value={harmful} onChange={(e) => setHarmful(e.target.value)}
+            placeholder="[[0.1, -0.2, …], …]  or one vector per line" />
+        </label>
+        <label className="fld">benign {modality} embeddings
+          <textarea className="pipe-data" value={benign} onChange={(e) => setBenign(e.target.value)}
+            placeholder="[[0.0, 0.3, …], …]" />
+        </label>
+      </div>
+      {res && (
+        <>
+          <div className="hint">
+            {res.n_harmful}+{res.n_benign} embeddings · dim {res.dim} · held-out separability{" "}
+            <b>{res.separability.toFixed(2)}</b> ·{" "}
+            <span className={res.linearly_encoded ? "mod-yes" : "mod-no"}>
+              {res.linearly_encoded ? "cleanly encoded" : res.reliable ? "weak" : "unreliable (need more pairs)"}
+            </span>
+          </div>
+          <PlainCard res={{ plain: res.plain }} />
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AnalysisPanel({ base }: { readonly base: string }): JSX.Element {
   return (
     <>
       <Causal base={base} />
       <Sae base={base} />
+      <Modality />
       <Safety base={base} />
     </>
   );

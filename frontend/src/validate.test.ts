@@ -3,8 +3,8 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, modelRowP,
-  modelRowsP, publishedPayloadP, runtimeStatusP, verifyReportP,
+  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, modalityDirectionP,
+  modelRowP, modelRowsP, publishedPayloadP, runtimeStatusP, verifyReportP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -160,6 +160,25 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     expect(typeof g.outputs["a"]).toBe("string");
     expect((g.outputs["vote"] as { agreement: number }).agreement).toBe(1);
     expect(() => graphResultP({ order: "nope", outputs: {}, result: {} })).toThrow(/order/);
+  });
+
+  it("modalityDirectionP parses the direction result with its plain card", () => {
+    const m = modalityDirectionP({
+      modality: "image", n_harmful: 20, n_benign: 20, dim: 16, separability: 3.1,
+      separability_kind: "held-out (2-fold cross-validated)", in_sample_separability: 3.8,
+      reliable: true, reliability_note: "ok", linearly_encoded: true, direction_norm: 1,
+      direction: [0.1, 0.2, 0.3],
+      plain: { technique: "modality-direction", headline: "h", what_it_is: "a", what_we_found: "b",
+        what_it_means: "c", caveat: "d" },
+    });
+    expect(m.linearly_encoded).toBe(true);
+    expect(m.plain.headline).toBe("h");
+    // missing plain card fails loudly (it's required)
+    expect(() => modalityDirectionP({
+      modality: "image", n_harmful: 1, n_benign: 1, dim: 2, separability: 0,
+      separability_kind: "x", in_sample_separability: 0, reliable: false, reliability_note: "n",
+      linearly_encoded: false, direction_norm: 1, direction: [1, 2],
+    })).toThrow(/plain/);
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {
