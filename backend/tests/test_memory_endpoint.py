@@ -86,3 +86,37 @@ def test_recall_memory_tool(tmp_path, monkeypatch):
     full = tool.run(key="m-0001")
     assert full.ok and "full context" in full.output
     assert tool.run(key="m-9999").ok is False
+
+
+def test_memory_management_tools(tmp_path, monkeypatch):
+    # all memory operations are available as agent tools, sharing the same store
+    monkeypatch.setenv("CRUCIBLE_DATA_DIR", str(tmp_path / "data"))
+    from crucible.tools.memory import (ConsolidateMemory, CrystallizeMemory, RecallMemory,
+                                       RecrystallizeMemory)
+    # 1. crystallize a new memory (agent-authored)
+    r = CrystallizeMemory().run(summary="the plan", content="do X then Y", label="plan", session="s")
+    assert r.ok and "m-0001" in r.output
+    r2 = CrystallizeMemory().run(summary="a fact", content="the sky is blue", session="s")
+    assert r2.ok and "m-0002" in r2.output
+
+    # 2. consolidate them into a domain node (auto by session, keys omitted)
+    con = ConsolidateMemory().run(summary="everything about s", session="s")
+    assert con.ok and "consolidated 2" in con.output
+    # after consolidation the two originals are filed under one top-level node
+    assert len(RecallMemory().run().output.splitlines()) == 2   # header + 1 top-level
+
+    # 3. recrystallize a leaf that has several messages
+    conv = [{"role": "user", "content": f"m{i}"} for i in range(6)]
+    from crucible.memory import MemoryStore
+    from crucible.config import get_settings
+    MemoryStore(get_settings().data_dir / "memory").crystallize(conv, "six turns", label="six")
+    # find its key via recall index
+    idx = RecallMemory().run().output
+    assert "m-0004" in idx    # domain=m-0003, this leaf=m-0004
+    rec = RecrystallizeMemory().run(key="m-0004", summaries=["first half", "second half"], labels=["a", "b"])
+    assert rec.ok and "2 subchunks" in rec.output
+
+    # guards
+    assert CrystallizeMemory().run(summary="", content="x").ok is False
+    assert ConsolidateMemory().run(summary="s").ok is False       # no keys, no session
+    assert RecrystallizeMemory().run(key="m-9999", summaries=["x"]).ok is False
