@@ -83,6 +83,21 @@ class CompactRequest(BaseModel):
     keep_recent: int = 6         # recent turns kept verbatim
     model_id: str | None = None  # model used to write the summary (auto-resolved if omitted)
     force: bool = True           # True = always compact; False = only if over budget
+    session_id: str = ""         # tags the crystallized memory so it can be recalled per-session
+    crystallize: bool = True     # keep the pre-compaction context as a versioned crystallized memory
+
+
+class ConsolidateRequest(BaseModel):
+    keys: list[str]
+    summary: str = ""
+    label: str = ""
+    session_id: str = ""
+
+
+class RecrystallizeRequest(BaseModel):
+    subchunks: list[dict] | None = None   # [{label, summary, messages}]; if omitted, auto-split
+    chunks: int = 2                       # auto-split target when subchunks omitted
+    model_id: str | None = None           # model to summarize the auto-split chunks
 
 
 class CancelRequest(BaseModel):
@@ -423,6 +438,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
     recipe_store = RecipeStore(settings.data_dir / "recipes.json")
+    from crucible.memory import MemoryStore
+    memory = MemoryStore(settings.data_dir / "memory")
     if abliteration_adapter is None:
         import os
         hf = os.environ.get("CRUCIBLE_HF_MODEL")
@@ -2191,7 +2208,72 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         fn = compact if req.force else maybe_compact
         out = fn(req.messages, summarizer, req.max_tokens, req.keep_recent)
         out["tokens"] = estimate_tokens(req.messages)
+        # Crystallize the PRE-compaction context into versioned memory so it's never lost — the
+        # summary is the passthrough, the full messages stay recallable.
+        if req.crystallize and out.get("compacted") and out.get("summary"):
+            node = memory.crystallize(req.messages, out["summary"], session=req.session_id,
+                                      stats=out.get("stats"))
+            out["memory"] = {"key": node["key"], "label": node["label"], "ref": node.get("ref"),
+                             "versioned": memory.versioned}
         return out
+
+    @app.get("/api/memory/index")
+    def memory_index(session: str | None = None) -> dict:
+        """The summary passthrough: every top-level crystallized memory as a cheap {key,label,
+        summary,size} card — scan these before opening any full context. Optional session filter."""
+        return {"memories": memory.index(session), "versioned": memory.versioned}
+
+    @app.get("/api/memory/tree")
+    def memory_tree(session: str | None = None) -> dict:
+        """The full nested tree of summary cards (recursive children) — for the memory browser."""
+        return {"tree": memory.tree(session)}
+
+    @app.get("/api/memory/{key}")
+    def memory_read(key: str) -> dict:
+        """Open one memory: a leaf returns its full messages; a chunked node returns its children's
+        summary cards (drill down) — so you never load more context than you ask for."""
+        try:
+            return memory.read(key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"no memory '{key}'")
+
+    @app.post("/api/memory/consolidate")
+    def memory_consolidate(req: ConsolidateRequest) -> dict:
+        """File a SET of memories under a new parent (label + summary). Siblings bubble to their
+        shared parent; cross-tree / top-level sets form a new top-level domain node (pruning)."""
+        try:
+            return memory.consolidate(req.keys, req.summary, req.label, req.session_id)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    @app.post("/api/memory/{key}/recrystallize")
+    def memory_recrystallize(key: str, req: RecrystallizeRequest) -> dict:
+        """Reorganize a leaf memory into labelled/summarized subchunks. Provide subchunks explicitly,
+        or omit them to AUTO-split the messages into `chunks` groups and summarize each with a model."""
+        try:
+            node = memory.read(key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"no memory '{key}'")
+        subchunks = req.subchunks
+        if not subchunks:
+            msgs = node.get("messages")
+            if not msgs:
+                raise HTTPException(status_code=422, detail="memory has no messages to auto-split (already chunked?)")
+            solver = _make_solver(req.model_id)
+            if solver is None:
+                raise HTTPException(status_code=503, detail="no model available to summarize the auto-split chunks")
+            from crucible.context import SUMMARIZE_INSTRUCTION, render_transcript
+            k = max(2, min(int(req.chunks), len(msgs)))
+            size = (len(msgs) + k - 1) // k
+            subchunks = []
+            for i in range(0, len(msgs), size):
+                grp = msgs[i:i + size]
+                summ = solver(SUMMARIZE_INSTRUCTION + render_transcript(grp))
+                subchunks.append({"summary": summ, "messages": grp})
+        try:
+            return memory.recrystallize(key, subchunks)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
     @app.post("/api/agent/swarm")
     def agent_swarm(req: SwarmRequest) -> dict:

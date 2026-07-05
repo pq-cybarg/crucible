@@ -8,6 +8,7 @@ from crucible.tools.shell import Bash
 from crucible.tools.web import WebFetch, WebSearch
 from crucible.tools.plan import TodoWrite
 from crucible.tools.media import GenerateImage, Transcribe
+from crucible.tools.memory import RecallMemory
 
 
 def default_registry(root: Path) -> ToolRegistry:
@@ -15,6 +16,6 @@ def default_registry(root: Path) -> ToolRegistry:
     for tool in (ReadFile(root), WriteFile(root), EditFile(root), MultiEdit(root),
                  ListDir(root), Grep(root), Glob(root), Bash(root),
                  WebFetch(root), WebSearch(root), TodoWrite(root),
-                 GenerateImage(root), Transcribe(root)):
+                 GenerateImage(root), Transcribe(root), RecallMemory(root)):
         reg.register(tool)
     return reg

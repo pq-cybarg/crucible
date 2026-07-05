@@ -149,6 +149,29 @@ export default function AgentConsole(): JSX.Element {
   );
 
   const estTokens = useMemo(() => estimateTokens(history), [history]);
+  const [copied, setCopied] = useState(false);
+
+  function transcriptText(): string {
+    return history.map((m) => `## ${m.role}\n\n${m.content}`).join("\n\n");
+  }
+  // Copy the full context to the clipboard — grab it BEFORE compacting.
+  async function copyTranscript(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(transcriptText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — export instead */ }
+  }
+  // Download the full context as a markdown file (nothing leaves the browser).
+  function exportTranscript(): void {
+    const blob = new Blob([transcriptText()], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `crucible-context-${history.length}turns.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // "compact now": summarize the old turns server-side, then rebuild the transcript from the
   // returned messages (the summary lands as a notice turn; recent turns stay verbatim).
@@ -418,9 +441,17 @@ export default function AgentConsole(): JSX.Element {
               title={`estimated context ≈ ${estTokens} tokens (heuristic, chars/4). Limit ${CONTEXT_LIMIT}.`}>
               ~{estTokens} tok
             </span>
+            <button type="button" className="btn ctx-compact" disabled={history.length === 0}
+              onClick={() => void copyTranscript()} title="copy the full context to the clipboard (before compacting)">
+              {copied ? "copied ✓" : "copy"}
+            </button>
+            <button type="button" className="btn ctx-compact" disabled={history.length === 0}
+              onClick={exportTranscript} title="download the full context as markdown (before compacting)">
+              export
+            </button>
             <button type="button" className="btn ctx-compact" disabled={compacting || busy || history.length < 4}
               onClick={() => void compactNow()}
-              title="summarize the old turns and keep the recent ones — frees context without losing the thread">
+              title="summarize the old turns and keep the recent ones — frees context (kept as versioned memory)">
               {compacting ? "compacting…" : "compact"}
             </button>
             <label className="react-toggle" title={`When on, the forge auto-summarizes old turns before a run once the context passes ~${CONTEXT_LIMIT} tokens.`}>

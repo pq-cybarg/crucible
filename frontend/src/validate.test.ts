@@ -3,8 +3,9 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, modalityDirectionP,
-  modelRowP, modelRowsP, publishedPayloadP, runtimeStatusP, verifyReportP,
+  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, memoryNodeP,
+  memoryTreeP, modalityDirectionP, modelRowP, modelRowsP, publishedPayloadP, runtimeStatusP,
+  verifyReportP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -179,6 +180,29 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
       separability_kind: "x", in_sample_separability: 0, reliable: false, reliability_note: "n",
       linearly_encoded: false, direction_norm: 1, direction: [1, 2],
     })).toThrow(/plain/);
+  });
+
+  it("memory schemas parse a leaf node and a recursive tree", () => {
+    const leaf = memoryNodeP({
+      key: "m-0001", label: "setup", summary: "did setup", kind: "leaf", session: "s", size: 4,
+      ref: "abc123", messages: [{ role: "user", content: "hi" }],
+    });
+    expect(leaf.messages?.[0]?.content).toBe("hi");
+    // recursive tree: a chunked node with nested children (ref may be null)
+    const tree = memoryTreeP({
+      tree: [{
+        key: "m-0001", label: "domain", summary: "s", kind: "chunked", session: "s", size: 2, ref: null,
+        children: [
+          { key: "m-0002", label: "a", summary: "sa", kind: "leaf", session: "s", size: 3, ref: null },
+          { key: "m-0003", label: "b", summary: "sb", kind: "chunked", session: "s", size: 1, ref: null,
+            children: [{ key: "m-0004", label: "c", summary: "sc", kind: "leaf", session: "s", size: 2, ref: null }] },
+        ],
+      }],
+    });
+    expect(tree.tree[0]?.children?.[1]?.children?.[0]?.key).toBe("m-0004");
+    // a malformed node inside the tree fails loudly (with a path)
+    expect(() => memoryTreeP({ tree: [{ key: "m-1", label: "x", summary: "s", kind: "leaf", session: "s", size: "big", ref: null }] }))
+      .toThrow(/size/);
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {

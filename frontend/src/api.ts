@@ -26,9 +26,10 @@ import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  compactResultP, graphResultP, mediaStatusP, modalityDirectionP, publishedPayloadP, recipesP,
-  runtimeSteerReportP, runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP,
-  systemPromptPresetP, verifyReportP, weightsViewP,
+  compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
+  memoryNodeP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
+  runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
+  verifyReportP, weightsViewP,
 } from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -481,6 +482,68 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
   });
   if (!r.ok) throw new Error(`active -> ${r.status}`);
   return runtimeStatusP(await r.json());
+}
+
+// Crystallized memory: compaction keeps old context as a git-versioned tree. A card is the cheap
+// summary passthrough; a node opens to full messages (leaf) or child cards (chunked, drill down).
+export interface MemoryCard {
+  readonly key: string;
+  readonly label: string;
+  readonly summary: string;
+  readonly kind: string;
+  readonly session: string;
+  readonly size: number;
+  readonly ref: string | null;
+}
+export interface MemoryTreeNode extends MemoryCard {
+  readonly children?: readonly MemoryTreeNode[];
+}
+export interface MemoryNode extends MemoryCard {
+  readonly messages?: readonly { readonly role: string; readonly content: string }[];
+  readonly children?: readonly MemoryCard[];
+}
+export type MemorySubchunk = { readonly label?: string; readonly summary: string; readonly messages: readonly { readonly role: string; readonly content: string }[] };
+
+export async function getMemoryIndex(session?: string): Promise<{ memories: readonly MemoryCard[]; versioned: boolean }> {
+  const q = session ? `?session=${encodeURIComponent(session)}` : "";
+  const r = await cfetch(API_BASE + "/api/memory/index" + q);
+  if (!r.ok) throw new Error(`memory index ${r.status}`);
+  return memoryIndexP(await r.json());
+}
+export async function getMemoryTree(session?: string): Promise<readonly MemoryTreeNode[]> {
+  const q = session ? `?session=${encodeURIComponent(session)}` : "";
+  const r = await cfetch(API_BASE + "/api/memory/tree" + q);
+  if (!r.ok) throw new Error(`memory tree ${r.status}`);
+  return memoryTreeP(await r.json()).tree;
+}
+export async function readMemory(key: string): Promise<MemoryNode> {
+  const r = await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}`);
+  if (r.status === 404) throw new Error(`no memory ${key}`);
+  if (!r.ok) throw new Error(`memory ${r.status}`);
+  return memoryNodeP(await r.json());
+}
+export async function consolidateMemory(keys: readonly string[], summary: string, label = ""): Promise<MemoryCard> {
+  const r = await cfetch(API_BASE + "/api/memory/consolidate", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keys, summary, label }),
+  });
+  if (r.status === 422) throw new Error(((await r.json().catch(() => ({}))) as { detail?: string }).detail ?? "cannot consolidate");
+  if (!r.ok) throw new Error(`consolidate ${r.status}`);
+  return memoryCardP(await r.json());
+}
+export async function recrystallizeMemory(
+  key: string, opts: { subchunks?: readonly MemorySubchunk[]; chunks?: number; modelId?: string } = {},
+): Promise<{ key: string; children: readonly string[]; kind: string; ref: string | null }> {
+  const r = await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}/recrystallize`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(opts.subchunks ? { subchunks: opts.subchunks } : {}),
+      chunks: opts.chunks ?? 2, ...(opts.modelId ? { model_id: opts.modelId } : {}),
+    }),
+  });
+  if (r.status === 422 || r.status === 503) throw new Error(((await r.json().catch(() => ({}))) as { detail?: string }).detail ?? "cannot re-crystallize");
+  if (!r.ok) throw new Error(`recrystallize ${r.status}`);
+  return recrystallizeResultP(await r.json());
 }
 
 // A plain-language card (attached to interpretability results) — jargon-free explanation.

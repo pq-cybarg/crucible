@@ -9,10 +9,11 @@ import BenchmarksPanel from "./components/BenchmarksPanel";
 import WeightsPanel from "./components/WeightsPanel";
 import PipelinePanel from "./components/PipelinePanel";
 import GraphPanel from "./components/GraphPanel";
+import MemoryPanel from "./components/MemoryPanel";
 import { getApiBase, getApiToken, getHealth, getModels, probeNode, setApiBase, setApiToken } from "./api";
 import { isDemo } from "./demo";
 
-type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks" | "pipeline" | "graph";
+type TabId = "agent" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks" | "pipeline" | "graph" | "memory";
 
 interface Tab {
   readonly id: TabId;
@@ -29,6 +30,7 @@ const TABS: readonly Tab[] = [
   { id: "benchmarks", label: "bench", path: "M5 20V10M10 20V4M15 20v-8M20 20V7" },
   { id: "pipeline", label: "pipe", path: "M3 12h4l2-6 3 12 2-6h7" },
   { id: "graph", label: "graph", path: "M5 6a2 2 0 100-.01M19 6a2 2 0 100-.01M12 19a2 2 0 100-.01M6 7l5 10m7-10l-5 10" },
+  { id: "memory", label: "memory", path: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2" },
 ];
 
 function Panel({ tab }: { readonly tab: TabId }): JSX.Element {
@@ -49,6 +51,8 @@ function Panel({ tab }: { readonly tab: TabId }): JSX.Element {
       return <PipelinePanel />;
     case "graph":
       return <GraphPanel />;
+    case "memory":
+      return <MemoryPanel />;
   }
 }
 
