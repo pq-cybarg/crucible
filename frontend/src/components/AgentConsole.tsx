@@ -12,6 +12,7 @@ function estimateTokens(msgs: readonly { readonly content: string }[]): number {
   return msgs.reduce((sum, m) => sum + Math.floor((m.content ?? "").length / 4), 0);
 }
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
+import ContextExplorer from "./ContextExplorer";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -395,6 +396,7 @@ export default function AgentConsole(): JSX.Element {
         </AnimatePresence>
       </div>
 
+      <ContextExplorer turns={history} limit={CONTEXT_LIMIT} />
       <form className="composer" onSubmit={onSubmit}>
         <div className="row">
           <textarea

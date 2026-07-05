@@ -6,6 +6,7 @@ import {
 } from "../api";
 import type { MemoryNode, MemoryTreeNode } from "../api";
 import { getActiveModelId } from "../services";
+import MemoryMap from "./MemoryMap";
 
 // Crystallized-memory browser. Compaction files old context into a git-versioned tree; here you
 // scan summaries (the cheap passthrough), drill into a memory to read its full context, RE-
@@ -44,6 +45,7 @@ export default function MemoryPanel(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [view, setView] = useState<"tree" | "map">("map");
 
   async function refresh(): Promise<void> {
     setErr(null);
@@ -106,6 +108,10 @@ export default function MemoryPanel(): JSX.Element {
 
       <div className="mem-toolbar">
         <button className="btn ghost" onClick={() => void refresh()}>refresh</button>
+        <span className="seg">
+          <button className={view === "map" ? "on" : ""} onClick={() => setView("map")}>map</button>
+          <button className={view === "tree" ? "on" : ""} onClick={() => setView("tree")}>tree</button>
+        </span>
         <span className="hint" style={{ margin: 0 }}>{count} memories · {selected.size} selected</span>
         {err && <span className="runtime-err">{err}</span>}
         {note && <span className="mem-note">{note}</span>}
@@ -120,12 +126,16 @@ export default function MemoryPanel(): JSX.Element {
         </div>
       )}
 
-      <div className="mem-tree">
-        {tree.length === 0 && <div className="hint">no crystallized memories yet — compact a conversation in the forge to create one.</div>}
-        {tree.map((n) => (
-          <TreeNode key={n.key} node={n} depth={0} selected={selected} onToggle={toggle} onOpen={(k) => void open(k)} />
-        ))}
-      </div>
+      {view === "map" ? (
+        <MemoryMap tree={tree} onOpen={(k) => void open(k)} />
+      ) : (
+        <div className="mem-tree">
+          {tree.length === 0 && <div className="hint">no crystallized memories yet — compact a conversation in the forge to create one.</div>}
+          {tree.map((n) => (
+            <TreeNode key={n.key} node={n} depth={0} selected={selected} onToggle={toggle} onOpen={(k) => void open(k)} />
+          ))}
+        </div>
+      )}
 
       {opened && (
         <motion.div className="mem-open" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
