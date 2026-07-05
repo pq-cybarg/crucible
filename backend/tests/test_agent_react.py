@@ -85,6 +85,70 @@ def test_react_loop_unknown_tool(tmp_path):
     assert tr.data["ok"] is False and "no such tool" in tr.data["error"]
 
 
+def test_parse_sentinel_action_is_final():
+    # "Action: none" means the model has no tool to run — treat the thought as the answer, not a tool
+    from crucible.agent_react import parse_react
+    s = parse_react("Thought: Hi there! How can I help?\nAction: none")
+    assert s["kind"] == "final" and "Hi there" in s["text"]
+    for sentinel in ("None", "null", "N/A", "finish", "nothing"):
+        assert parse_react(f"Action: {sentinel}")["kind"] == "final"
+
+
+def test_truncate_observation_caps_huge_output():
+    from crucible.agent_react import truncate_observation
+    small = "ok"
+    assert truncate_observation(small) == small
+    big = truncate_observation("x" * 100_000)
+    assert len(big) < 7000 and "truncated" in big
+
+
+def test_unknown_tool_in_ask_mode_does_not_prompt(tmp_path):
+    # THE BUG: a hallucinated tool ('greet') under 'ask' used to fire an approval prompt and loop.
+    # Now it returns a helpful observation and never asks the operator to approve a phantom tool.
+    model = scripted(['Action: greet\nAction Input: {}', "Final Answer: hi"])
+    prompted = []
+    def approver(call_id, name, args):
+        prompted.append(name)
+        return True
+    events = list(react_run(model, reg(tmp_path), [{"role": "user", "content": "hi"}],
+                            PermissionPolicy(default="ask"),
+                            AuditLog(tmp_path / "audit.jsonl"), approver=approver))
+    assert prompted == []                                   # never prompted for the phantom tool
+    assert not any(e.type == "permission_request" for e in events)
+    tr = [e for e in events if e.type == "tool_result"][0]
+    assert tr.data["ok"] is False and "Available tools" in tr.data["error"]
+
+
+def test_sentinel_action_finishes_without_a_tool(tmp_path):
+    # a plain greeting where the model emits "Action: none" should just finish, not loop on tools
+    model = scripted(["Thought: greeting\nAction: none"])
+    events = list(react_run(model, reg(tmp_path), [{"role": "user", "content": "hi"}],
+                            PermissionPolicy(default="ask"), AuditLog(tmp_path / "audit.jsonl")))
+    assert not any(e.type == "tool_call" for e in events)
+    assert events[-1].type == "done"
+
+
+def test_huge_tool_output_is_truncated_before_re_entering_the_conversation(tmp_path):
+    # THE 400 BUG: a tool returning a massive output (e.g. `ls -R` over node_modules) overflowed the
+    # model's context on the next turn. The observation fed back must be bounded.
+    from crucible.agent_react import hybrid_run
+    (tmp_path / "big.txt").write_text("y" * 100_000)
+    turns, captured = iter([
+        'Action: read_file\nAction Input: {"path": "big.txt"}',
+        "Final Answer: read it",
+    ]), {}
+
+    def model(messages, tools):
+        captured["last"] = messages          # capture the convo each call (2nd call has the observation)
+        return {"role": "assistant", "content": next(turns)}
+
+    list(hybrid_run(model, reg(tmp_path), [{"role": "user", "content": "read big.txt"}],
+                    PermissionPolicy(default="allow"), AuditLog(tmp_path / "audit.jsonl")))
+    # the observation that re-entered the conversation is bounded, not the full 100k chars
+    obs = [m for m in captured["last"] if "truncated" in str(m.get("content", ""))]
+    assert obs and all(len(str(m["content"])) < 8000 for m in obs)
+
+
 def test_hybrid_preamble_mentions_both_paths(tmp_path):
     from crucible.agent_react import hybrid_preamble
     p = hybrid_preamble(reg(tmp_path).schemas())

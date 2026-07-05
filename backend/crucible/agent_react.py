@@ -19,6 +19,40 @@ _INPUT = re.compile(r"Action\s*Input\s*:\s*(\{.*?\}|\S.*?)\s*(?:\n\n|\nObservati
                     re.IGNORECASE | re.DOTALL)
 _FINAL = re.compile(r"Final\s*Answer\s*:\s*(.*)", re.IGNORECASE | re.DOTALL)
 
+# "Action: none" (and friends) means the model has NO tool to call — treat it as a final answer,
+# not a phantom tool. Weak/uncensored models emit these constantly when a plain reply would do.
+_SENTINEL_TOOLS = {"none", "null", "n/a", "na", "nil", "nothing", "no_tool", "no tool",
+                   "notool", "finish", "done", "final", "final_answer", "answer", "stop", ""}
+
+# Cap tool output before it's fed back into the model. A `bash: ls -R` in a big repo can return
+# 100KB+ (whole node_modules), which overflows the model's context and the upstream returns a 400.
+_OBSERVATION_LIMIT = 6000
+
+
+def strip_scaffold(text: str) -> str:
+    """Drop ReAct scaffolding lines (Action/Observation) and the 'Thought:' prefix, leaving the
+    model's actual prose — used when a sentinel 'Action: none' should just be the final answer."""
+    keep = []
+    for line in (text or "").splitlines():
+        low = line.strip().lower()
+        if low.startswith(("action:", "action input:", "observation:")):
+            continue
+        s = line.strip()
+        if low.startswith("thought:"):
+            s = s[len("thought:"):].strip()
+        keep.append(s)
+    return "\n".join(k for k in keep if k).strip()
+
+
+def truncate_observation(text, limit: int = _OBSERVATION_LIMIT) -> str:
+    """Bound a tool observation so a huge output can't overflow the model's context (which upstreams
+    reject with a 400). Keeps the head and tail with a clear elision marker."""
+    t = "" if text is None else str(text)
+    if len(t) <= limit:
+        return t
+    head, tail = t[: limit - 400], t[-300:]
+    return f"{head}\n… [truncated {len(t) - limit + 700} chars of tool output] …\n{tail}"
+
 
 def react_preamble(tool_schemas: list[dict]) -> str:
     """Build the system preamble describing the tools and the ReAct response format."""
@@ -76,7 +110,9 @@ def parse_react(text: str) -> dict:
     if fin and (not act or fin.start() < act.start()):
         return {"kind": "final", "text": fin.group(1).strip()}
     if act:
-        tool = act.group(1).strip().strip("`\"'")
+        tool = act.group(1).strip().strip("`\"'*")
+        if tool.lower() in _SENTINEL_TOOLS:            # "Action: none" -> the model has no tool to run
+            return {"kind": "final", "text": strip_scaffold(text) or text.strip()}
         raw = ""
         m = _INPUT.search(text, act.end() - 1)
         if m:
@@ -106,7 +142,15 @@ def _execute(tools: ToolRegistry, audit: AuditLog, name: str, args: dict) -> dic
 def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
     """Authorize + run a tool, yielding a permission_request (when mode='ask' and an approver
     exists) then the tool_result. Returns the observation string (via generator return)."""
-    name = coerce_tool_name(name, [t.name for t in tools.all()])   # snap hallucinated names
+    valid = [t.name for t in tools.all()]
+    name = coerce_tool_name(name, valid)              # snap hallucinated names to the nearest real one
+    if name not in valid:
+        # a phantom tool (e.g. the model invented 'greet'): don't prompt the operator to approve
+        # something that can't run — feed a helpful observation so the model self-corrects.
+        obs = (f"no such tool '{name}'. Available tools: {', '.join(valid)}. If you don't need a "
+               "tool, reply with 'Final Answer: <your reply>'.")
+        yield AgentEvent("tool_result", {"id": call_id, "name": name, "ok": False, "output": "", "error": obs})
+        return obs
     mode = permissions.mode_for(name)
     if mode == "deny":
         result = {"ok": False, "output": "", "error": "denied by policy"}
@@ -122,7 +166,8 @@ def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
     else:  # allow
         result = _execute(tools, audit, name, args)
     yield AgentEvent("tool_result", {"id": call_id, "name": name, **result})
-    return result.get("output") or result.get("error", "")
+    # truncate before it re-enters the conversation so a huge output can't overflow the context
+    return truncate_observation(result.get("output") or result.get("error", ""))
 
 
 def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
