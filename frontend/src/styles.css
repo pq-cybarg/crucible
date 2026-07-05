@@ -763,6 +763,12 @@ body::after {
   color: var(--amber-bright); background: rgba(0,0,0,0.25); border-radius: 3px; padding: 1px 5px; margin-right: 7px; vertical-align: baseline; }
 .plain-caveat { color: var(--ash); }
 .plain-caveat .plain-tag { color: var(--ash); }
+/* Context-compaction controls in the agent composer. */
+.ctx-controls { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.ctx-meter { font-family: var(--font-mono); font-size: 11px; color: var(--ash); padding: 1px 6px;
+  border: 1px solid var(--line); border-radius: 4px; cursor: help; }
+.ctx-meter.over { color: var(--void); background: var(--amber-bright); border-color: var(--amber-bright); }
+.btn.ctx-compact { font-size: 11px; padding: 3px 9px; }
 /* Media capability readout in the Services panel — which sibling modalities are wired. */
 .media-caps { margin-top: 22px; }
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 10px 0; }

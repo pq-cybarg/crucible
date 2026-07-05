@@ -26,8 +26,8 @@ import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP, startResultP,
-  statusWrapP, suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
+  compactResultP, mediaStatusP, publishedPayloadP, recipesP, runtimeSteerReportP, runtimeStatusP,
+  startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP, verifyReportP, weightsViewP,
 } from "./schemas";
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
@@ -211,6 +211,42 @@ export interface RunOpts {
   readonly runId?: string;
   // Abort an in-flight run (the Stop button wires this to an AbortController).
   readonly signal?: AbortSignal;
+  // Context compaction: summarize old turns before running when the heuristic size exceeds
+  // contextLimit tokens (keeps the last few turns verbatim).
+  readonly autoCompact?: boolean;
+  readonly contextLimit?: number;
+}
+
+export type CompactMessage = { readonly role: string; readonly content: string };
+export interface CompactResult {
+  readonly messages: readonly CompactMessage[];
+  readonly summary: string | null;
+  readonly compacted: boolean;
+  readonly stats: {
+    readonly before_tokens: number;
+    readonly after_tokens: number;
+    readonly summarized_turns: number;
+    readonly token_estimate: string;
+  };
+  readonly tokens: number;
+}
+
+// Compact a conversation: summarize old turns, keep the recent ones verbatim. force=true always
+// compacts; force=false only when over max_tokens.
+export async function compactConversation(
+  messages: readonly CompactMessage[],
+  opts: { readonly keepRecent?: number; readonly maxTokens?: number; readonly force?: boolean; readonly modelId?: string } = {},
+): Promise<CompactResult> {
+  const r = await cfetch(API_BASE + "/api/agent/compact", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages, keep_recent: opts.keepRecent ?? 6, max_tokens: opts.maxTokens ?? 4000,
+      force: opts.force ?? true, ...(opts.modelId ? { model_id: opts.modelId } : {}),
+    }),
+  });
+  if (r.status === 503) throw new Error("no model available to write the summary");
+  if (!r.ok) throw new Error(`compact ${r.status}`);
+  return compactResultP(await r.json());
 }
 
 // Halt a run server-side (stops further generation, not just the client stream).
@@ -266,6 +302,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
           : {}),
         ...(opts.modelId ? { model_id: opts.modelId } : {}),
         ...(opts.react ? { react: true } : {}),
+        ...(opts.autoCompact ? { auto_compact: true, context_limit: opts.contextLimit ?? 4000 } : {}),
         ...(opts.runId ? { run_id: opts.runId } : {}),
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),

@@ -7,10 +7,11 @@ import type {
   AblationImpact, AutotuneConfigResult, AutotuneReport, BenchScore, BenchmarkResult,
   BenchmarksInfo, BeforeAfter, DiagnosisReport, EditCommit, EditHistory, FeatureCard,
   FeatureTrigger, FlowCarrier, FlowReport, GuardrailAction, GuardrailConfig, GuardrailResult,
-  HHItem, HeatmapReport, LayerProfile, LmEvalRow, MCResult, ManualReport, MediaBackend,
-  MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow, PublishedCell, PublishedPayload,
-  RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport, RuntimeStatus, SuiteTask,
-  SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport, WeightSummary, WeightsView,
+  CompactMessage, CompactResult, HHItem, HeatmapReport, LayerProfile, LmEvalRow, MCResult,
+  ManualReport, MediaBackend, MediaStatus, ModelCard, ModelRow, PlainNarrative, ProbeRow,
+  PublishedCell, PublishedPayload, RecipeRow, RegexRule, RuntimeInstance, RuntimeSteerReport,
+  RuntimeStatus, SuiteTask, SweepPoint, SweepReport, SystemPromptPreset, TensorInfo, VerifyReport,
+  WeightSummary, WeightsView,
 } from "./api";
 import type { Parser } from "./validate";
 import { array, bool, literals, nullable, num, object, optional, record, str, unknown } from "./validate";
@@ -87,6 +88,13 @@ export const mediaBackendP: Parser<MediaBackend> = object({
 });
 export const mediaStatusP: Parser<MediaStatus> = object({
   backends: record(mediaBackendP), n_configured: num, n_total: num, note: str,
+});
+
+export const compactMessageP: Parser<CompactMessage> = object({ role: str, content: str });
+export const compactResultP: Parser<CompactResult> = object({
+  messages: array(compactMessageP), summary: nullable(str), compacted: bool,
+  stats: object({ before_tokens: num, after_tokens: num, summarized_turns: num, token_estimate: str }),
+  tokens: num,
 });
 
 export const suiteTaskP: Parser<SuiteTask> =

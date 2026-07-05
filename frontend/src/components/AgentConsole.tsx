@@ -3,8 +3,14 @@ import { useCallbackRef } from "../useCallbackRef";
 import { useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { approveAgent, cancelAgent, runAgent } from "../api";
-import type { AgentEvent, ChatMessage, PermissionMode } from "../api";
+import { approveAgent, cancelAgent, compactConversation, runAgent } from "../api";
+import type { AgentEvent, ChatMessage, CompactMessage, PermissionMode } from "../api";
+
+// heuristic client-side token estimate (chars/4), mirrors the backend meter — for the UI only.
+const CONTEXT_LIMIT = 4000;
+function estimateTokens(msgs: readonly { readonly content: string }[]): number {
+  return msgs.reduce((sum, m) => sum + Math.floor((m.content ?? "").length / 4), 0);
+}
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 
 export type Turn =
@@ -85,6 +91,8 @@ export default function AgentConsole(): JSX.Element {
   const [draft, setDraft] = useState("");
   const [perm, setPerm] = useState<PermissionMode>("ask");
   const [react, setReact] = useState(false);
+  const [autoCompact, setAutoCompact] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -139,6 +147,31 @@ export default function AgentConsole(): JSX.Element {
       ),
     [turns],
   );
+
+  const estTokens = useMemo(() => estimateTokens(history), [history]);
+
+  // "compact now": summarize the old turns server-side, then rebuild the transcript from the
+  // returned messages (the summary lands as a notice turn; recent turns stay verbatim).
+  async function compactNow(): Promise<void> {
+    if (compacting || busy || history.length < 4) return;
+    setCompacting(true);
+    try {
+      const res = await compactConversation(history as readonly CompactMessage[], {
+        force: true, keepRecent: 6, modelId: getActiveModelId() ?? undefined,
+      });
+      if (!res.compacted) return;
+      const rebuilt: Turn[] = res.messages.flatMap((m): Turn[] => {
+        if (m.role === "user") return [{ id: nextId(), kind: "user", text: m.content }];
+        if (m.role === "assistant") return [{ id: nextId(), kind: "assistant", text: m.content }];
+        return [{ id: nextId(), kind: "notice", text: `context compacted · ${res.stats.summarized_turns} old turns summarized (${res.stats.before_tokens}→${res.stats.after_tokens} tok)` }];
+      });
+      setTurns(rebuilt);
+    } catch (e: unknown) {
+      setTurns((prev) => [...prev, { id: nextId(), kind: "notice", text: `compaction failed — ${e instanceof Error ? e.message : "error"}` }]);
+    } finally {
+      setCompacting(false);
+    }
+  }
 
   async function send(): Promise<void> {
     const text = draft.trim();
@@ -237,6 +270,7 @@ export default function AgentConsole(): JSX.Element {
       ...(upstream ? { upstream } : {}),
       ...(modelId ? { modelId } : {}),
       ...(react ? { react: true } : {}),
+      ...(autoCompact ? { autoCompact: true, contextLimit: CONTEXT_LIMIT } : {}),
     });
     if (aborted()) {
       finalizeStreaming();
@@ -379,6 +413,21 @@ export default function AgentConsole(): JSX.Element {
             <input type="checkbox" checked={react} onChange={(e) => setReact(e.target.checked)} />
             force ReAct
           </label>
+          <span className="ctx-controls">
+            <span className={`ctx-meter ${estTokens > CONTEXT_LIMIT ? "over" : ""}`}
+              title={`estimated context ≈ ${estTokens} tokens (heuristic, chars/4). Limit ${CONTEXT_LIMIT}.`}>
+              ~{estTokens} tok
+            </span>
+            <button type="button" className="btn ctx-compact" disabled={compacting || busy || history.length < 4}
+              onClick={() => void compactNow()}
+              title="summarize the old turns and keep the recent ones — frees context without losing the thread">
+              {compacting ? "compacting…" : "compact"}
+            </button>
+            <label className="react-toggle" title={`When on, the forge auto-summarizes old turns before a run once the context passes ~${CONTEXT_LIMIT} tokens.`}>
+              <input type="checkbox" checked={autoCompact} onChange={(e) => setAutoCompact(e.target.checked)} />
+              auto
+            </label>
+          </span>
         </div>
       </form>
     </div>

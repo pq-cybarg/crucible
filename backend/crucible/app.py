@@ -61,6 +61,11 @@ class AgentRunRequest(BaseModel):
     # the shared budget is spent.
     spawn_depth: int = 1
     spawn_total: int = 6
+    # Context compaction: when auto_compact is on and the (heuristic) size exceeds context_limit
+    # tokens, summarize the old turns before running, keeping the last keep_recent verbatim.
+    auto_compact: bool = False
+    context_limit: int = 4000
+    keep_recent: int = 6
 
 
 class SwarmRequest(BaseModel):
@@ -70,6 +75,14 @@ class SwarmRequest(BaseModel):
     # Let each swarm sub-agent recursively spawn its own sub-agents (full fractal tree).
     spawn_depth: int = 1
     spawn_total: int = 6
+
+
+class CompactRequest(BaseModel):
+    messages: list[dict]
+    max_tokens: int = 4000       # heuristic token budget to compact toward
+    keep_recent: int = 6         # recent turns kept verbatim
+    model_id: str | None = None  # model used to write the summary (auto-resolved if omitted)
+    force: bool = True           # True = always compact; False = only if over budget
 
 
 class CancelRequest(BaseModel):
@@ -2039,6 +2052,15 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 detail="no model available - register a model with an endpoint, set "
                        "CRUCIBLE_CHAT_ENDPOINT, or load the HF adapter (CRUCIBLE_HF_MODEL)")
         messages = list(req.messages)
+        # Auto-compaction: if the (heuristic) context is over budget, summarize the old turns
+        # before running so a long thread doesn't overflow the window.
+        if req.auto_compact:
+            from crucible.context import SUMMARIZE_INSTRUCTION, maybe_compact
+            solver = _make_solver(req.model_id)
+            if solver is not None:
+                res = maybe_compact(messages, lambda t: solver(SUMMARIZE_INSTRUCTION + t),
+                                    req.context_limit, req.keep_recent)
+                messages = res["messages"]
         cfg = req.guardrails
         if cfg is not None:
             sys_prompt = gr_engine.system_prompt(cfg)
@@ -2097,6 +2119,25 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     _cancels.discard(run_id)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/api/agent/compact")
+    def agent_compact(req: CompactRequest) -> dict:
+        """Compact a conversation: summarize the old turns into a synopsis, keep the system prompt
+        + the last keep_recent turns verbatim. Returns the new messages, the summary, and stats
+        (heuristic token estimate). force=false only compacts when over the token budget."""
+        from crucible.context import (SUMMARIZE_INSTRUCTION, compact, estimate_tokens,
+                                      maybe_compact)
+        solver = _make_solver(req.model_id)
+        if solver is None:
+            raise HTTPException(status_code=503, detail="no model available to write the summary")
+
+        def summarizer(text: str) -> str:
+            return solver(SUMMARIZE_INSTRUCTION + text)
+
+        fn = compact if req.force else maybe_compact
+        out = fn(req.messages, summarizer, req.max_tokens, req.keep_recent)
+        out["tokens"] = estimate_tokens(req.messages)
+        return out
 
     @app.post("/api/agent/swarm")
     def agent_swarm(req: SwarmRequest) -> dict:

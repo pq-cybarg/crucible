@@ -3,8 +3,8 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, guardrailConfigP, mediaStatusP, modelRowP, modelRowsP, publishedPayloadP,
-  runtimeStatusP, verifyReportP,
+  benchmarksInfoP, compactResultP, guardrailConfigP, mediaStatusP, modelRowP, modelRowsP,
+  publishedPayloadP, runtimeStatusP, verifyReportP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -132,6 +132,22 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     expect(st.backends["stt"]?.endpoint).toBeNull();
     expect(() => mediaStatusP({ backends: { x: { kind: "x" } }, n_configured: 0, n_total: 1, note: "" }))
       .toThrow(/label/);   // missing required fields fail loudly
+  });
+
+  it("compactResultP parses the compaction payload (nullable summary)", () => {
+    const r = compactResultP({
+      messages: [{ role: "system", content: "summary" }, { role: "user", content: "hi" }],
+      summary: "did stuff", compacted: true,
+      stats: { before_tokens: 100, after_tokens: 20, summarized_turns: 8, token_estimate: "heuristic" },
+      tokens: 100,
+    });
+    expect(r.compacted).toBe(true);
+    expect(r.messages[0]?.role).toBe("system");
+    expect(compactResultP({
+      messages: [], summary: null, compacted: false,
+      stats: { before_tokens: 5, after_tokens: 5, summarized_turns: 0, token_estimate: "heuristic" },
+      tokens: 5,
+    }).summary).toBeNull();
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {
