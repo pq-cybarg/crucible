@@ -2243,15 +2243,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         return out
 
     @app.get("/api/memory/index")
-    def memory_index(session: str | None = None) -> dict:
-        """The summary passthrough: every top-level crystallized memory as a cheap {key,label,
-        summary,size} card — scan these before opening any full context. Optional session filter."""
-        return {"memories": memory.index(session), "versioned": memory.versioned}
+    def memory_index(session: str | None = None, sort: str = "recency") -> dict:
+        """The summary passthrough: every top-level crystallized memory as a cheap card — scan these
+        before opening any full context. Optional session filter; `sort` = recency/priority/size/
+        degree/label to prioritize recall cheaply."""
+        from crucible.sorting import SORTS
+        return {"memories": memory.index(session, sort=sort), "versioned": memory.versioned,
+                "sorts": list(SORTS)}
 
     @app.get("/api/memory/tree")
     def memory_tree(session: str | None = None) -> dict:
         """The full nested tree of summary cards (recursive children) — for the memory browser."""
         return {"tree": memory.tree(session)}
+
+    @app.get("/api/memory/graph")
+    def memory_graph(session: str | None = None) -> dict:
+        """The memory GRAPH: nodes (cards) + edges — parent/child (the tree) plus directed typed
+        cross-links (the semicyclic layer). The DAG view beyond the strict hierarchy."""
+        return memory.graph(session)
 
     def _make_embedder():
         """A texts->list[vector] embedder from the configured embedding backend (OpenAI /v1/embeddings),
@@ -2269,15 +2278,35 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         return embed
 
     @app.get("/api/memory/search")
-    def memory_search(q: str, k: int = 5, session: str | None = None) -> dict:
+    def memory_search(q: str, k: int = 5, session: str | None = None, sort: str = "relevance") -> dict:
         """Relevance search over crystallized memories. Uses the configured embedding backend for
         SEMANTIC search if available; otherwise LEXICAL (BM25). The method is reported honestly so a
-        keyword hit is never mistaken for meaning."""
+        keyword hit is never mistaken for meaning. `sort` blends ranking with priority/recency/…"""
         try:
-            return memory.search(q, embedder=_make_embedder(), k=k, session=session)
+            return memory.search(q, embedder=_make_embedder(), k=k, session=session, sort=sort)
         except Exception:
             # a flaky embedding backend must not break search — fall back to lexical
-            return memory.search(q, embedder=None, k=k, session=session)
+            return memory.search(q, embedder=None, k=k, session=session, sort=sort)
+
+    @app.post("/api/memory/link")
+    def memory_link(body: dict) -> dict:
+        """Add a directed typed cross-link between two memories (relates/refines/contradicts/…) —
+        turns the tree into a graph. Cycles are allowed (conditionally semicyclic)."""
+        try:
+            if body.get("remove"):
+                return memory.unlink(str(body.get("src", "")), str(body.get("dst", "")))
+            return memory.link(str(body.get("src", "")), str(body.get("dst", "")),
+                               str(body.get("type", "relates")))
+        except (ValueError, KeyError) as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    @app.post("/api/memory/{key}/priority")
+    def memory_priority(key: str, body: dict) -> dict:
+        """Weight a memory so it's recalled first when sorting by priority (agent prioritization)."""
+        try:
+            return memory.set_priority(key, int(body.get("priority", 0)))
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"no memory '{key}'")
 
     @app.get("/api/memory/{key}")
     def memory_read(key: str) -> dict:

@@ -8,8 +8,8 @@ from crucible.tools.shell import Bash
 from crucible.tools.web import WebFetch, WebSearch
 from crucible.tools.plan import TodoWrite
 from crucible.tools.media import GenerateImage, Transcribe
-from crucible.tools.memory import (ConsolidateMemory, CrystallizeMemory, RecallMemory,
-                                   RecrystallizeMemory)
+from crucible.tools.memory import (ConsolidateMemory, CrystallizeMemory, LinkMemory,
+                                   PrioritizeMemory, RecallMemory, RecrystallizeMemory)
 
 
 def default_registry(root: Path) -> ToolRegistry:
@@ -19,6 +19,6 @@ def default_registry(root: Path) -> ToolRegistry:
                  WebFetch(root), WebSearch(root), TodoWrite(root),
                  GenerateImage(root), Transcribe(root),
                  RecallMemory(root), CrystallizeMemory(root), RecrystallizeMemory(root),
-                 ConsolidateMemory(root)):
+                 ConsolidateMemory(root), LinkMemory(root), PrioritizeMemory(root)):
         reg.register(tool)
     return reg

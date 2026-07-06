@@ -167,3 +167,43 @@ class ConsolidateMemory:
             return ToolResult(ok=False, output="", error=str(e))
         except Exception as e:
             return ToolResult(ok=False, output="", error=f"consolidate failed: {e}")
+
+
+class LinkMemory:
+    name = "link_memory"
+    description = (
+        "Add a directed typed cross-link between two memories to build a knowledge GRAPH beyond the "
+        "tree — e.g. type 'relates' / 'refines' / 'contradicts' / 'depends-on'. Links may point "
+        "anywhere (cycles allowed). Use it to connect related memories so recall can follow the graph.")
+    parameters = {"type": "object", "properties": {
+        "src": {"type": "string"}, "dst": {"type": "string"},
+        "type": {"type": "string", "description": "edge type, e.g. relates / refines / contradicts"}},
+        "required": ["src", "dst"]}
+
+    def __init__(self, root=None):
+        pass
+
+    def run(self, src: str = "", dst: str = "", type: str = "relates") -> ToolResult:
+        try:
+            e = _store().link(src.strip(), dst.strip(), type or "relates")
+            return ToolResult(ok=True, output=f"linked {e['from']} -{e['type']}-> {e['to']}")
+        except (ValueError, KeyError) as ex:
+            return ToolResult(ok=False, output="", error=str(ex))
+
+
+class PrioritizeMemory:
+    name = "prioritize_memory"
+    description = ("Weight a memory so it surfaces first when recall is sorted by priority. Higher = "
+                   "more important. Use it to keep the memories that matter at the top of recall.")
+    parameters = {"type": "object", "properties": {
+        "key": {"type": "string"}, "priority": {"type": "integer"}}, "required": ["key", "priority"]}
+
+    def __init__(self, root=None):
+        pass
+
+    def run(self, key: str = "", priority: int = 0) -> ToolResult:
+        try:
+            c = _store().set_priority(key.strip(), int(priority))
+            return ToolResult(ok=True, output=f"{c['key']} priority = {c['priority']}")
+        except KeyError:
+            return ToolResult(ok=False, output="", error=f"no memory '{key}'")

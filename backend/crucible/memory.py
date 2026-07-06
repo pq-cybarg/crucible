@@ -106,9 +106,11 @@ class MemoryStore:
         node["ref"] = self._commit([rel], f"crystallize {key}: {node['label']} ({len(messages)} msgs)")
         return node
 
-    def index(self, session: Optional[str] = None) -> list[dict]:
-        """The SUMMARY PASSTHROUGH: every TOP-LEVEL memory as {key, label, summary, kind, size} —
-        cheap for a model to scan before deciding which to open. Optionally filter by session."""
+    def index(self, session: Optional[str] = None, sort: str = "recency") -> list[dict]:
+        """The SUMMARY PASSTHROUGH: every TOP-LEVEL memory as a cheap card — for a model to scan
+        before deciding which to open. Optionally filter by session and ORDER by a configurable key
+        (recency / priority / size / degree / label) so recall is prioritized, not just insertion-order."""
+        from crucible.sorting import sort_items
         out = []
         for p in sorted(self.mem_dir.glob("m-*.json")):
             n = json.loads(p.read_text())
@@ -117,13 +119,14 @@ class MemoryStore:
             if session is not None and n.get("session") != session:
                 continue
             out.append(self._card(n))
-        return out
+        return sort_items(out, sort)
 
     def _card(self, n: dict) -> dict:
         size = len(n.get("children", [])) if n.get("kind") == "chunked" else n.get("n_messages", 0)
         return {"key": n["key"], "label": n.get("label", ""), "summary": n.get("summary", ""),
                 "kind": n.get("kind", "leaf"), "session": n.get("session", ""),
-                "size": size, "ref": n.get("ref")}
+                "size": size, "ref": n.get("ref"),
+                "priority": int(n.get("priority", 0)), "degree": len(n.get("links", []) or [])}
 
     def read(self, key: str) -> dict:
         """Open one memory. A LEAF returns its full messages; a CHUNKED node returns its children's
@@ -235,11 +238,14 @@ class MemoryStore:
             return card
         return [node(c["key"]) for c in self.index(session)]
 
-    def search(self, query: str, embedder=None, k: int = 5, session: Optional[str] = None) -> dict:
+    def search(self, query: str, embedder=None, k: int = 5, session: Optional[str] = None,
+               sort: str = "relevance") -> dict:
         """Relevance search over ALL memories (leaves + chunked, at any depth) by their label +
         summary. With an embedder it's semantic (cosine); without one it's lexical (BM25) — the
-        method is reported honestly. Returns {method, matches:[card + score]}."""
+        method is reported honestly. Results are ordered by `sort` (default relevance; or priority /
+        recency / … to blend ranking with agent priority). Returns {method, matches:[card + score]}."""
         from crucible.rag import rank
+        from crucible.sorting import sort_items
         cards = []
         for p in sorted(self.mem_dir.glob("m-*.json")):
             n = json.loads(p.read_text())
@@ -251,4 +257,59 @@ class MemoryStore:
         docs = [f"{c['label']} {c['summary']}" for c in cards]
         r = rank(query, docs, k=k, embedder=embedder)
         matches = [{**cards[res["index"]], "score": res["score"]} for res in r["results"]]
+        if sort != "relevance":
+            matches = sort_items(matches, sort)
         return {"method": r["method"], "matches": matches}
+
+    # --- DAG layer: priority + typed cross-links (a memory graph, not just a tree) ----------------
+    # The parent/children hierarchy is one acyclic view; on top of it, arbitrary DIRECTED TYPED LINKS
+    # (relates/refines/contradicts/…) turn memory into a graph. Links may point anywhere — even
+    # forming cycles — so it's "conditionally semicyclic"; every traversal here is visited-guarded so
+    # it always terminates. Priority lets an agent weight what matters for cheap prioritized recall.
+
+    def set_priority(self, key: str, priority: int) -> dict:
+        """Weight a memory (higher = recalled first when sorting by priority)."""
+        n = self._load(key)
+        n["priority"] = int(priority)
+        rel = self._write(n)
+        self._commit([rel], f"priority {key} = {priority}")
+        return self._card(n)
+
+    def link(self, src: str, dst: str, type: str = "relates") -> dict:
+        """Add a directed typed edge src -> dst (semicyclic allowed). Both must exist; duplicates of
+        the same (dst,type) are ignored. This is what makes memory a DAG/graph rather than a tree."""
+        if src == dst:
+            raise ValueError("a memory cannot link to itself")
+        self._load(dst)                       # KeyError if the target is missing
+        n = self._load(src)
+        links = n.setdefault("links", [])
+        if not any(e.get("to") == dst and e.get("type") == type for e in links):
+            links.append({"to": dst, "type": type})
+            rel = self._write(n)
+            self._commit([rel], f"link {src} -{type}-> {dst}")
+        return {"from": src, "to": dst, "type": type}
+
+    def unlink(self, src: str, dst: str) -> dict:
+        """Remove all directed edges src -> dst."""
+        n = self._load(src)
+        before = len(n.get("links", []) or [])
+        n["links"] = [e for e in n.get("links", []) or [] if e.get("to") != dst]
+        if len(n["links"]) != before:
+            rel = self._write(n)
+            self._commit([rel], f"unlink {src} -> {dst}")
+        return {"from": src, "to": dst, "removed": before - len(n["links"])}
+
+    def graph(self, session: Optional[str] = None) -> dict:
+        """The full memory GRAPH: every node as a card, plus edges — 'parent' edges (the tree) and
+        the directed typed cross-'link' edges (the semicyclic layer). For a graph view + traversal."""
+        nodes, edges = [], []
+        for p in sorted(self.mem_dir.glob("m-*.json")):
+            n = json.loads(p.read_text())
+            if session is not None and n.get("session") != session:
+                continue
+            nodes.append({**self._card(n), "parent": n.get("parent")})
+            for c in n.get("children", []) or []:
+                edges.append({"from": n["key"], "to": c, "type": "child", "kind": "parent"})
+            for e in n.get("links", []) or []:
+                edges.append({"from": n["key"], "to": e["to"], "type": e.get("type", "relates"), "kind": "link"})
+        return {"nodes": nodes, "edges": edges, "n_nodes": len(nodes), "n_edges": len(edges)}

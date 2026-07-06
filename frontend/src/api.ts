@@ -527,11 +527,11 @@ export interface MemorySearchResult {
   readonly matches: readonly MemoryMatch[];
 }
 // Relevance search over crystallized memories (semantic if an embedding backend is set, else lexical).
-export async function searchMemory(q: string, session?: string): Promise<MemorySearchResult> {
+export async function searchMemory(q: string, session?: string, sort = "relevance"): Promise<MemorySearchResult> {
   if (isDemo()) return localSearch(q, session);
   try {
     const s = session ? `&session=${encodeURIComponent(session)}` : "";
-    const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}${s}`);
+    const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}${s}`);
     if (!r.ok) throw new Error(`memory search ${r.status}`);
     return memorySearchP(await r.json());
   } catch { return localSearch(q, session); }

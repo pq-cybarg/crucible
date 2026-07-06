@@ -87,6 +87,36 @@ def test_memory_search_endpoint_lexical(tmp_path, monkeypatch):
     assert res["method"] == "lexical" and res["matches"][0]["label"] == "a"
 
 
+def test_memory_graph_link_priority_endpoints(tmp_path, monkeypatch):
+    c = mkapp(tmp_path, monkeypatch, Summarizer())
+    from crucible.memory import MemoryStore
+    from crucible.config import get_settings
+    store = MemoryStore(get_settings().data_dir / "memory")
+    store.crystallize([{"role": "user", "content": "x"}], "alpha", label="a")
+    store.crystallize([{"role": "user", "content": "y"}], "beta", label="b")
+    # link + priority via the API
+    assert c.post("/api/memory/link", json={"src": "m-0001", "dst": "m-0002", "type": "relates"}).json()["to"] == "m-0002"
+    assert c.post("/api/memory/m-0001/priority", json={"priority": 7}).json()["priority"] == 7
+    # graph shows the link edge
+    g = c.get("/api/memory/graph").json()
+    assert g["n_nodes"] == 2 and any(e["kind"] == "link" for e in g["edges"])
+    # priority sort surfaces the weighted memory; index reports available sorts
+    idx = c.get("/api/memory/index", params={"sort": "priority"}).json()
+    assert idx["memories"][0]["key"] == "m-0001" and "recency" in idx["sorts"]
+    # guard: self-link -> 422
+    assert c.post("/api/memory/link", json={"src": "m-0001", "dst": "m-0001"}).status_code == 422
+
+
+def test_memory_graph_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRUCIBLE_DATA_DIR", str(tmp_path / "data"))
+    from crucible.tools.memory import CrystallizeMemory, LinkMemory, PrioritizeMemory
+    CrystallizeMemory().run(summary="a", content="alpha", label="a")
+    CrystallizeMemory().run(summary="b", content="beta", label="b")
+    assert LinkMemory().run(src="m-0001", dst="m-0002", type="refines").ok
+    assert PrioritizeMemory().run(key="m-0001", priority=5).ok
+    assert LinkMemory().run(src="m-0001", dst="m-0001").ok is False   # self-link rejected
+
+
 def test_recall_tool_query_search(tmp_path, monkeypatch):
     c = mkapp(tmp_path, monkeypatch, Summarizer())
     c.post("/api/agent/compact", json={"messages": _long(6), "keep_recent": 2, "session_id": "s"})

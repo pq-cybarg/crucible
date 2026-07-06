@@ -47,13 +47,14 @@ export default function MemoryPanel(): JSX.Element {
   const [note, setNote] = useState<string | null>(null);
   const [view, setView] = useState<"tree" | "map">("map");
   const [searchQ, setSearchQ] = useState("");
+  const [sortBy, setSortBy] = useState("relevance");
   const [searchRes, setSearchRes] = useState<{ method: string; matches: readonly MemoryMatch[] } | null>(null);
 
-  async function runSearch(): Promise<void> {
+  async function runSearch(nextSort = sortBy): Promise<void> {
     const q = searchQ.trim();
     if (q.length === 0) { setSearchRes(null); return; }
     setErr(null);
-    try { setSearchRes(await searchMemory(q)); }
+    try { setSearchRes(await searchMemory(q, undefined, nextSort)); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "search failed"); }
   }
 
@@ -132,6 +133,11 @@ export default function MemoryPanel(): JSX.Element {
           value={searchQ}
           onChange={(e) => setSearchQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void runSearch(); }} />
+        <select className="byo-modelsel" value={sortBy}
+          onChange={(e) => { setSortBy(e.target.value); void runSearch(e.target.value); }}
+          title="how to order results — blend relevance with priority / recency">
+          {["relevance", "priority", "recency", "size", "degree"].map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <button className="btn ghost" onClick={() => void runSearch()}>search</button>
         {searchRes && <button className="btn ghost" onClick={() => { setSearchQ(""); setSearchRes(null); }}>clear</button>}
       </div>

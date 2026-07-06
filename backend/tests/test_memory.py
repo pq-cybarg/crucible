@@ -33,11 +33,13 @@ def test_index_is_summary_passthrough(tmp_path):
     s = MemoryStore(tmp_path / "mem")
     s.crystallize(_convo(4), "first summary", session="a")
     s.crystallize(_convo(8), "second summary", session="a")
-    idx = s.index()
-    assert [c["key"] for c in idx] == ["m-0001", "m-0002"]
+    idx = s.index()   # default order is recency (newest first)
+    assert [c["key"] for c in idx] == ["m-0002", "m-0001"]
     # cards carry label + summary + size, but NOT the message bodies (cheap to scan)
-    assert idx[0]["summary"] == "first summary" and idx[1]["size"] == 8
+    assert idx[0]["summary"] == "second summary" and idx[0]["size"] == 8
     assert "messages" not in idx[0]
+    # insertion order is still available via the 'oldest' sort
+    assert [c["key"] for c in s.index(sort="oldest")] == ["m-0001", "m-0002"]
 
 
 def test_index_filters_by_session(tmp_path):
@@ -161,6 +163,55 @@ def test_search_lexical_ranks_by_relevance(tmp_path):
     assert res["method"] == "lexical"
     assert res["matches"][0]["key"] == "m-0001" and res["matches"][0]["score"] > 0
     assert s.search("xylophone", embedder=None)["matches"] == []     # no keyword -> nothing
+
+
+def test_priority_and_sorted_index(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(2), "first", label="a")
+    s.crystallize(_convo(2), "second", label="b")
+    s.set_priority("m-0001", 10)
+    # default recency -> newest first; priority sort -> the weighted one first
+    assert [c["key"] for c in s.index(sort="recency")] == ["m-0002", "m-0001"]
+    assert s.index(sort="priority")[0]["key"] == "m-0001"
+    assert s.index()[0]["priority"] == 0 and s.index()[1]["priority"] == 10
+
+
+def test_links_make_a_semicyclic_graph(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(2), "A", label="a")
+    s.crystallize(_convo(2), "B", label="b")
+    s.link("m-0001", "m-0002", "relates")
+    s.link("m-0002", "m-0001", "refines")     # a cycle — allowed (conditionally semicyclic)
+    s.link("m-0001", "m-0002", "relates")     # duplicate ignored
+    g = s.graph()
+    link_edges = [(e["from"], e["to"], e["type"]) for e in g["edges"] if e["kind"] == "link"]
+    assert ("m-0001", "m-0002", "relates") in link_edges
+    assert ("m-0002", "m-0001", "refines") in link_edges
+    assert len(link_edges) == 2                 # duplicate not added
+    assert s.read("m-0001") and s.index()[0]["degree"] >= 1   # degree reflects out-links
+
+
+def test_link_guards(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(2), "A")
+    import pytest
+    with pytest.raises(ValueError):
+        s.link("m-0001", "m-0001")             # no self-loop
+    with pytest.raises(KeyError):
+        s.link("m-0001", "m-9999")             # target must exist
+    assert s.unlink("m-0001", "m-9999")["removed"] == 0
+
+
+def test_graph_includes_parent_and_link_edges(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(6), "root")
+    s.recrystallize("m-0001", [{"label": "x", "summary": "sx", "messages": _convo(6)}])
+    s.crystallize(_convo(2), "other")
+    s.link("m-0002", "m-0003", "relates")
+    g = s.graph()
+    kinds = {e["kind"] for e in g["edges"]}
+    assert "parent" in kinds and "link" in kinds
+    assert g["n_nodes"] == 3
 
 
 def test_search_semantic_with_embedder(tmp_path):
