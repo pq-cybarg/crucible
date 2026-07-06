@@ -136,6 +136,6 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 
 ## Platform / infra (worth adding)
 - [ ] Prompt/response caching; budget/cost caps
-- [ ] RAG / embeddings store
+- [x] RAG / embeddings store — rag.py (cosine + BM25); memory.search + /api/memory/search (semantic when an embed backend is set, else honest lexical); recall_memory query arg; Memory-tab search box
 - [ ] Observability / tracing of agent + graph runs
 - [ ] Plugin system; batch/queue processing; streaming tool results
