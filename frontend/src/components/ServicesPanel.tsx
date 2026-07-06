@@ -11,6 +11,7 @@ import {
 import type { ChatMode, DetectedService } from "../services";
 import { getApiBase, getApiToken, getHealth, getMediaStatus } from "../api";
 import type { MediaStatus } from "../api";
+import HierarchyProfiles from "./HierarchyProfiles";
 
 type Scan =
   | { readonly state: "idle" }
@@ -228,6 +229,7 @@ export default function ServicesPanel(): JSX.Element {
       )}
 
       <MediaCapabilities />
+      <HierarchyProfiles />
     </div>
   );
 }

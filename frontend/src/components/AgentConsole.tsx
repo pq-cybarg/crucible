@@ -1,10 +1,10 @@
 import type { JSX } from "react";
 import { useCallbackRef } from "../useCallbackRef";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { approveAgent, cancelAgent, compactConversation, runAgent } from "../api";
-import type { AgentEvent, ChatMessage, CompactMessage, PermissionMode } from "../api";
+import { approveAgent, cancelAgent, compactConversation, getProfiles, runAgent } from "../api";
+import type { AgentEvent, ChatMessage, CompactMessage, HierarchyProfile, PermissionMode } from "../api";
 
 // heuristic client-side token estimate (chars/4), mirrors the backend meter — for the UI only.
 const CONTEXT_LIMIT = 4000;
@@ -94,6 +94,9 @@ export default function AgentConsole(): JSX.Element {
   const [react, setReact] = useState(false);
   const [autoCompact, setAutoCompact] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [profile, setProfile] = useState("");
+  const [profiles, setProfiles] = useState<readonly HierarchyProfile[]>([]);
+  useEffect(() => { getProfiles().then(setProfiles).catch(() => undefined); }, []);
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -295,6 +298,7 @@ export default function AgentConsole(): JSX.Element {
       ...(modelId ? { modelId } : {}),
       ...(react ? { react: true } : {}),
       ...(autoCompact ? { autoCompact: true, contextLimit: CONTEXT_LIMIT } : {}),
+      ...(profile ? { profile } : {}),
     });
     if (aborted()) {
       finalizeStreaming();
@@ -460,6 +464,13 @@ export default function AgentConsole(): JSX.Element {
               <input type="checkbox" checked={autoCompact} onChange={(e) => setAutoCompact(e.target.checked)} />
               auto
             </label>
+            {profiles.length > 0 && (
+              <select className="byo-modelsel" value={profile} onChange={(e) => setProfile(e.target.value)}
+                title="agent hierarchy profile — per-layer worker + communicator models for spawned sub-agents">
+                <option value="">no hierarchy</option>
+                {profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+              </select>
+            )}
           </span>
         </div>
       </form>

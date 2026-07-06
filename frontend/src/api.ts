@@ -28,7 +28,8 @@ import {
 } from "./localMemory";
 import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
-  diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP, lineageP,
+  diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
+  hierarchyProfileP, lineageP, profilesP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
   compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
   memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
@@ -221,6 +222,8 @@ export interface RunOpts {
   // contextLimit tokens (keeps the last few turns verbatim).
   readonly autoCompact?: boolean;
   readonly contextLimit?: number;
+  // Named hierarchy profile for the spawn tree (per-layer worker + communicator models).
+  readonly profile?: string;
 }
 
 export type CompactMessage = { readonly role: string; readonly content: string };
@@ -311,6 +314,7 @@ export async function runAgent(opts: RunOpts): Promise<RunStatus> {
         ...(opts.modelId ? { model_id: opts.modelId } : {}),
         ...(opts.react ? { react: true } : {}),
         ...(opts.autoCompact ? { auto_compact: true, context_limit: opts.contextLimit ?? 4000 } : {}),
+        ...(opts.profile ? { profile: opts.profile } : {}),
         ...(opts.runId ? { run_id: opts.runId } : {}),
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
@@ -1245,6 +1249,29 @@ export async function getLineage(): Promise<Lineage> {
 
 export async function revertPart(part: string): Promise<boolean> {
   const r = await cfetch(`${API_BASE}/api/inference/revert-part/${encodeURIComponent(part)}`, { method: "POST" });
+  return r.ok;
+}
+
+// Agent hierarchy profiles: per-layer worker + lighter communicator model pairs (multi-layer,
+// multi-profile). The spawn tree uses the named profile; the communicator relays between layers.
+export interface HierarchyLayer { readonly worker: string | null; readonly communicator: string | null }
+export interface HierarchyProfile { readonly name: string; readonly layers: readonly HierarchyLayer[] }
+
+export async function getProfiles(): Promise<readonly HierarchyProfile[]> {
+  const r = await cfetch(API_BASE + "/api/hierarchy/profiles");
+  if (!r.ok) return [];
+  return profilesP(await r.json()).profiles;
+}
+export async function saveProfile(p: HierarchyProfile): Promise<HierarchyProfile> {
+  const r = await cfetch(API_BASE + "/api/hierarchy/profiles", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+  });
+  if (r.status === 422) throw new Error("profile name is required");
+  if (!r.ok) throw new Error(`save profile ${r.status}`);
+  return hierarchyProfileP(await r.json());
+}
+export async function deleteProfile(name: string): Promise<boolean> {
+  const r = await cfetch(`${API_BASE}/api/hierarchy/profiles/${encodeURIComponent(name)}`, { method: "DELETE" });
   return r.ok;
 }
 

@@ -208,6 +208,12 @@ export const editCommitP: Parser<EditCommit> = object({
   metrics: record(num), tensors: array(str),
 });
 export const editHistoryP: Parser<EditHistory> = object({ branch: str, commits: array(editCommitP) });
+export const hierarchyProfileP = object({
+  name: str,
+  layers: array(object({ worker: nullable(str), communicator: nullable(str) })),
+});
+export const profilesP = object({ profiles: array(hierarchyProfileP) });
+
 export const lineageP = object({
   branch: str,
   parts: array(object({

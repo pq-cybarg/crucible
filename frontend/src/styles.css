@@ -791,6 +791,22 @@ body::after {
 .graph-result.terminal { border-left: 3px solid var(--amber-bright); }
 .graph-meta { font-family: var(--font-mono); font-size: 11px; color: var(--amber); margin: 3px 0 5px; }
 .graph-out-text { color: var(--bone); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Agent-hierarchy profile editor (Services panel). */
+.hier-editor { margin-top: 26px; }
+.hier-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; align-items: center; }
+.hier-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--steel-900); }
+.hier-chip.on { border-color: var(--amber-bright); }
+.hier-name { background: none; border: none; color: var(--bone); font-family: var(--font-display); font-size: 12.5px; cursor: pointer; padding: 0; }
+.hier-name:hover { color: var(--amber-bright); }
+.hier-layers { color: var(--ash); font-size: 10.5px; font-family: var(--font-mono); }
+.hier-del { background: none; border: none; color: var(--ash); cursor: pointer; font-size: 12px; }
+.hier-del:hover { color: var(--ember); }
+.hier-layers-edit { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.hier-layer { display: flex; align-items: flex-end; gap: 10px; padding: 8px 10px; border: 1px solid var(--line);
+  border-left: 3px solid var(--amber); border-radius: 6px; background: var(--steel-900); }
+.hier-depth { font-family: var(--font-mono); color: var(--amber-bright); font-size: 12px; padding-bottom: 8px; }
+.hier-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 /* Per-part edit lineage (Uncensor panel). */
 .part-lineage { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .part-line { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid var(--line);

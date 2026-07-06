@@ -3,9 +3,9 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, lineageP, mediaStatusP,
-  memoryNodeP, memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP,
-  publishedPayloadP, runtimeStatusP, verifyReportP, weightsViewP,
+  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, hierarchyProfileP, lineageP,
+  mediaStatusP, memoryNodeP, memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP,
+  profilesP, publishedPayloadP, runtimeStatusP, verifyReportP, weightsViewP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -242,6 +242,14 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     });
     expect(l.parts[0]?.part).toBe("language_model");
     expect(l.parts[0]?.commits[1]?.id).toBe("c3");
+  });
+
+  it("hierarchy profile schemas parse layers with nullable model ids", () => {
+    const p = hierarchyProfileP({ name: "research", layers: [
+      { worker: null, communicator: null }, { worker: "opus", communicator: "haiku" }] });
+    expect(p.layers[1]?.communicator).toBe("haiku");
+    expect(profilesP({ profiles: [p] }).profiles[0]?.name).toBe("research");
+    expect(() => hierarchyProfileP({ name: "x", layers: [{ worker: 5, communicator: null }] })).toThrow(/worker/);
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {
