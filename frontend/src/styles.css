@@ -835,6 +835,10 @@ body::after {
 .ctx-total { margin-left: auto; font-family: var(--font-mono); }
 /* Crystallized-memory browser. */
 .mem-toolbar { display: flex; align-items: center; gap: 12px; margin: 8px 0 14px; flex-wrap: wrap; }
+.mem-search { display: flex; gap: 8px; margin-bottom: 14px; }
+.mem-search .in { flex: 1; }
+.mem-search-results { margin-bottom: 16px; border: 1px solid var(--line); border-left: 3px solid var(--amber-bright);
+  border-radius: 7px; padding: 8px 12px; background: var(--steel-900); }
 .mem-note { color: var(--amber-bright); font-size: 12px; }
 .mem-consolidate { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px;
   border: 1px solid var(--amber); border-radius: 7px; background: var(--steel-900); margin-bottom: 14px; }

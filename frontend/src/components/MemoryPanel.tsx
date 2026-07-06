@@ -2,9 +2,9 @@ import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  consolidateMemory, getMemoryTree, readMemory, recrystallizeMemory,
+  consolidateMemory, getMemoryTree, readMemory, recrystallizeMemory, searchMemory,
 } from "../api";
-import type { MemoryNode, MemoryTreeNode } from "../api";
+import type { MemoryMatch, MemoryNode, MemoryTreeNode } from "../api";
 import { getActiveModelId } from "../services";
 import MemoryMap from "./MemoryMap";
 
@@ -46,6 +46,16 @@ export default function MemoryPanel(): JSX.Element {
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [view, setView] = useState<"tree" | "map">("map");
+  const [searchQ, setSearchQ] = useState("");
+  const [searchRes, setSearchRes] = useState<{ method: string; matches: readonly MemoryMatch[] } | null>(null);
+
+  async function runSearch(): Promise<void> {
+    const q = searchQ.trim();
+    if (q.length === 0) { setSearchRes(null); return; }
+    setErr(null);
+    try { setSearchRes(await searchMemory(q)); }
+    catch (e: unknown) { setErr(e instanceof Error ? e.message : "search failed"); }
+  }
 
   async function refresh(): Promise<void> {
     setErr(null);
@@ -116,6 +126,30 @@ export default function MemoryPanel(): JSX.Element {
         {err && <span className="runtime-err">{err}</span>}
         {note && <span className="mem-note">{note}</span>}
       </div>
+
+      <div className="mem-search">
+        <input className="in" placeholder="search memories (semantic if an embed backend is set, else keyword)…"
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void runSearch(); }} />
+        <button className="btn ghost" onClick={() => void runSearch()}>search</button>
+        {searchRes && <button className="btn ghost" onClick={() => { setSearchQ(""); setSearchRes(null); }}>clear</button>}
+      </div>
+      {searchRes && (
+        <div className="mem-search-results">
+          <div className="engrave" style={{ margin: "4px 0" }}>
+            {searchRes.matches.length} match{searchRes.matches.length === 1 ? "" : "es"} · {searchRes.method}
+          </div>
+          {searchRes.matches.length === 0 && <div className="hint">no matches.</div>}
+          {searchRes.matches.map((m) => (
+            <div key={m.key} className="mem-child" onClick={() => void open(m.key)} style={{ cursor: "pointer" }}>
+              <code className="mem-key">{m.key}</code> <b className="mem-label">{m.label}</b>
+              <span className="mem-kind">score {m.score}</span>
+              <div className="mem-summary">{m.summary}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {selected.size >= 2 && (
         <div className="mem-consolidate">

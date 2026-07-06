@@ -27,7 +27,7 @@ import {
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
   compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
-  memoryNodeP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
+  memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
   runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
   verifyReportP, weightsViewP,
 } from "./schemas";
@@ -510,6 +510,19 @@ export async function getMemoryIndex(session?: string): Promise<{ memories: read
   if (!r.ok) throw new Error(`memory index ${r.status}`);
   return memoryIndexP(await r.json());
 }
+export type MemoryMatch = MemoryCard & { readonly score: number };
+export interface MemorySearchResult {
+  readonly method: string;                 // "semantic" | "lexical"
+  readonly matches: readonly MemoryMatch[];
+}
+// Relevance search over crystallized memories (semantic if an embedding backend is set, else lexical).
+export async function searchMemory(q: string, session?: string): Promise<MemorySearchResult> {
+  const s = session ? `&session=${encodeURIComponent(session)}` : "";
+  const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}${s}`);
+  if (!r.ok) throw new Error(`memory search ${r.status}`);
+  return memorySearchP(await r.json());
+}
+
 export async function getMemoryTree(session?: string): Promise<readonly MemoryTreeNode[]> {
   const q = session ? `?session=${encodeURIComponent(session)}` : "";
   const r = await cfetch(API_BASE + "/api/memory/tree" + q);

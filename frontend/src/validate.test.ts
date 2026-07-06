@@ -4,8 +4,8 @@ import {
 } from "./validate";
 import {
   benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, memoryNodeP,
-  memoryTreeP, modalityDirectionP, modelRowP, modelRowsP, publishedPayloadP, runtimeStatusP,
-  verifyReportP, weightsViewP,
+  memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP, publishedPayloadP,
+  runtimeStatusP, verifyReportP, weightsViewP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -222,6 +222,16 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
       summary: { n_tensors: 0, total_params: 0, n_layers: 0, dtypes: {}, architecture: null },
       tensors: [], metadata: {},
     }).explain).toBeUndefined();
+  });
+
+  it("memorySearchP parses ranked matches with their method", () => {
+    const r = memorySearchP({
+      method: "lexical",
+      matches: [{ key: "m-0001", label: "a", summary: "s", kind: "leaf", session: "x", size: 4, ref: null, score: 2.3 }],
+    });
+    expect(r.method).toBe("lexical");
+    expect(r.matches[0]?.score).toBe(2.3);
+    expect(() => memorySearchP({ method: "semantic", matches: [{ key: "m", label: "a", summary: "s", kind: "leaf", session: "x", size: 1, ref: null }] })).toThrow(/score/);
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {

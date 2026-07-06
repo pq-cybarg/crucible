@@ -22,25 +22,33 @@ class RecallMemory:
     name = "recall_memory"
     description = (
         "Retrieve crystallized memory from earlier (compacted) context. Call with NO arguments to get "
-        "the index — each memory's key, label, and summary — then decide what's relevant. Call with "
-        "key=<m-XXXX> to open one: a leaf returns its full messages; a chunked memory returns its "
-        "sub-memory summaries so you can drill down. Read summaries first; only open the full content "
-        "you actually need — this is how you recover old context without reloading the whole thread.")
+        "the index — each memory's key, label, and summary. Call with query=<text> to RELEVANCE-SEARCH "
+        "the memories (ranked by how well they match). Call with key=<m-XXXX> to open one: a leaf returns "
+        "its full messages; a chunked memory returns its sub-memory summaries to drill down. Read "
+        "summaries first; only open the full content you need — recover old context without reloading it.")
     parameters = {"type": "object", "properties": {
-        "key": {"type": "string", "description": "memory key to open (e.g. m-0002); omit for the index"},
-        "session": {"type": "string", "description": "optional session filter when listing the index"}},
+        "key": {"type": "string", "description": "memory key to open (e.g. m-0002); omit for index/search"},
+        "query": {"type": "string", "description": "relevance-search the memories by this text"},
+        "session": {"type": "string", "description": "optional session filter"}},
         "required": []}
 
     def __init__(self, root=None):
         from crucible.config import get_settings
         self._root = get_settings().data_dir / "memory"
 
-    def run(self, key: str = "", session: str = "") -> ToolResult:
+    def run(self, key: str = "", query: str = "", session: str = "") -> ToolResult:
         from crucible.memory import MemoryStore
         try:
             store = MemoryStore(self._root)
             if (key or "").strip():
                 return ToolResult(ok=True, output=_format_node(store.read(key.strip())))
+            if (query or "").strip():
+                res = store.search(query.strip(), embedder=None, session=session or None)   # lexical from a tool
+                if not res["matches"]:
+                    return ToolResult(ok=True, output=f"(no memories match '{query}')")
+                lines = [f"{m['key']} [{m['kind']}, score {m['score']}] {m['label']}: {m['summary']}"
+                         for m in res["matches"]]
+                return ToolResult(ok=True, output=f"Memories matching '{query}' ({res['method']}):\n" + "\n".join(lines))
             idx = store.index(session or None)
             if not idx:
                 return ToolResult(ok=True, output="(no crystallized memories yet)")

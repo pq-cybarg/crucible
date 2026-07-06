@@ -2231,6 +2231,32 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         """The full nested tree of summary cards (recursive children) — for the memory browser."""
         return {"tree": memory.tree(session)}
 
+    def _make_embedder():
+        """A texts->list[vector] embedder from the configured embedding backend (OpenAI /v1/embeddings),
+        or None when none is set — in which case retrieval falls back to lexical BM25, labeled as such."""
+        from crucible.media import media_endpoint
+        ep = media_endpoint("embed")
+        if not ep:
+            return None
+
+        def embed(texts: list[str]) -> list:
+            import httpx
+            r = httpx.post(ep + "/v1/embeddings", json={"model": "local", "input": list(texts)}, timeout=60)
+            r.raise_for_status()
+            return [d["embedding"] for d in r.json().get("data", [])]
+        return embed
+
+    @app.get("/api/memory/search")
+    def memory_search(q: str, k: int = 5, session: str | None = None) -> dict:
+        """Relevance search over crystallized memories. Uses the configured embedding backend for
+        SEMANTIC search if available; otherwise LEXICAL (BM25). The method is reported honestly so a
+        keyword hit is never mistaken for meaning."""
+        try:
+            return memory.search(q, embedder=_make_embedder(), k=k, session=session)
+        except Exception:
+            # a flaky embedding backend must not break search — fall back to lexical
+            return memory.search(q, embedder=None, k=k, session=session)
+
     @app.get("/api/memory/{key}")
     def memory_read(key: str) -> dict:
         """Open one memory: a leaf returns its full messages; a chunked node returns its children's

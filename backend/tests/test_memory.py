@@ -151,3 +151,33 @@ def test_persists_across_instances(tmp_path):
     again = MemoryStore(root)
     assert again.read("m-0001")["summary"] == "durable summary"
     assert again.index()[0]["key"] == "m-0001"
+
+
+def test_search_lexical_ranks_by_relevance(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(2), "abliteration removed the refusal direction", label="uncensor")
+    s.crystallize(_convo(2), "quantized the weights to run faster locally", label="quantize")
+    res = s.search("refusal direction", embedder=None)
+    assert res["method"] == "lexical"
+    assert res["matches"][0]["key"] == "m-0001" and res["matches"][0]["score"] > 0
+    assert s.search("xylophone", embedder=None)["matches"] == []     # no keyword -> nothing
+
+
+def test_search_semantic_with_embedder(tmp_path):
+    s = MemoryStore(tmp_path / "mem")
+    s.crystallize(_convo(2), "image safety gate in the vision encoder", label="vision")
+    s.crystallize(_convo(2), "text refusal in the language model", label="text")
+
+    def embed(texts):
+        out = []
+        for t in texts:
+            out.append([1 if "vision" in t.lower() or "image" in t.lower() else 0,
+                        1 if "text" in t.lower() or "language" in t.lower() else 0])
+        return out
+
+    res = s.search("picture", embedder=embed)   # 'picture' won't match lexically, but embed maps it? no
+    # the query embeds to [0,0] here (no keyword), so semantic returns nothing positive — honest
+    assert res["method"] == "semantic"
+    # a query the embedder DOES place in vision-space ranks the vision memory first
+    res2 = s.search("vision image", embedder=embed)
+    assert res2["matches"][0]["key"] == "m-0001"

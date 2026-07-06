@@ -74,6 +74,27 @@ def test_memory_read_404(tmp_path, monkeypatch):
     assert c.get("/api/memory/m-9999").status_code == 404
 
 
+def test_memory_search_endpoint_lexical(tmp_path, monkeypatch):
+    for k in ("EMBED",):
+        monkeypatch.delenv(f"CRUCIBLE_{k}_ENDPOINT", raising=False)   # force lexical
+    c = mkapp(tmp_path, monkeypatch, Summarizer())
+    from crucible.memory import MemoryStore
+    from crucible.config import get_settings
+    store = MemoryStore(get_settings().data_dir / "memory")
+    store.crystallize([{"role": "user", "content": "x"}], "abliteration and refusal removal", label="a")
+    store.crystallize([{"role": "user", "content": "y"}], "quantization for speed", label="b")
+    res = c.get("/api/memory/search", params={"q": "refusal removal"}).json()
+    assert res["method"] == "lexical" and res["matches"][0]["label"] == "a"
+
+
+def test_recall_tool_query_search(tmp_path, monkeypatch):
+    c = mkapp(tmp_path, monkeypatch, Summarizer())
+    c.post("/api/agent/compact", json={"messages": _long(6), "keep_recent": 2, "session_id": "s"})
+    from crucible.tools.memory import RecallMemory
+    out = RecallMemory().run(query="SUMMARY goal facts")
+    assert out.ok and ("m-0001" in out.output or "no memories" in out.output)
+
+
 def test_recall_memory_tool(tmp_path, monkeypatch):
     c = mkapp(tmp_path, monkeypatch, Summarizer())
     c.post("/api/agent/compact", json={"messages": _long(6), "keep_recent": 2, "session_id": "s"})

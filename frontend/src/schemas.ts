@@ -119,6 +119,12 @@ export const memoryNodeP: Parser<MemoryNode> = object({
   messages: optional(array(_msgP)), children: optional(array(memoryCardP)),
 });
 export const memoryIndexP = object({ memories: array(memoryCardP), versioned: bool });
+export const memorySearchP = object({
+  method: str,
+  matches: array(object({
+    key: str, label: str, summary: str, kind: str, session: str, size: num, ref: nullable(str), score: num,
+  })),
+});
 export const memoryTreeP = object({ tree: array(memoryTreeNodeP) });
 export const recrystallizeResultP = object({
   key: str, children: array(str), kind: str, ref: nullable(str),

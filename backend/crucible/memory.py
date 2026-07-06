@@ -234,3 +234,21 @@ class MemoryStore:
                 card["children"] = [node(c) for c in n.get("children", [])]
             return card
         return [node(c["key"]) for c in self.index(session)]
+
+    def search(self, query: str, embedder=None, k: int = 5, session: Optional[str] = None) -> dict:
+        """Relevance search over ALL memories (leaves + chunked, at any depth) by their label +
+        summary. With an embedder it's semantic (cosine); without one it's lexical (BM25) — the
+        method is reported honestly. Returns {method, matches:[card + score]}."""
+        from crucible.rag import rank
+        cards = []
+        for p in sorted(self.mem_dir.glob("m-*.json")):
+            n = json.loads(p.read_text())
+            if session is not None and n.get("session") != session:
+                continue
+            cards.append(self._card(n))
+        if not cards:
+            return {"method": "semantic" if embedder else "lexical", "matches": []}
+        docs = [f"{c['label']} {c['summary']}" for c in cards]
+        r = rank(query, docs, k=k, embedder=embedder)
+        matches = [{**cards[res["index"]], "score": res["score"]} for res in r["results"]]
+        return {"method": r["method"], "matches": matches}
