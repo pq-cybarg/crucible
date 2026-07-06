@@ -23,6 +23,10 @@ function withAuth(init?: RequestInit): RequestInit {
 
 import { demoRespond, isDemo } from "./demo";
 import {
+  localCompact, localConsolidate, localIndex, localReadForSplit, localRead,
+  localRecrystallize, localSearch, localTree,
+} from "./localMemory";
+import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP, lineageP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
@@ -239,6 +243,8 @@ export async function compactConversation(
   messages: readonly CompactMessage[],
   opts: { readonly keepRecent?: number; readonly maxTokens?: number; readonly force?: boolean; readonly modelId?: string } = {},
 ): Promise<CompactResult> {
+  // no backend/model in the static build: compact locally with an extractive summary, stored on-device
+  if (isDemo()) return localCompact(messages, opts.keepRecent ?? 6);
   const r = await cfetch(API_BASE + "/api/agent/compact", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -504,11 +510,16 @@ export interface MemoryNode extends MemoryCard {
 }
 export type MemorySubchunk = { readonly label?: string; readonly summary: string; readonly messages: readonly { readonly role: string; readonly content: string }[] };
 
+// Memory works with NO backend (static GitHub Pages build): when in demo/offline mode, or if the
+// backend is unreachable, these fall back to a LocalStorage store on the device (see localMemory).
 export async function getMemoryIndex(session?: string): Promise<{ memories: readonly MemoryCard[]; versioned: boolean }> {
-  const q = session ? `?session=${encodeURIComponent(session)}` : "";
-  const r = await cfetch(API_BASE + "/api/memory/index" + q);
-  if (!r.ok) throw new Error(`memory index ${r.status}`);
-  return memoryIndexP(await r.json());
+  if (isDemo()) return localIndex(session);
+  try {
+    const q = session ? `?session=${encodeURIComponent(session)}` : "";
+    const r = await cfetch(API_BASE + "/api/memory/index" + q);
+    if (!r.ok) throw new Error(`memory index ${r.status}`);
+    return memoryIndexP(await r.json());
+  } catch { return localIndex(session); }
 }
 export type MemoryMatch = MemoryCard & { readonly score: number };
 export interface MemorySearchResult {
@@ -517,25 +528,35 @@ export interface MemorySearchResult {
 }
 // Relevance search over crystallized memories (semantic if an embedding backend is set, else lexical).
 export async function searchMemory(q: string, session?: string): Promise<MemorySearchResult> {
-  const s = session ? `&session=${encodeURIComponent(session)}` : "";
-  const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}${s}`);
-  if (!r.ok) throw new Error(`memory search ${r.status}`);
-  return memorySearchP(await r.json());
+  if (isDemo()) return localSearch(q, session);
+  try {
+    const s = session ? `&session=${encodeURIComponent(session)}` : "";
+    const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}${s}`);
+    if (!r.ok) throw new Error(`memory search ${r.status}`);
+    return memorySearchP(await r.json());
+  } catch { return localSearch(q, session); }
 }
 
 export async function getMemoryTree(session?: string): Promise<readonly MemoryTreeNode[]> {
-  const q = session ? `?session=${encodeURIComponent(session)}` : "";
-  const r = await cfetch(API_BASE + "/api/memory/tree" + q);
-  if (!r.ok) throw new Error(`memory tree ${r.status}`);
-  return memoryTreeP(await r.json()).tree;
+  if (isDemo()) return localTree(session);
+  try {
+    const q = session ? `?session=${encodeURIComponent(session)}` : "";
+    const r = await cfetch(API_BASE + "/api/memory/tree" + q);
+    if (!r.ok) throw new Error(`memory tree ${r.status}`);
+    return memoryTreeP(await r.json()).tree;
+  } catch { return localTree(session); }
 }
 export async function readMemory(key: string): Promise<MemoryNode> {
-  const r = await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}`);
-  if (r.status === 404) throw new Error(`no memory ${key}`);
-  if (!r.ok) throw new Error(`memory ${r.status}`);
-  return memoryNodeP(await r.json());
+  if (isDemo()) return localRead(key);
+  try {
+    const r = await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}`);
+    if (r.status === 404) throw new Error(`no memory ${key}`);
+    if (!r.ok) throw new Error(`memory ${r.status}`);
+    return memoryNodeP(await r.json());
+  } catch { return localRead(key); }
 }
 export async function consolidateMemory(keys: readonly string[], summary: string, label = ""): Promise<MemoryCard> {
+  if (isDemo()) return localConsolidate(keys, summary, label);
   const r = await cfetch(API_BASE + "/api/memory/consolidate", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ keys, summary, label }),
@@ -547,6 +568,11 @@ export async function consolidateMemory(keys: readonly string[], summary: string
 export async function recrystallizeMemory(
   key: string, opts: { subchunks?: readonly MemorySubchunk[]; chunks?: number; modelId?: string } = {},
 ): Promise<{ key: string; children: readonly string[]; kind: string; ref: string | null }> {
+  if (isDemo()) {
+    // no model in-browser: split the leaf's messages into `chunks` extractive parts
+    const subchunks = opts.subchunks ?? localReadForSplit(key, opts.chunks ?? 2);
+    return localRecrystallize(key, subchunks);
+  }
   const r = await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}/recrystallize`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

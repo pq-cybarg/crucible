@@ -916,3 +916,45 @@ body::after {
   color: var(--amber-bright); margin-right: 8px; }
 label.pipe-comp { cursor: pointer; }
 label.pipe-comp input { margin-right: 4px; }
+
+/* ===================== Responsive / mobile ================================= */
+/* Tablet + phone: the vertical instrument rail becomes a horizontal bottom bar, grids collapse to
+   a single column, data tables scroll horizontally, and control rows wrap so nothing overflows. */
+@media (max-width: 820px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; grid-template-areas: "bar" "main" "rail"; }
+  .bar { flex-wrap: wrap; gap: 8px 16px; padding: 8px 14px; }
+  .telemetry { gap: 12px; margin-left: auto; flex-wrap: wrap; }
+  .rail { flex-direction: row; align-items: center; justify-content: flex-start; overflow-x: auto;
+    border-right: none; border-top: 1px solid var(--line); padding: 6px 8px; gap: 4px; }
+  .brand { display: none; }
+  .tab { width: auto; min-width: 54px; flex: 0 0 auto; padding: 6px 9px 5px; }
+  .tab .lbl { font-size: 9px; }
+  .panel { padding: 18px 16px; }
+  .panel-head h1 { font-size: 23px; }
+  .w-summary, .media-grid, .modality-grid, .byo-grid { grid-template-columns: 1fr; }
+  .suite-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .grid-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .msg { max-width: 92%; }
+  .abl-controls, .pipe-row, .byo-controls, .mem-toolbar, .mem-search, .mem-consolidate,
+  .graph-presets, .graph-actions, .ctx-controls { flex-wrap: wrap; }
+  .fld { width: 100%; }
+  .fld select.in, .fld input.in { min-width: 0; width: 100%; }
+  .part-line { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .part-line .btn { margin-left: 0; }
+  .ctx-controls { margin-left: 0; }
+  .bubble.chunked { min-width: 96px; padding: 12px; }
+  .flow-col, .flow-col.mid { min-width: 0; }
+  .modality-grid { display: block; }
+  .modality-grid .fld { margin-bottom: 10px; }
+}
+/* Small phones: icons-only rail, tighter panels, full-width bubbles/messages. */
+@media (max-width: 480px) {
+  .panel { padding: 12px 11px; }
+  .panel-head h1 { font-size: 20px; }
+  .tab .lbl { display: none; }
+  .tab { min-width: 46px; padding: 7px 8px; }
+  .msg { max-width: 100%; }
+  .bubble-map { gap: 10px; }
+  .suite-grid { grid-template-columns: 1fr 1fr; }
+  .layer-journey { height: 26px; }
+}
