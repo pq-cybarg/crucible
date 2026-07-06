@@ -3,9 +3,9 @@ import {
   array, bool, literals, nullable, num, object, optional, record, ShapeError, str,
 } from "./validate";
 import {
-  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, mediaStatusP, memoryNodeP,
-  memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP, publishedPayloadP,
-  runtimeStatusP, verifyReportP, weightsViewP,
+  benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, lineageP, mediaStatusP,
+  memoryNodeP, memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP,
+  publishedPayloadP, runtimeStatusP, verifyReportP, weightsViewP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -232,6 +232,16 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     expect(r.method).toBe("lexical");
     expect(r.matches[0]?.score).toBe(2.3);
     expect(() => memorySearchP({ method: "semantic", matches: [{ key: "m", label: "a", summary: "s", kind: "leaf", session: "x", size: 1, ref: null }] })).toThrow(/score/);
+  });
+
+  it("lineageP parses per-part version chains", () => {
+    const l = lineageP({
+      branch: "main",
+      parts: [{ part: "language_model", n_versions: 2, latest: "c3",
+        commits: [{ id: "c1", op: "inplace", summary: "edit 1" }, { id: "c3", op: "inplace", summary: "edit 2" }] }],
+    });
+    expect(l.parts[0]?.part).toBe("language_model");
+    expect(l.parts[0]?.commits[1]?.id).toBe("c3");
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {

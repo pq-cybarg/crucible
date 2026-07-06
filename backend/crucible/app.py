@@ -2013,6 +2013,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                            f"revert {commit_id} ({len(deltas)} tensors restored)", {}, {})
         return {"reverted": commit_id, "restored_tensors": len(deltas), "commit": rc["id"]}
 
+    @app.get("/api/inference/lineage")
+    def edit_lineage() -> dict:
+        """Per-part version chains — each subsystem (vision/audio encoder, connector, language model,
+        moderation head) with its own independent edit history, so parts are versioned separately."""
+        return {"branch": ledger.branch_name, "parts": ledger.lineage()}
+
+    @app.post("/api/inference/revert-part/{part}")
+    def edit_revert_part(part: str) -> dict:
+        """Undo the LATEST edit to a single part, restoring only that part's tensors — the other
+        parts' edits are left intact (independent per-part revert)."""
+        if abliteration_adapter is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        commit = ledger.latest_for_part(part)
+        if commit is None:
+            raise HTTPException(status_code=404, detail=f"no edits to part '{part}'")
+        deltas = ledger.deltas_for_part(commit["id"], part)
+        for name, W in deltas.items():
+            abliteration_adapter.set_matrix(name, W)
+        rc = ledger.record("revert-part", {"part": part, "of": commit["id"]},
+                           f"revert {part} to before {commit['id']} ({len(deltas)} tensors)", {}, {})
+        return {"part": part, "reverted": commit["id"], "restored_tensors": len(deltas), "commit": rc["id"]}
+
     @app.post("/api/inference/branch")
     def edit_branch(body: dict) -> dict:
         return {"branch": ledger.set_branch(body.get("name", "main"))}

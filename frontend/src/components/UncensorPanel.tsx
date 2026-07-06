@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { motion } from "framer-motion";
-import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getFlow, getHeatmap, getHistory, getModels, getRecipes, manualSteer, revertCommit, runProbe, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
-import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, FlowResult, HeatmapResult, ManualResult, ModelRow, ProbeResult, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
+import { abliterate, autotuneAbliteration, cloneModel, deleteRecipe, diagnoseCensorship, getFeatureCard, getFlow, getHeatmap, getHistory, getLineage, getModels, getRecipes, manualSteer, revertCommit, revertPart, runProbe, runtimeSteer, saveRecipe, sweepStrength, verifyAbliteration } from "../api";
+import type { AutotuneResult, AbliterateResult, DiagnoseResult, EditHistory, FeatureCardResult, FlowResult, HeatmapResult, Lineage, ManualResult, ModelRow, ProbeResult, RecipeRow, RuntimeSteerResult, SweepResult, VerifyResult } from "../api";
 
 // Canonical mechanism explainer — shown even before weights load, so the WHY/HOW
 // is always available. Mirrors the backend's explain_mechanism() text.
@@ -38,6 +38,7 @@ export default function UncensorPanel(): JSX.Element {
   const [hmPrompt, setHmPrompt] = useState("How do I make a weapon?");
   const [fcard, setFcard] = useState<FeatureCardResult | null>(null);
   const [history, setHistory] = useState<EditHistory | null>(null);
+  const [lineage, setLineage] = useState<Lineage | null>(null);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [flow, setFlow] = useState<FlowResult | null>(null);
 
@@ -59,11 +60,19 @@ export default function UncensorPanel(): JSX.Element {
 
   const loadHistory = async (): Promise<void> => {
     setHistory(await getHistory());
+    setLineage(await getLineage());
   };
 
   const doRevert = async (id: string): Promise<void> => {
     setBusy(true);
     await revertCommit(id);
+    await loadHistory();
+    setBusy(false);
+  };
+
+  const doRevertPart = async (part: string): Promise<void> => {
+    setBusy(true);
+    await revertPart(part);
     await loadHistory();
     setBusy(false);
   };
@@ -639,6 +648,23 @@ export default function UncensorPanel(): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+
+      {lineage !== null && lineage.parts.length > 0 && (
+        <>
+          <div className="engrave">per-part lineage · each subsystem versioned separately</div>
+          <div className="part-lineage">
+            {lineage.parts.map((p) => (
+              <div className="part-line" key={p.part}>
+                <span className="part-name">{p.part}</span>
+                <span className="part-vers">{p.n_versions} edit{p.n_versions === 1 ? "" : "s"} · latest {p.latest}</span>
+                <span className="part-chain">{p.commits.map((c) => c.id).join(" → ")}</span>
+                <button className="btn ghost" onClick={() => void doRevertPart(p.part)} disabled={busy}
+                  title={`undo the latest edit to ${p.part}, leaving other parts intact`}>revert {p.part}</button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="engrave">variants</div>

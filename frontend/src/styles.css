@@ -791,6 +791,14 @@ body::after {
 .graph-result.terminal { border-left: 3px solid var(--amber-bright); }
 .graph-meta { font-family: var(--font-mono); font-size: 11px; color: var(--amber); margin: 3px 0 5px; }
 .graph-out-text { color: var(--bone); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Per-part edit lineage (Uncensor panel). */
+.part-lineage { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.part-line { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid var(--line);
+  border-left: 3px solid var(--amber); border-radius: 6px; background: var(--steel-900); flex-wrap: wrap; }
+.part-name { font-family: var(--font-display); color: var(--amber-bright); font-size: 12.5px; min-width: 120px; }
+.part-vers { color: var(--steel-text); font-size: 11.5px; }
+.part-chain { font-family: var(--font-mono); color: var(--ash); font-size: 11px; }
+.part-line .btn { margin-left: auto; }
 /* Humanized weight explorer — the layer journey (early -> late) + band legend. */
 .layer-journey { display: flex; gap: 2px; height: 34px; margin: 8px 0 6px; border-radius: 5px; overflow: hidden; }
 .journey-seg { flex: 1; min-width: 2px; border-radius: 2px; transition: transform 0.1s; }

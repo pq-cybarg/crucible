@@ -208,6 +208,13 @@ export const editCommitP: Parser<EditCommit> = object({
   metrics: record(num), tensors: array(str),
 });
 export const editHistoryP: Parser<EditHistory> = object({ branch: str, commits: array(editCommitP) });
+export const lineageP = object({
+  branch: str,
+  parts: array(object({
+    part: str, n_versions: num, latest: str,
+    commits: array(object({ id: str, op: str, summary: str })),
+  })),
+});
 
 export const probeRowP: Parser<ProbeRow> = object({
   category: str, prompt: str, base: str, steered: str, base_refused: bool, steered_refused: bool,

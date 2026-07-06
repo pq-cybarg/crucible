@@ -24,7 +24,7 @@ function withAuth(init?: RequestInit): RequestInit {
 import { demoRespond, isDemo } from "./demo";
 import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
-  diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
+  diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP, lineageP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
   compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
   memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
@@ -1198,6 +1198,27 @@ export async function getHistory(): Promise<EditHistory> {
 
 export async function revertCommit(id: string): Promise<boolean> {
   const r = await cfetch(`${API_BASE}/api/inference/revert/${encodeURIComponent(id)}`, { method: "POST" });
+  return r.ok;
+}
+
+// Per-part lineage: each model subsystem (encoder / connector / language / moderation) versioned
+// independently, so you can revert one part's edits without disturbing the others.
+export interface PartLineage {
+  readonly part: string;
+  readonly n_versions: number;
+  readonly latest: string;
+  readonly commits: readonly { readonly id: string; readonly op: string; readonly summary: string }[];
+}
+export interface Lineage { readonly branch: string; readonly parts: readonly PartLineage[] }
+
+export async function getLineage(): Promise<Lineage> {
+  const r = await cfetch(API_BASE + "/api/inference/lineage");
+  if (!r.ok) return { branch: "main", parts: [] };
+  return lineageP(await r.json());
+}
+
+export async function revertPart(part: string): Promise<boolean> {
+  const r = await cfetch(`${API_BASE}/api/inference/revert-part/${encodeURIComponent(part)}`, { method: "POST" });
   return r.ok;
 }
 

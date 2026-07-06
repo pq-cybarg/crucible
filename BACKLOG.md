@@ -107,7 +107,7 @@ Legend: [x] shipped · [~] partial/foundation laid · [ ] open
 - [x] Modality refusal directions (image/audio embedding space), not just text — modality.py contrastive direction on encoder embeddings, HELD-OUT (cross-validated) separability so the score is honest; /api/abliteration/modality-direction + Analysis-tab control (honest 503 when no embeddings/multimodal adapter)
 - [ ] Cross-modal connector re-alignment (let filtered concepts pass the projection)
 - [x] Moderation-head DETACH (disable a bolted-on classifier rather than cut a direction) — detach_part_gguf zeros the classifier tensors; /api/abliteration/detach
-- [ ] Per-part versioning + lineage (each part independently versionable/revertable)
+- [x] Per-part versioning + lineage (each part independently versionable/revertable) — edit ledger tags each commit with the part(s) it touched; lineage() gives per-part version chains; /api/inference/lineage + /revert-part/{part} (undo one part, leave others); Uncensor-tab per-part lineage view
 - [ ] Modality-specific in/out censorship diagnosis (refuses-to-describe-image, refuses-audio, etc.)
 
 ## Model intelligence / routing
