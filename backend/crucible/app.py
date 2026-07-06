@@ -66,6 +66,8 @@ class AgentRunRequest(BaseModel):
     auto_compact: bool = False
     context_limit: int = 4000
     keep_recent: int = 6
+    # Named hierarchy profile: per-layer worker + lighter communicator models for the spawn tree.
+    profile: str | None = None
 
 
 class SwarmRequest(BaseModel):
@@ -75,6 +77,7 @@ class SwarmRequest(BaseModel):
     # Let each swarm sub-agent recursively spawn its own sub-agents (full fractal tree).
     spawn_depth: int = 1
     spawn_total: int = 6
+    profile: str | None = None      # hierarchy profile (per-layer worker + communicator models)
 
 
 class CompactRequest(BaseModel):
@@ -440,6 +443,16 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     recipe_store = RecipeStore(settings.data_dir / "recipes.json")
     from crucible.memory import MemoryStore
     memory = MemoryStore(settings.data_dir / "memory")
+    from crucible.hierarchy import ProfileStore
+    hierarchy_store = ProfileStore(settings.data_dir / "hierarchy.json")
+
+    def _profile(name: str | None):
+        if not name:
+            return None
+        try:
+            return hierarchy_store.get(name)
+        except KeyError:
+            return None
     if abliteration_adapter is None:
         import os
         hf = os.environ.get("CRUCIBLE_HF_MODEL")
@@ -2120,23 +2133,46 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         AuditLog(settings.data_dir / "audit.jsonl").record("tool_invoke", {"name": name, "args": args})
         return res.model_dump()
 
-    def _attach_spawn(tools, active_model, max_depth: int, max_total: int, child_iters: int = 6):
-        """Give an agent a recursive spawn_agent tool: each call runs a fresh sub-agent (its own
-        tool loop + clean context) that itself carries a spawn tool one level deeper, until the
-        shared depth/total budget is spent. Sub-agents run autonomously. No-op if depth<=0."""
+    def _attach_spawn(tools, active_model, max_depth: int, max_total: int, child_iters: int = 6,
+                      profile=None):
+        """Give an agent a recursive spawn_agent tool: each call runs a fresh sub-agent (its own tool
+        loop + clean context) that itself carries a spawn tool one level deeper, until the shared
+        depth/total budget is spent. With a hierarchy PROFILE, each depth uses that layer's worker
+        model and its lighter COMMUNICATOR compresses the child's result before it climbs back up — so
+        a parent never processes raw deep-leaf text. Sub-agents run autonomously. No-op if depth<=0."""
         if max_depth <= 0 or max_total <= 0 or active_model is None:
             return
         from crucible.agent_react import hybrid_run
+        from crucible.hierarchy import relay
         from crucible.orchestrate import SpawnBudget, collect_final, make_spawn_tool
         sub_policy = PermissionPolicy(default="allow")
         sub_audit = AuditLog(settings.data_dir / "audit.jsonl")
 
+        def _worker(model_id):
+            if not model_id:
+                return active_model
+            try:
+                return _resolve_chat_model(AgentRunRequest(messages=[], model_id=model_id)) or active_model
+            except Exception:
+                return active_model
+
+        def _comm(model_id):
+            if not model_id:
+                return None
+            try:
+                return _make_solver(model_id)      # a bad/unknown communicator degrades to no-relay
+            except Exception:
+                return None
+
         def run_child(task: str, child_budget) -> str:
+            layer = profile.at(child_budget.depth) if profile else None
+            worker = _worker(layer.worker) if layer else active_model
+            communicator = _comm(layer.communicator) if layer else None
             child_tools = default_registry(root)
             child_tools.register(make_spawn_tool(run_child, child_budget))
-            events = hybrid_run(active_model, child_tools, [{"role": "user", "content": task}],
+            events = hybrid_run(worker, child_tools, [{"role": "user", "content": task}],
                                 sub_policy, sub_audit, max_iters=child_iters)
-            return collect_final(events)
+            return relay(collect_final(events), communicator)   # lighter model compresses on the way up
 
         tools.register(make_spawn_tool(run_child, SpawnBudget(max_depth=max_depth, max_total=max_total)))
 
@@ -2173,7 +2209,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
         policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
         tools = default_registry(root)
-        _attach_spawn(tools, active_model, req.spawn_depth, req.spawn_total)
+        _attach_spawn(tools, active_model, req.spawn_depth, req.spawn_total, profile=_profile(req.profile))
         audit = AuditLog(settings.data_dir / "audit.jsonl")
         # 'ask' tools pause the run and wait for the operator to approve/deny via /api/agent/approve
         def _make_approver(run_id):
@@ -2355,6 +2391,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=422, detail=str(e))
 
+    @app.get("/api/hierarchy/profiles")
+    def hierarchy_profiles() -> dict:
+        """Named agent-hierarchy profiles: per-layer worker + lighter communicator model pairs."""
+        return {"profiles": hierarchy_store.list()}
+
+    @app.post("/api/hierarchy/profiles", status_code=201)
+    def hierarchy_save(body: dict) -> dict:
+        """Create/update a profile: {name, layers:[{worker, communicator}, …]}."""
+        from crucible.hierarchy import HierarchyProfile
+        prof = HierarchyProfile.from_dict(body)
+        if not prof.name.strip():
+            raise HTTPException(status_code=422, detail="profile name is required")
+        return hierarchy_store.save(prof)
+
+    @app.delete("/api/hierarchy/profiles/{name}")
+    def hierarchy_delete(name: str) -> dict:
+        return {"deleted": hierarchy_store.delete(name)}
+
     @app.post("/api/agent/swarm")
     def agent_swarm(req: SwarmRequest) -> dict:
         """Swarm: delegate each task to its own sub-agent (a fresh tool loop) and merge the
@@ -2370,7 +2424,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
         def runner(task: str):
             task_tools = default_registry(root)
-            _attach_spawn(task_tools, model, req.spawn_depth, req.spawn_total)
+            _attach_spawn(task_tools, model, req.spawn_depth, req.spawn_total, profile=_profile(req.profile))
             return hybrid_run(model, task_tools, [{"role": "user", "content": task}], policy, audit,
                               max_iters=req.max_iters)
 
