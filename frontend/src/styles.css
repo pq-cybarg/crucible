@@ -958,3 +958,23 @@ label.pipe-comp input { margin-right: 4px; }
   .suite-grid { grid-template-columns: 1fr 1fr; }
   .layer-journey { height: 26px; }
 }
+
+/* Forge (agent console) on phones: give the CONVERSATION the room — shrink the tool/permission
+   chrome so a big args blob or tool output can't bury the chat. Args + output clamp (tap to grow). */
+@media (max-width: 820px) {
+  .thread { gap: 10px; }
+  .msg, .toolcard, .permcard { max-width: 100%; }
+  .msg .bubble { padding: 9px 11px; font-size: 13px; }
+  /* tool cards: compact head, output clamped + scrollable */
+  .toolcard .tc-head { padding: 6px 10px; }
+  .toolcard pre { max-height: 108px; padding: 8px 10px; font-size: 11px; }
+  /* permission cards: title on its own line, args clamped to 2 lines, thumb-sized full-width buttons */
+  .permcard { padding: 9px 11px; }
+  .perm-req { gap: 4px; }
+  .perm-name { font-size: 12px; }
+  .permcard code { display: block; width: 100%; font-size: 10.5px; max-height: 2.8em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-overflow: ellipsis; }
+  .perm-actions { margin-top: 8px; width: 100%; }
+  .perm-actions .btn { flex: 1; padding: 8px 0; font-size: 12px; }
+  .notice { font-size: 11.5px; padding: 8px 10px; }
+}
