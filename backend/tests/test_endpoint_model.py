@@ -141,6 +141,37 @@ def test_registry_label_model_auto_resolves_on_404(monkeypatch):
     assert m.model_name == "llama3.2:latest"                        # remembered for next call
 
 
+def test_stream_auto_resolves_on_404(monkeypatch):
+    # the forge streams; a 404 on the registry label must resolve the real tag and retry the STREAM.
+    posts = []
+
+    class _Stream:
+        def __init__(self, status, model): self.status_code = status; self.model = model
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("404", request=None, response=None)
+        def iter_lines(self):
+            return iter([f'data: {json.dumps({"choices": [{"delta": {"content": self.model}}]})}', "data: [DONE]"])
+
+    def fake_stream(method, url, json, headers, timeout):
+        posts.append(json["model"])
+        return _Stream(404 if json["model"] == "ollama-localhost-11434" else 200, json["model"])
+
+    class _Models:
+        def raise_for_status(self): pass
+        def json(self): return {"data": [{"id": "llama3.2:latest"}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+    monkeypatch.setattr(httpx, "get", lambda url, headers, timeout: _Models())
+    m = endpoint_model("http://localhost:11434", model_name="ollama-localhost-11434")
+    events = list(m.stream([{"role": "user", "content": "hey"}], []))
+    assert posts == ["ollama-localhost-11434", "llama3.2:latest"]
+    assert events[-1] == ("final", {"role": "assistant", "content": "llama3.2:latest"})
+
+
 def test_explicit_served_model_is_never_overridden(monkeypatch):
     posts = []
 
