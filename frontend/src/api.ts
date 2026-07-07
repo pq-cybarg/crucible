@@ -229,6 +229,32 @@ export async function getAgentSessionContext(id: string): Promise<readonly ChatM
   const b = await jbody(await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/context`), "context") as { messages: ChatMessage[] };
   return b.messages;
 }
+// Run a tab's agent in its working directory with its assembled (slotted) context; stream SSE events.
+export async function runAgentSession(id: string, message: string,
+                                     onEvent: (ev: { type: string; data: Record<string, unknown> }) => void,
+                                     signal?: AbortSignal): Promise<void> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/run`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message }),
+    ...(signal ? { signal } : {}),
+  });
+  if (!r.ok || !r.body) throw new Error(`run ${r.status}`);
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const p of parts) {
+      const line = p.trim();
+      if (!line.startsWith("data:")) continue;
+      try { onEvent(JSON.parse(line.slice(5)) as { type: string; data: Record<string, unknown> }); } catch { /* skip */ }
+    }
+  }
+}
+
 export async function attachSlot(id: string, kind: "memory" | "context", ref: string, label = ""): Promise<AgentSessionFull> {
   const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/slots`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, ref, label }) });
   return await jbody(r, "attach slot") as AgentSessionFull;

@@ -2470,6 +2470,78 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
+    @app.post("/api/agent-sessions/{sid}/run")
+    def agent_sessions_run(sid: str, body: dict):
+        """RUN this tab's agent: the tool-loop executes in the tab's working DIRECTORY, given its
+        assembled context (loaded memory/context slots + prior conversation) plus the new message. The
+        user turn is persisted immediately and the assistant reply is saved when the run ends — so the
+        tab keeps a real conversation. Streams SSE like the forge; permissions come from Preferences."""
+        try:
+            session = agent_sessions.get(sid)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+        message = str(body.get("message", "")).strip()
+        if not message:
+            raise HTTPException(status_code=422, detail="message required")
+        model = _resolve_chat_model(AgentRunRequest(messages=[], model_id=session.model_id))
+        if model is None:
+            raise HTTPException(status_code=503, detail="no model available - select a model or register an endpoint")
+
+        # assembled context (enabled slots ahead of the conversation) + the new user turn
+        convo = [*agent_sessions.assembled_context(sid, memory_text=_memory_text),
+                 {"role": "user", "content": message}]
+        # persist the user turn now (pure conversation — slots are re-assembled each run, not stored)
+        agent_sessions.update(sid, status="running",
+                              messages=[*session.messages, {"role": "user", "content": message}])
+
+        # tools rooted at the tab's working directory (absolute cwd honored; relative → under agent root)
+        cwd = Path(session.cwd or ".").expanduser()
+        tools_root = cwd if cwd.is_absolute() else (root / session.cwd if session.cwd else root)
+        tools = default_registry(tools_root)
+
+        from crucible.permissions import PathRule, PermissionPolicy
+        pp = prefs_store.get()["permissions"]
+        run_id = str(body.get("run_id") or f"{sid}-run")
+        import threading
+
+        def approver(call_id, name, args):
+            key = f"{run_id}:{call_id}"
+            ev = threading.Event()
+            _approvals[key] = {"event": ev, "decision": False}
+            got = ev.wait(timeout=300)
+            return bool(got and _approvals.pop(key, {}).get("decision", False))
+
+        policy = PermissionPolicy(default=pp["default"], modes=pp["modes"],
+                                  path_rules=[PathRule(glob=r["glob"], mode=r["mode"], tools=tuple(r.get("tools", [])))
+                                              for r in pp.get("path_rules", [])],
+                                  asker=None)
+        # only wire the interactive approver when something is in 'ask' (else run autonomously)
+        if pp["default"] == "ask" or "ask" in pp["modes"].values():
+            policy.asker = approver
+        audit = AuditLog(settings.data_dir / "audit.jsonl")
+        react = bool(body.get("react", False))
+        from crucible.agent_react import hybrid_run, react_run
+        runner = react_run if react else hybrid_run
+        events = runner(model, tools, convo, policy, audit, approver=approver)
+
+        def stream():
+            assistant = ""
+            try:
+                for event in events:
+                    if run_id in _cancels:
+                        yield f"data: {json.dumps({'type': 'error', 'data': {'reason': 'cancelled'}})}\n\n"
+                        break
+                    if event.type in ("assistant", "done") and event.data.get("content"):
+                        assistant = event.data["content"]
+                    yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
+            finally:
+                _cancels.discard(run_id)
+                cur = agent_sessions.get(sid).messages
+                agent_sessions.update(sid, status="idle",
+                                      messages=[*cur, {"role": "assistant", "content": assistant}] if assistant else cur)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
     def _make_embedder():
         """A texts->list[vector] embedder from the configured embedding backend (OpenAI /v1/embeddings),
         or None when none is set — in which case retrieval falls back to lexical BM25, labeled as such."""

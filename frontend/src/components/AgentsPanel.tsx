@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   attachSlot, createAgentSession, deleteAgentSession, detachSlot, getAgentSession,
-  getAgentSessionContext, getMemoryIndex, listAgentSessions, toggleSlot,
+  getAgentSessionContext, getMemoryIndex, listAgentSessions, runAgentSession, toggleSlot,
 } from "../api";
 import type { AgentSessionCard, AgentSessionFull, ChatMessage, MemoryCard } from "../api";
 import { getActiveModelId } from "../services";
@@ -18,6 +18,9 @@ export default function AgentsPanel(): JSX.Element {
   const [memories, setMemories] = useState<readonly MemoryCard[]>([]);
   const [context, setContext] = useState<readonly ChatMessage[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [running, setRunning] = useState(false);
+  const [live, setLive] = useState("");   // streaming assistant text for the active run
 
   const refreshList = useCallback(async (): Promise<void> => {
     try {
@@ -75,6 +78,21 @@ export default function AgentsPanel(): JSX.Element {
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "unload failed"); }
   }
 
+  async function runTab(): Promise<void> {
+    const msg = draft.trim();
+    if (!activeId || msg.length === 0 || running) return;
+    setDraft(""); setRunning(true); setLive(""); setErr(null);
+    let acc = "";
+    try {
+      await runAgentSession(activeId, msg, (ev) => {
+        if (ev.type === "assistant_delta") { acc += String(ev.data.delta ?? ""); setLive(acc); }
+        else if (ev.type === "assistant" || ev.type === "done") { acc = String(ev.data.content ?? acc); setLive(acc); }
+        else if (ev.type === "error") setErr(String(ev.data.reason ?? "run error"));
+      });
+    } catch (e: unknown) { setErr(e instanceof Error ? e.message : "run failed"); }
+    finally { setRunning(false); setLive(""); if (activeId) { await refreshActive(activeId); await refreshList(); } }
+  }
+
   const loadedRefs = useMemo(() => new Set((active?.slots ?? []).map((s) => `${s.kind}:${s.ref}`)), [active]);
   const otherSessions = sessions.filter((s) => s.id !== activeId);
 
@@ -128,7 +146,19 @@ export default function AgentsPanel(): JSX.Element {
               {context.map((m, i) => (
                 <div key={i} className="ctx-msg"><span className="mem-role">{m.role}</span>{m.content.slice(0, 400)}</div>
               ))}
+              {running && <div className="ctx-msg"><span className="mem-role">assistant</span>{live || "…"}</div>}
             </div>
+
+            <div className="agent-composer">
+              <input className="in" placeholder={`message the agent in ${active.cwd}…`} value={draft}
+                disabled={running}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void runTab(); }} />
+              <button className="btn" disabled={running || draft.trim().length === 0} onClick={() => void runTab()}>
+                {running ? "running…" : "run"}
+              </button>
+            </div>
+            <div className="hint" style={{ marginTop: 4 }}>runs the tool-loop in <code>{active.cwd}</code> with the loaded slots · permissions from Preferences</div>
           </div>
 
           <div className="agents-browse">
