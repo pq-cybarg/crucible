@@ -130,16 +130,13 @@ def parse_chat_response(data: dict) -> dict:
     return {"role": "assistant", "content": msg.get("content"), "tool_calls": msg.get("tool_calls") or []}
 
 
-def make_model(chat_url: str, token: str = ""):
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    def model(messages, tools):
-        payload = {"model": "crucible", "messages": messages, "max_tokens": 1024}
-        if tools:
-            payload["tools"] = tools
-        r = httpx.post(chat_url, json=payload, headers=headers, timeout=600)
-        r.raise_for_status()
-        return parse_chat_response(r.json())
-    return model
+def make_model(chat_url: str, token: str = "", served_model: str | None = None):
+    """The generation model for the local tool-loop. Uses EndpointModel so it inherits the same
+    robustness as the web: auto-resolve the served model on a 404, DROP the tools field on a
+    'does not support tools' 400 (so the loop degrades to the text protocol), and token streaming.
+    `served_model` pins the exact upstream tag (e.g. Ollama's 'qwen2.5-coder:7b')."""
+    from crucible.agent import endpoint_model
+    return endpoint_model(chat_url, token, served_model=served_model)
 
 
 def _ask(name: str, args: dict) -> bool:
@@ -147,11 +144,18 @@ def _ask(name: str, args: dict) -> bool:
 
 
 def _print_event(ev) -> str:
-    if ev.type == "assistant" and ev.data.get("content"):
-        print(f"\n{ev.data['content']}")
+    if ev.type == "assistant_delta":
+        print(ev.data.get("delta", ""), end="", flush=True)   # token streaming
+    elif ev.type == "assistant" and ev.data.get("content"):
+        if not ev.data.get("streamed"):                       # avoid re-printing streamed text
+            print(f"\n{ev.data['content']}")
+        else:
+            print()
         return ev.data["content"]
-    if ev.type == "tool_call":
-        print(f"  · {ev.data['name']}({json.dumps(ev.data['args'])[:80]})")
+    elif ev.type == "done" and ev.data.get("content"):
+        return ev.data["content"]
+    elif ev.type == "tool_call":
+        print(f"\n  · {ev.data['name']}({json.dumps(ev.data['args'])[:80]})")
     elif ev.type == "tool_result":
         print(f"    {'✓' if ev.data.get('ok') else '✗'} {(ev.data.get('output') or ev.data.get('error') or '')[:200]}")
     elif ev.type == "error":
@@ -166,20 +170,25 @@ def main(argv=None) -> int:
     ap.add_argument("--control", default=cfg["control"])
     ap.add_argument("--perm", default=cfg["perm"], choices=["allow", "ask", "deny"])
     ap.add_argument("--token", default=cfg.get("token", ""))
+    ap.add_argument("--model", default=cfg.get("model"), help="exact served model tag (e.g. qwen2.5-coder:7b)")
     ap.add_argument("--session", default=None, help="name a session to save/load in <project>/.crucible/sessions")
     ap.add_argument("-c", "--continue", dest="cont", action="store_true",
                     help="resume the most recent session in this project")
     ap.add_argument("--resume", nargs="?", const="__recent__", default=None,
                     help="resume a named session (or the most recent if no name given)")
-    ap.add_argument("--tui", action="store_true", help="launch the fullscreen agent-workbench TUI")
+    ap.add_argument("--tui", action="store_true", help="launch the fullscreen agent-workbench TUI (default when interactive)")
+    ap.add_argument("--repl", action="store_true", help="use the plain line REPL instead of the fullscreen TUI")
     ap.add_argument("prompt", nargs="*")
     a = ap.parse_args(argv)
 
-    # `crucible tui` or `crucible --tui` → the fullscreen multi-agent workbench (shares the backend
-    # with the web UI: same tabs, subagents, and loadable memory/context slots).
-    if a.tui or (a.prompt and a.prompt[0] == "tui"):
+    # `crucible` (interactively) launches the fullscreen TUI by default — the multi-agent workbench that
+    # shares the backend with the web UI (same tabs, subagents, loadable memory/context slots). It opens
+    # a tab for the current directory so you can start coding immediately. `--repl` keeps the plain line
+    # loop; a one-shot `crucible "do X"` still runs non-interactively.
+    import os
+    if a.tui or (a.prompt and a.prompt[0] == "tui") or (not a.prompt and not a.repl):
         from crucible.tui import run_tui
-        run_tui(a.control)
+        run_tui(a.control, cwd=os.getcwd())
         return 0
 
     # Resolve the session to resume: --resume <name> | --resume/-c (most recent) | --session <name>.
@@ -194,7 +203,7 @@ def main(argv=None) -> int:
     convo = load_session(sess) if (sess and session_path(sess).exists()) else []
 
     st = {"chat": a.endpoint.rstrip("/") + "/chat/completions", "endpoint": a.endpoint,
-          "control": a.control, "perm": a.perm,
+          "control": a.control, "perm": a.perm, "model": a.model,
           "convo": convo, "session": sess, "token": a.token}
     audit = AuditLog(home() / "cli-audit.jsonl")
     registry = default_registry(Path.cwd())
@@ -203,11 +212,15 @@ def main(argv=None) -> int:
         registry.register(_t)
 
     def run_turn(text: str) -> None:
+        # Use the UNIVERSAL hybrid loop (native tool-calls AND text ReAct) — the same one the web forge
+        # uses — so tools work with ANY model, not just ones with native function-calling. The old bare
+        # Agent loop only handled native tool_calls, so local models silently did no tool usage at all.
+        from crucible.agent_react import hybrid_run
         st["convo"].append({"role": "user", "content": text})
-        agent = Agent(make_model(st["chat"], st["token"]), registry,
-                      PermissionPolicy(default=st["perm"], asker=_ask), audit)
+        policy = PermissionPolicy(default=st["perm"])
+        approver = lambda cid, name, args: _ask(name, args)   # noqa: E731 — 'ask' tools prompt the operator
         final = ""
-        for ev in agent.run(st["convo"]):
+        for ev in hybrid_run(make_model(st["chat"], st["token"], st.get("model")), registry, st["convo"], policy, audit, approver=approver):
             got = _print_event(ev)
             if got:
                 final = got

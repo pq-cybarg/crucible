@@ -79,14 +79,16 @@ class CrucibleTUI(App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, control: str = "http://127.0.0.1:8400"):
+    def __init__(self, control: str = "http://127.0.0.1:8400", cwd: str = "."):
         super().__init__()
         self.client = Client(control)
         self.control = control
+        self.cwd = cwd
         self.active: Optional[str] = None
         self._sessions: list[dict] = []
         self._active_doc: dict = {}
         self._browse: list[dict] = []       # loadable items: {kind, ref, label}
+        self._bootstrapped = False          # auto-open a tab for cwd on first successful load
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -113,8 +115,16 @@ class CrucibleTUI(App):
     # --- data loading (threaded) ------------------------------------------------------------------
     @work(thread=True, exclusive=True)
     def refresh_all(self) -> None:
+        import os
         try:
             sessions = self.client.sessions()
+            # first launch in a real project → open a tab bound to this directory, ready to code
+            if not self._bootstrapped:
+                self._bootstrapped = True
+                if not any(s["cwd"] == self.cwd for s in sessions):
+                    card = self.client.create(os.path.basename(self.cwd.rstrip("/")) or "agent", self.cwd)
+                    self.active = card["id"]
+                    sessions = self.client.sessions()
             memories = self.client.memories()
         except httpx.HTTPError as e:
             self.call_from_thread(self._toast, f"backend offline: {e}")
@@ -277,5 +287,5 @@ class CrucibleTUI(App):
         self.refresh_all()
 
 
-def run_tui(control: str = "http://127.0.0.1:8400") -> None:
-    CrucibleTUI(control).run()
+def run_tui(control: str = "http://127.0.0.1:8400", cwd: str = ".") -> None:
+    CrucibleTUI(control, cwd=cwd).run()

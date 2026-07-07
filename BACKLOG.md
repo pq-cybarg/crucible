@@ -2,6 +2,29 @@
 
 Deferred / planned work, captured so nothing is lost.
 
+## Agent workbench & TUI (active — requested)
+- [x] Shared agent sessions backend (tabs, subagents, loadable memory/context slots, live-context assembly)
+- [x] Web "agents" tab (tabs, subagents, slot browser, live preview) + runnable tabs (run in the tab's cwd)
+- [x] Fullscreen TUI (Textual) over the same backend; default when `crucible` is run interactively; auto-opens a cwd tab
+- [x] CLI/TUI/tabs all use the universal hybrid loop (native + text-ReAct) so tools work with ANY model; arg-unwrap for models that wrap tool args under `input`
+- [ ] **Slash commands in the chat composer** (web + TUI): `/help /models /new /sub /close /load /slots /clear /where /compact …` — parity with Claude Code + OpenCode command sets
+- [ ] **Slash-command autocomplete** (dropdown of matching commands as you type `/`)
+- [ ] **`/models` picker with a browse-and-select model list** (like OpenCode) — set the active tab's model
+- [ ] Bring the web page's visual toolings into the TUI (weights/graph/memory views), tabs redesigned for a TUI layout
+- [ ] Tool-call **approval UI** inside agent tabs (web + TUI) — currently an `ask` with no in-tab approve just denies
+- [ ] Token-by-token streaming into a tab (the session-run path currently buffers the reply)
+- [ ] Web-forge session persistence (reuse the agent-sessions store so history survives reload)
+
+## Browser & media driving (requested — test-verified gaps)
+- [x] Verified: Crucible can build a web app agentically (write_file) and inspect a running app over HTTP (bash curl + web_fetch both reach a served localhost app)
+- [ ] **Browser-automation tool** (Playwright/CDP): navigate, click, type, screenshot the running app — true DOM driving like Claude Code / OpenCode (today only HTTP fetch)
+- [ ] **Snapshot processing**: page/screen snapshots as agent input (vision) + a snapshot tool
+- [ ] **Audio processing** end-to-end: wire a real transcribe backend (the transcribe tool exists but needs a media backend) + TTS out
+
+## Pull-in from OpenCode / OpenClaw (where OSS-licensed & design-compatible)
+- [ ] Evaluate + adapt: command palette / slash-command packs, model picker UX, session/checkpoint model, plan mode, permission prompts, LSP hooks
+- [ ] Keep license compatibility in mind; adapt patterns, don't copy incompatible code
+
 ## In progress
 - [x] Git-like edit version control (history / revert / branch) with per-tensor delta snapshots
 - [x] Clone-before-edit (pristine backup + active copy)

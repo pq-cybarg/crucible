@@ -130,11 +130,34 @@ def parse_react(text: str) -> dict:
     return {"kind": "final", "text": text.strip()}
 
 
+def _unwrap_args(args: dict) -> dict:
+    """Local models often WRAP the real tool arguments under a single 'input'/'arguments'/'parameters'
+    key — as a nested object or a JSON string — instead of passing them flat. Unwrap that so the tool
+    gets {path, content} rather than {input: '{"path":...}'}. Only unwraps when the inner value is (or
+    parses to) a dict, so a tool that legitimately takes a string 'input' is left untouched."""
+    if isinstance(args, dict) and len(args) == 1:
+        key = next(iter(args))
+        if key in ("input", "arguments", "args", "parameters"):
+            val = args[key]
+            if isinstance(val, str):
+                try:
+                    val = json.loads(val)
+                except json.JSONDecodeError:
+                    return args
+            if isinstance(val, dict):
+                return val
+    return args
+
+
 def _execute(tools: ToolRegistry, audit: AuditLog, name: str, args: dict) -> dict:
     """Run one tool (permission already decided). Returns an OpenAI-style result dict."""
     if name not in {t.name for t in tools.all()}:
         return {"ok": False, "output": "", "error": f"no such tool '{name}'"}
-    res = tools.get(name).run(**args).model_dump()
+    try:
+        res = tools.get(name).run(**_unwrap_args(args)).model_dump()
+    except TypeError as e:
+        # a bad-shaped call shouldn't crash the loop — feed it back so the model can retry
+        return {"ok": False, "output": "", "error": f"bad arguments for '{name}': {e}"}
     audit.record("tool_result", {"name": name, **res})
     return res
 
