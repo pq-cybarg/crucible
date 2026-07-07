@@ -17,7 +17,7 @@ Deferred / planned work, captured so nothing is lost.
 
 ## Browser & media driving (requested — test-verified gaps)
 - [x] Verified: Crucible can build a web app agentically (write_file) and inspect a running app over HTTP (bash curl + web_fetch both reach a served localhost app)
-- [ ] **Browser-automation tool** (Playwright/CDP): navigate, click, type, screenshot the running app — true DOM driving like Claude Code / OpenCode (today only HTTP fetch)
+- [x] **Browser-automation tool** — `browser` tool drives Brave (Playwright, executable_path, no browser download) on a dedicated thread with a persistent page: goto/click/fill/text/content/eval/screenshot/wait. Verified: clicked a live counter app and read the incremented DOM through the server. `CRUCIBLE_BROWSER_PATH` / `CRUCIBLE_BROWSER_HEADLESS` env overrides.
 - [ ] **Snapshot processing**: page/screen snapshots as agent input (vision) + a snapshot tool
 - [ ] **Audio processing** end-to-end: wire a real transcribe backend (the transcribe tool exists but needs a media backend) + TTS out
 

@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.6",
     "numpy>=1.26",
     "textual>=8",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
