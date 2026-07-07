@@ -38,6 +38,9 @@ export default function PreferencesPanel(): JSX.Element {
   })(); }, []);
 
   function patch(p: Partial<Preferences>): void { setPrefs((cur) => (cur ? { ...cur, ...p } : cur)); }
+  function patchLimits(p: Partial<Preferences["resource_limits"]>): void {
+    setPrefs((cur) => (cur ? { ...cur, resource_limits: { ...cur.resource_limits, ...p } } : cur));
+  }
   function patchPerms(p: Partial<Preferences["permissions"]>): void {
     setPrefs((cur) => (cur ? { ...cur, permissions: { ...cur.permissions, ...p } } : cur));
   }
@@ -70,6 +73,7 @@ export default function PreferencesPanel(): JSX.Element {
       <div className="hint">{err ?? "loading…"}</div></div>;
   }
   const perms = prefs.permissions;
+  const limits = prefs.resource_limits;
   const llmMetricChosen = prefs.default_metric === "llm";
 
   return (
@@ -178,6 +182,44 @@ export default function PreferencesPanel(): JSX.Element {
             </div>
           ))}
           <button className="btn ghost" onClick={addRule}>+ path rule</button>
+        </div>
+      </div>
+
+      {/* --- resource limits (stop big local models freezing the machine) ----------------------- */}
+      <div className="pref-section">
+        <div className="engrave">resource limits <span className="hint" style={{ margin: 0 }}>— for Ollama models, via its native API (trades RAM for compute time)</span></div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Big local models can freeze the machine by pinning all your RAM. Turn these up to just below
+          where it becomes a problem. The cost of a lower limit is longer compute time, which is fine.
+        </p>
+        <div className="pref-grid">
+          <label className="fld">context window (num_ctx)
+            <input className="in" type="number" min={0} step={512} value={limits.num_ctx}
+              onChange={(e) => patchLimits({ num_ctx: Math.max(0, Number(e.target.value)) })} />
+            <span className="hint" style={{ margin: 0 }}>KV-cache size — the big RAM lever. 0 = model default.</span>
+          </label>
+          <label className="fld">keep model loaded (keep_alive)
+            <select className="in" value={limits.keep_alive}
+              onChange={(e) => patchLimits({ keep_alive: e.target.value })}>
+              <option value="">default (5 min)</option>
+              <option value="0">unload immediately after each reply (frees RAM)</option>
+              <option value="30s">30 seconds</option>
+              <option value="2m">2 minutes</option>
+              <option value="10m">10 minutes</option>
+              <option value="-1">keep forever (fastest, most RAM)</option>
+            </select>
+            <span className="hint" style={{ margin: 0 }}>unloading between turns is the freeze fix.</span>
+          </label>
+          <label className="fld">max output tokens
+            <input className="in" type="number" min={0} step={128} value={limits.max_output_tokens}
+              onChange={(e) => patchLimits({ max_output_tokens: Math.max(0, Number(e.target.value)) })} />
+            <span className="hint" style={{ margin: 0 }}>caps generation length. 0 = uncapped.</span>
+          </label>
+          <label className="fld">GPU layers (num_gpu)
+            <input className="in" type="number" min={-1} step={1} value={limits.num_gpu}
+              onChange={(e) => patchLimits({ num_gpu: Math.max(-1, Number(e.target.value)) })} />
+            <span className="hint" style={{ margin: 0 }}>lower keeps more on CPU (slower, less VRAM). −1 = auto.</span>
+          </label>
         </div>
       </div>
 

@@ -25,12 +25,25 @@ def _default_permissions() -> dict:
     return {"default": "ask", "modes": {}, "path_rules": []}
 
 
+def _default_resource_limits() -> dict:
+    # Memory/compute caps applied to Ollama models via its NATIVE /api/chat (the OpenAI-compat endpoint
+    # ignores these). Trading RAM for time so big local models stop freezing the machine:
+    #   num_ctx           - context window = KV-cache size. The big RAM lever. 0 = model default.
+    #   keep_alive        - how long Ollama keeps the model resident after a reply ("0" = unload now and
+    #                       free the weights between turns; "5m", "-1" = forever). "" = default (5m).
+    #   max_output_tokens - cap generation length. 0 = uncapped.
+    #   num_gpu           - layers offloaded to GPU/Metal; lower keeps more on CPU (slower, less VRAM).
+    #                       -1 = auto.
+    return {"num_ctx": 0, "keep_alive": "", "max_output_tokens": 0, "num_gpu": -1}
+
+
 DEFAULTS: dict = {
     "default_sort": "recency",
     "balanced_recency_weight": 0.5,
     "default_metric": "bm25",
     "processing_model": None,
     "permissions": _default_permissions(),
+    "resource_limits": _default_resource_limits(),
 }
 
 
@@ -54,6 +67,32 @@ def _clean_permissions(data: dict) -> dict:
     return out
 
 
+def _clean_resource_limits(data: dict) -> dict:
+    out = _default_resource_limits()
+    if not isinstance(data, dict):
+        return out
+
+    def _int(key: str, lo: int) -> None:
+        try:
+            out[key] = max(lo, int(data.get(key, out[key])))
+        except (TypeError, ValueError):
+            pass
+
+    _int("num_ctx", 0)
+    _int("max_output_tokens", 0)
+    _int("num_gpu", -1)
+    ka = data.get("keep_alive", "")
+    out["keep_alive"] = str(ka).strip() if ka is not None else ""
+    return out
+
+
+def has_limits(rl: dict) -> bool:
+    """True if any resource limit is set away from its default — i.e. Crucible should route Ollama
+    through its native /api/chat to honor them instead of the (limit-ignoring) OpenAI endpoint."""
+    d = _default_resource_limits()
+    return bool(rl) and any(rl.get(k) != d[k] for k in d)
+
+
 def _clean(data: dict) -> dict:
     """Coerce/validate a raw dict onto DEFAULTS — unknown sorts/metrics/modes and out-of-range weights
     fall back rather than corrupting downstream ordering or leaking a permission."""
@@ -70,6 +109,7 @@ def _clean(data: dict) -> dict:
     pm = data.get("processing_model")
     out["processing_model"] = str(pm) if pm else None
     out["permissions"] = _clean_permissions(data.get("permissions", {}))
+    out["resource_limits"] = _clean_resource_limits(data.get("resource_limits", {}))
     return out
 
 

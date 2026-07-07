@@ -143,9 +143,12 @@ const _pathRuleP = object({ glob: str, mode: _permModeP, tools: array(str) });
 const _permissionsP = object({
   default: _permModeP, modes: record(_permModeP), path_rules: optional(array(_pathRuleP)),
 });
+const _resourceLimitsP = object({
+  num_ctx: num, keep_alive: str, max_output_tokens: num, num_gpu: num,
+});
 const _preferencesObjP = object({
   default_sort: str, balanced_recency_weight: num, default_metric: str,
-  processing_model: nullable(str), permissions: _permissionsP,
+  processing_model: nullable(str), permissions: _permissionsP, resource_limits: _resourceLimitsP,
 });
 export const preferencesResultP = object({
   preferences: _preferencesObjP, sorts: array(str), metrics: array(str),

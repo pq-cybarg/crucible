@@ -2079,6 +2079,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return {"role": "assistant", "content": adapter.generate_chat(messages, 256)}
         return m
 
+    def _chat_model_for(endpoint: str, token: str = "", model_name: str = "local",
+                        served_model: str | None = None):
+        """Build a chat model for a live endpoint. When resource limits are configured AND the endpoint
+        is Ollama, route through Ollama's native /api/chat (the only path that honors keep_alive/num_ctx
+        — the memory caps that stop big local models freezing the machine). Otherwise the OpenAI path."""
+        from crucible.agent import endpoint_model
+        rl = prefs_store.get().get("resource_limits", {})
+        from crucible.prefs import has_limits
+        if has_limits(rl):
+            from crucible.ollama_native import OllamaNativeModel, is_ollama, ollama_base
+            if is_ollama(ollama_base(endpoint)):
+                return OllamaNativeModel(
+                    endpoint, token=token, model_name=model_name, served_model=served_model,
+                    num_ctx=int(rl.get("num_ctx", 0)), keep_alive=str(rl.get("keep_alive", "")),
+                    max_output_tokens=int(rl.get("max_output_tokens", 0)), num_gpu=int(rl.get("num_gpu", -1)))
+        return endpoint_model(endpoint, token, model_name, served_model=served_model)
+
     def _resolve_chat_model(req: AgentRunRequest):
         """Resolve a chat model in priority order so 'chat with Crucible local' just works:
         per-request endpoint > per-request model_id > process model > env endpoint >
@@ -2086,14 +2103,14 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         import os
         from crucible.agent import endpoint_model
         if req.endpoint:
-            return endpoint_model(req.endpoint, req.endpoint_token, req.endpoint_model)
+            return _chat_model_for(req.endpoint, req.endpoint_token, req.endpoint_model)
         if req.model_id:
             try:
                 m = reg.get(req.model_id)
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"model '{req.model_id}' not in registry")
             if m.endpoint and _endpoint_alive(m.endpoint):
-                return endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model)
+                return _chat_model_for(m.endpoint, model_name=m.id, served_model=m.served_model)
             # endpoint missing/offline -> (re)launch a local GGUF file on demand
             if _is_gguf_file(m.path):
                 inst = runtime.ensure(m.id, m.path)
@@ -2102,7 +2119,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     runtime.stop(m.id)
                     raise HTTPException(status_code=502, detail=f"model {m.id} failed to start")
                 reg.set_endpoint(m.id, inst.endpoint)
-                return endpoint_model(inst.endpoint, model_name=m.id, served_model=m.served_model)
+                return _chat_model_for(inst.endpoint, model_name=m.id, served_model=m.served_model)
             if m.endpoint:
                 raise HTTPException(status_code=502,
                     detail=f"model {m.id} endpoint {m.endpoint} is offline and not a launchable local GGUF")
@@ -2117,7 +2134,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return endpoint_model(env_ep)
         for m in reg.list():
             if m.endpoint:
-                return endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model)
+                return _chat_model_for(m.endpoint, model_name=m.id, served_model=m.served_model)
         if abliteration_adapter is not None:
             return _adapter_chat_model(abliteration_adapter)
         return None

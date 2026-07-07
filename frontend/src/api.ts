@@ -601,18 +601,28 @@ export async function getMetrics(): Promise<MetricsCatalog> {
 
 // Organizational preferences: recall ordering + distance metric + the processing model + persisted
 // tool-permission defaults the forge applies to every run.
+// Memory/compute caps for Ollama models (applied via its native /api/chat). Trading RAM for time so
+// big local models stop freezing the machine. 0 / "" = model default (uncapped).
+export interface ResourceLimits {
+  readonly num_ctx: number;           // context window = KV-cache size (the big RAM lever)
+  readonly keep_alive: string;        // unload after ("0" = free RAM now, "5m", "-1" = forever)
+  readonly max_output_tokens: number; // cap generation length
+  readonly num_gpu: number;           // layers on GPU/Metal; lower keeps more on CPU (-1 = auto)
+}
 export interface Preferences {
   readonly default_sort: string;
   readonly balanced_recency_weight: number;
   readonly default_metric: string;
   readonly processing_model: string | null;
   readonly permissions: PermissionConfig;
+  readonly resource_limits: ResourceLimits;
 }
 export interface PreferencesResult { readonly preferences: Preferences; readonly sorts: readonly string[]; readonly metrics: readonly string[] }
 const PREFS_KEY = "crucible_preferences";
 const DEFAULT_PREFS: Preferences = {
   default_sort: "recency", balanced_recency_weight: 0.5, default_metric: "bm25",
   processing_model: null, permissions: { default: "ask", modes: {}, path_rules: [] },
+  resource_limits: { num_ctx: 0, keep_alive: "", max_output_tokens: 0, num_gpu: -1 },
 };
 export async function getPreferences(): Promise<PreferencesResult> {
   if (isDemo()) {

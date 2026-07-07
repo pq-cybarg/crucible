@@ -33,6 +33,19 @@ def test_partial_update_preserves_other_fields(tmp_path):
     assert out["processing_model"] == "tiny" and out["default_sort"] == "priority"
 
 
+def test_resource_limits_persist_and_validate(tmp_path):
+    from crucible.prefs import has_limits
+    store = PreferencesStore(tmp_path / "preferences.json")
+    assert store.get()["resource_limits"] == {"num_ctx": 0, "keep_alive": "", "max_output_tokens": 0, "num_gpu": -1}
+    assert has_limits(store.get()["resource_limits"]) is False       # all defaults → OpenAI path
+    out = store.save({"resource_limits": {"num_ctx": 4096, "keep_alive": "0",
+                                          "max_output_tokens": -5, "num_gpu": "bad"}})["resource_limits"]
+    assert out["num_ctx"] == 4096 and out["keep_alive"] == "0"
+    assert out["max_output_tokens"] == 0                              # clamped up from -5
+    assert out["num_gpu"] == -1                                       # invalid → default
+    assert has_limits(out) is True                                   # a real limit is set → native path
+
+
 def test_permission_defaults_persist_and_validate(tmp_path):
     store = PreferencesStore(tmp_path / "preferences.json")
     assert store.get()["permissions"] == {"default": "ask", "modes": {}, "path_rules": []}
