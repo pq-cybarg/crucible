@@ -116,7 +116,7 @@ def test_registry_label_model_auto_resolves_on_404(monkeypatch):
     posts = []
 
     class _Resp:
-        def __init__(self, status): self.status_code = status
+        def __init__(self, status): self.status_code = status; self.text = "model not found"
         def raise_for_status(self):
             if self.status_code >= 400:
                 raise AssertionError("should not raise after resolution")
@@ -146,9 +146,10 @@ def test_stream_auto_resolves_on_404(monkeypatch):
     posts = []
 
     class _Stream:
-        def __init__(self, status, model): self.status_code = status; self.model = model
+        def __init__(self, status, model): self.status_code = status; self.model = model; self.text = "model not found"
         def __enter__(self): return self
         def __exit__(self, *a): return False
+        def read(self): pass
         def raise_for_status(self):
             if self.status_code >= 400:
                 raise httpx.HTTPStatusError("404", request=None, response=None)
@@ -170,6 +171,35 @@ def test_stream_auto_resolves_on_404(monkeypatch):
     events = list(m.stream([{"role": "user", "content": "hey"}], []))
     assert posts == ["ollama-localhost-11434", "llama3.2:latest"]
     assert events[-1] == ("final", {"role": "assistant", "content": "llama3.2:latest"})
+
+
+def test_tools_unsupported_400_drops_tools_and_retries(monkeypatch):
+    # heretic-20b / gpt-oss reject the `tools` field with 400 "does not support tools". We drop tools
+    # and retry so the hybrid loop degrades to its TEXT tool protocol — the forge keeps working.
+    payloads = []
+
+    class _Resp:
+        def __init__(self, status): self.status_code = status
+        text = '{"error":{"message":"registry.ollama.ai/library/heretic-20b:latest does not support tools"}}'
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise AssertionError("should not raise after dropping tools")
+        def json(self): return {"choices": [{"message": {"content": "ok"}}]}
+
+    def fake_post(url, json, headers, timeout):
+        payloads.append(json)
+        return _Resp(400 if "tools" in json else 200)
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", fake_post)
+    m = endpoint_model("http://localhost:11434", served_model="heretic-20b:latest")
+    tools = [{"type": "function", "function": {"name": "bash"}}]
+    out = m([{"role": "user", "content": "hi"}], tools)
+    assert "tools" in payloads[0] and "tools" not in payloads[1]   # retried WITHOUT tools
+    assert out == {"role": "assistant", "content": "ok"}
+    assert m.supports_tools is False                               # remembered — next call skips tools
+    m([{"role": "user", "content": "again"}], tools)
+    assert "tools" not in payloads[2]
 
 
 def test_explicit_served_model_is_never_overridden(monkeypatch):

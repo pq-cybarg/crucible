@@ -86,6 +86,13 @@ def chat_client_model(client, extract: Callable[[dict], dict]):
     return model
 
 
+def _tools_unsupported(body: str) -> bool:
+    """Does this error body mean the model rejected the OpenAI `tools` field? (Ollama/llama.cpp say
+    'does not support tools'.) Used to drop tools and fall back to the text tool protocol."""
+    b = (body or "").lower()
+    return "does not support tools" in b or ("tool" in b and "support" in b and "not" in b)
+
+
 def extract_openai_message(body: dict) -> dict:
     """Map a standard OpenAI /v1/chat/completions response to an assistant message
     dict (content + optional tool_calls) — the shape the Agent loop consumes."""
@@ -164,6 +171,11 @@ class EndpointModel:
         self._explicit = served_model is not None
         self._resolved = served_model is not None
         self.max_tokens = max_tokens
+        # Many local models (gpt-oss, plain llama in Ollama) reject the OpenAI `tools` field with a
+        # 400 "does not support tools". When that happens we drop tools and retry, and remember it so
+        # later calls skip tools — the hybrid loop then degrades to its TEXT tool protocol (the tools
+        # are described in the system preamble), so the agent still works without native tool-calling.
+        self.supports_tools = True
 
     def _resolve_served_model(self) -> bool:
         """Ask the upstream what it actually serves (GET /v1/models) and adopt the first model.
@@ -184,36 +196,50 @@ class EndpointModel:
 
     def _payload(self, messages: list[dict], tools: list[dict], stream: bool) -> dict:
         p: dict = {"model": self.model_name, "messages": messages, "max_tokens": self.max_tokens}
-        if tools:
+        if tools and self.supports_tools:
             p["tools"] = tools
         if stream:
             p["stream"] = True
         return p
 
+    def _recover(self, status: int, body: str, tools: list[dict]) -> bool:
+        """After a failed request, mutate state so a retry can succeed. Returns True if a retry is
+        worth attempting: a 404 → auto-resolve the real served model; a tools-unsupported 400 → drop
+        the tools param (remembered). False means the error is genuine and should surface."""
+        if status == 404 and not self._explicit and self._resolve_served_model():
+            return True
+        if status == 400 and tools and self.supports_tools and _tools_unsupported(body):
+            self.supports_tools = False
+            return True
+        return False
+
     def __call__(self, messages: list[dict], tools: list[dict]) -> dict:
         import httpx
-        r = httpx.post(self.url, json=self._payload(messages, tools, False),
-                       headers=self.headers, timeout=600)
-        if r.status_code == 404 and not self._explicit and self._resolve_served_model():
+        for _ in range(3):    # initial + up to two recoveries (model-resolve, tools-drop)
             r = httpx.post(self.url, json=self._payload(messages, tools, False),
                            headers=self.headers, timeout=600)
-        r.raise_for_status()
+            if r.status_code >= 400 and self._recover(r.status_code, r.text, tools):
+                continue
+            r.raise_for_status()
+            return extract_openai_message(r.json())
+        r.raise_for_status()      # exhausted recoveries — surface the last error
         return extract_openai_message(r.json())
 
     def stream(self, messages: list[dict], tools: list[dict]) -> Iterator[tuple[str, object]]:
         import httpx
-        # httpx exposes the status BEFORE the body streams, so on a 404 (wrong/registry-label model
-        # tag) we resolve the real served model and retry once — the UI never sees a broken stream.
-        with httpx.stream("POST", self.url, json=self._payload(messages, tools, True),
-                          headers=self.headers, timeout=600) as r:
-            if r.status_code == 404 and not self._explicit and self._resolve_served_model():
-                with httpx.stream("POST", self.url, json=self._payload(messages, tools, True),
-                                  headers=self.headers, timeout=600) as r2:
-                    r2.raise_for_status()
-                    yield from parse_openai_stream(r2.iter_lines())
-                    return
-            r.raise_for_status()
-            yield from parse_openai_stream(r.iter_lines())
+        # httpx exposes the status BEFORE the body streams, so a fast-failing 404 (wrong model tag) or
+        # tools-unsupported 400 is caught and recovered before any tokens flow — the UI never sees a
+        # broken stream. Bounded retries: model-resolve, then tools-drop.
+        for _ in range(3):
+            with httpx.stream("POST", self.url, json=self._payload(messages, tools, True),
+                              headers=self.headers, timeout=600) as r:
+                if r.status_code >= 400:
+                    r.read()      # a streamed error body must be read before .text is available
+                    if self._recover(r.status_code, r.text, tools):
+                        continue
+                r.raise_for_status()
+                yield from parse_openai_stream(r.iter_lines())
+                return
 
 
 def endpoint_model(chat_url: str, token: str = "", model_name: str = "local",
