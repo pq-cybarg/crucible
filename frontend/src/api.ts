@@ -24,7 +24,7 @@ function withAuth(init?: RequestInit): RequestInit {
 import { demoRespond, isDemo } from "./demo";
 import {
   localCompact, localConsolidate, localGraph, localIndex, localLink, localReadForSplit, localRead,
-  localRecrystallize, localSearch, localSetPriority, localTree,
+  localRecrystallize, localSearch, localSetPriority, localTree, METRIC_LABELS, OFFLINE_METRICS,
 } from "./localMemory";
 import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
@@ -32,10 +32,15 @@ import {
   hierarchyProfileP, lineageP, profilesP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
   compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
-  memoryGraphP, memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
+  memoryGraphP, memoryNodeP, memorySearchP, memoryTreeP, metricsCatalogP, preferencesP2, preferencesResultP,
+  publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
   runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
   verifyReportP, weightsViewP,
 } from "./schemas";
+
+// Sort + metric name lists for the offline/preferences fallbacks (mirror the backend registries).
+export const SORT_NAMES = ["relevance", "priority", "size", "degree", "recency", "oldest", "label", "balanced"] as const;
+export const METRIC_NAMES = ["bm25", "jaccard", "dice", "overlap", "tfidf", "edit", "embedding", "llm"] as const;
 async function cfetch(input: string, init?: RequestInit): Promise<Response> {
   if (isDemo()) {
     const path = input.startsWith(API_BASE) ? input.slice(API_BASE.length) : input;
@@ -68,9 +73,18 @@ export interface ModelRow {
 
 export type ChatMessage = { readonly role: "user" | "assistant"; readonly content: string };
 
+// Path-scoped rule: allow/ask/deny a tool for specific files/directories (e.g. deny ~/.ssh/**).
+// Empty `tools` = every path-taking tool. Evaluated firewall-style, first match wins; deny is decisive.
+export interface PathRuleConfig {
+  readonly glob: string;
+  readonly mode: PermissionMode;
+  readonly tools: readonly string[];
+}
+
 export interface PermissionConfig {
   readonly default: PermissionMode;
   readonly modes: Readonly<Record<string, PermissionMode>>;
+  readonly path_rules?: readonly PathRuleConfig[];
 }
 
 export interface SystemPromptPreset {
@@ -164,6 +178,27 @@ export async function getModels(): Promise<readonly ModelRow[]> {
   const r = await cfetch(API_BASE + "/api/models");
   if (!r.ok) throw new Error(`GET /api/models -> ${r.status}`);
   return modelRowsP(await r.json());
+}
+
+// Canonical agent tool names — used to offer per-tool permission overrides. Fetched from the tool
+// catalog when a backend is reachable, else the built-in list (keeps the Preferences UI working offline).
+export const BUILTIN_TOOLS = [
+  "read_file", "write_file", "edit_file", "multi_edit", "list_dir", "glob", "grep", "bash",
+  "web_fetch", "web_search", "todo_write", "generate_image", "transcribe_audio",
+  "recall_memory", "crystallize_memory", "recrystallize_memory", "consolidate_memory",
+  "link_memory", "prioritize_memory",
+] as const;
+// Tools that take a filesystem path — path rules meaningfully apply to these.
+export const PATH_TOOLS = ["read_file", "write_file", "edit_file", "multi_edit", "list_dir", "glob", "grep", "bash"] as const;
+export async function getToolNames(): Promise<readonly string[]> {
+  if (isDemo()) return [...BUILTIN_TOOLS];
+  try {
+    const r = await cfetch(API_BASE + "/api/tools");
+    if (!r.ok) throw new Error(`tools ${r.status}`);
+    const body = await r.json() as { tools?: readonly { function?: { name?: string } }[] };
+    const names = (body.tools ?? []).map((t) => t.function?.name).filter((n): n is string => typeof n === "string");
+    return names.length ? names : [...BUILTIN_TOOLS];
+  } catch { return [...BUILTIN_TOOLS]; }
 }
 
 export async function getPresets(): Promise<readonly SystemPromptPreset[]> {
@@ -532,15 +567,79 @@ export interface MemorySearchResult {
   readonly method: string;                 // "semantic" | "lexical"
   readonly matches: readonly MemoryMatch[];
 }
-// Relevance search over crystallized memories (semantic if an embedding backend is set, else lexical).
-export async function searchMemory(q: string, session?: string, sort = "relevance"): Promise<MemorySearchResult> {
-  if (isDemo()) return localSearch(q, session, sort);
+// Relevance search over crystallized memories. `metric` selects the distance/similarity family
+// (statistical / lexical / embedding / llm-judged); the method is reported honestly by the backend.
+export async function searchMemory(q: string, session?: string, sort = "relevance", metric?: string): Promise<MemorySearchResult> {
+  if (isDemo()) return localSearch(q, session, sort, metric);
   try {
     const s = session ? `&session=${encodeURIComponent(session)}` : "";
-    const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}${s}`);
+    const m = metric ? `&metric=${encodeURIComponent(metric)}` : "";
+    const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}${s}${m}`);
     if (!r.ok) throw new Error(`memory search ${r.status}`);
     return memorySearchP(await r.json());
-  } catch { return localSearch(q, session, sort); }
+  } catch { return localSearch(q, session, sort, metric); }
+}
+
+// The distance/similarity families available for search + reorganization, each with its honest
+// method label and whether it can run right now (offline stats always; embedding/llm need backends).
+export interface MetricInfo { readonly name: string; readonly label: string; readonly available: boolean }
+export interface MetricsCatalog { readonly metrics: readonly MetricInfo[]; readonly processing_model: string | null }
+export async function getMetrics(): Promise<MetricsCatalog> {
+  if (isDemo()) {
+    return { metrics: OFFLINE_METRICS.map((n) => ({ name: n, label: METRIC_LABELS[n] ?? n, available: true }))
+      .concat([{ name: "embedding", label: "semantic-embedding", available: false },
+               { name: "llm", label: "llm-judged", available: false }]), processing_model: null };
+  }
+  try {
+    const r = await cfetch(API_BASE + "/api/metrics");
+    if (!r.ok) throw new Error(`metrics ${r.status}`);
+    return metricsCatalogP(await r.json());
+  } catch {
+    return { metrics: OFFLINE_METRICS.map((n) => ({ name: n, label: METRIC_LABELS[n] ?? n, available: true })), processing_model: null };
+  }
+}
+
+// Organizational preferences: recall ordering + distance metric + the processing model + persisted
+// tool-permission defaults the forge applies to every run.
+export interface Preferences {
+  readonly default_sort: string;
+  readonly balanced_recency_weight: number;
+  readonly default_metric: string;
+  readonly processing_model: string | null;
+  readonly permissions: PermissionConfig;
+}
+export interface PreferencesResult { readonly preferences: Preferences; readonly sorts: readonly string[]; readonly metrics: readonly string[] }
+const PREFS_KEY = "crucible_preferences";
+const DEFAULT_PREFS: Preferences = {
+  default_sort: "recency", balanced_recency_weight: 0.5, default_metric: "bm25",
+  processing_model: null, permissions: { default: "ask", modes: {}, path_rules: [] },
+};
+export async function getPreferences(): Promise<PreferencesResult> {
+  if (isDemo()) {
+    try { const raw = localStorage.getItem(PREFS_KEY); if (raw) return { preferences: { ...DEFAULT_PREFS, ...JSON.parse(raw) }, sorts: [...SORT_NAMES], metrics: [...METRIC_NAMES] }; } catch { /* ignore */ }
+    return { preferences: DEFAULT_PREFS, sorts: [...SORT_NAMES], metrics: [...METRIC_NAMES] };
+  }
+  try {
+    const r = await cfetch(API_BASE + "/api/preferences");
+    if (!r.ok) throw new Error(`preferences ${r.status}`);
+    return preferencesResultP(await r.json());
+  } catch {
+    return { preferences: DEFAULT_PREFS, sorts: [...SORT_NAMES], metrics: [...METRIC_NAMES] };
+  }
+}
+export async function savePreferences(body: Partial<Preferences>): Promise<Preferences> {
+  if (isDemo()) {
+    let cur = DEFAULT_PREFS;
+    try { const raw = localStorage.getItem(PREFS_KEY); if (raw) cur = { ...DEFAULT_PREFS, ...JSON.parse(raw) }; } catch { /* ignore */ }
+    const merged = { ...cur, ...body };
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(merged)); } catch { /* quota */ }
+    return merged;
+  }
+  const r = await cfetch(API_BASE + "/api/preferences", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`save preferences ${r.status}`);
+  return preferencesP2(await r.json()).preferences;
 }
 
 export interface MemoryEdge { readonly from: string; readonly to: string; readonly type: string; readonly kind: string }

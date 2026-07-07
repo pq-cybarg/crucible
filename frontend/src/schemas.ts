@@ -131,6 +131,26 @@ export const memorySearchP = object({
   })),
 });
 export const memoryTreeP = object({ tree: array(memoryTreeNodeP) });
+
+// distance/similarity catalog + organizational preferences (recall ordering, metric, processing
+// model, and persisted tool-permission defaults).
+export const metricsCatalogP = object({
+  metrics: array(object({ name: str, label: str, available: bool })),
+  processing_model: nullable(str),
+});
+const _permModeP = literals("allow", "ask", "deny");
+const _pathRuleP = object({ glob: str, mode: _permModeP, tools: array(str) });
+const _permissionsP = object({
+  default: _permModeP, modes: record(_permModeP), path_rules: optional(array(_pathRuleP)),
+});
+const _preferencesObjP = object({
+  default_sort: str, balanced_recency_weight: num, default_metric: str,
+  processing_model: nullable(str), permissions: _permissionsP,
+});
+export const preferencesResultP = object({
+  preferences: _preferencesObjP, sorts: array(str), metrics: array(str),
+});
+export const preferencesP2 = object({ preferences: _preferencesObjP });
 export const recrystallizeResultP = object({
   key: str, children: array(str), kind: str, ref: nullable(str),
 });

@@ -52,6 +52,21 @@ describe("localMemory (on-device crystallized memory)", () => {
     expect(localSearch("xylophone").matches).toEqual([]);
   });
 
+  it("offline distance metrics score + label honestly (parity with the server)", () => {
+    localCrystallize(msgs(2), "abliteration removes the refusal direction", "a");
+    localCrystallize(msgs(2), "quantization compresses weights", "b");
+    // an explicit statistical metric reports its honest label and ranks the related memory first
+    for (const metric of ["jaccard", "dice", "overlap", "tfidf", "edit"]) {
+      const res = localSearch("refusal direction", undefined, "relevance", metric);
+      expect(res.method).toBe(`statistical-${metric === "tfidf" ? "tfidf-cosine" : metric === "edit" ? "edit-distance" : metric}`);
+      expect(res.matches[0]?.key).toBe("m-0001");
+    }
+    // backend-only metrics can't run in-browser → fall back to bm25, still honestly labeled
+    expect(localSearch("refusal", undefined, "relevance", "embedding").method).toBe("lexical-bm25");
+    // no explicit metric keeps the plain "lexical" method (server-default parity)
+    expect(localSearch("refusal", undefined, "relevance").method).toBe("lexical");
+  });
+
   it("recrystallize splits a leaf into chunked children", () => {
     localCrystallize(msgs(10), "the whole thing");
     const chunks = localReadForSplit("m-0001", 2);

@@ -3,8 +3,8 @@ import { useCallbackRef } from "../useCallbackRef";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { approveAgent, cancelAgent, compactConversation, getProfiles, runAgent } from "../api";
-import type { AgentEvent, ChatMessage, CompactMessage, HierarchyProfile, PermissionMode } from "../api";
+import { approveAgent, cancelAgent, compactConversation, getPreferences, getProfiles, runAgent } from "../api";
+import type { AgentEvent, ChatMessage, CompactMessage, HierarchyProfile, PathRuleConfig, PermissionMode } from "../api";
 
 // heuristic client-side token estimate (chars/4), mirrors the backend meter — for the UI only.
 const CONTEXT_LIMIT = 4000;
@@ -96,7 +96,16 @@ export default function AgentConsole(): JSX.Element {
   const [compacting, setCompacting] = useState(false);
   const [profile, setProfile] = useState("");
   const [profiles, setProfiles] = useState<readonly HierarchyProfile[]>([]);
+  // Tool-permission defaults come from the Preferences panel: seed the per-tool modes + path rules,
+  // and adopt the saved default mode so the forge honors what the user configured centrally.
+  const [permModes, setPermModes] = useState<Readonly<Record<string, PermissionMode>>>({});
+  const [pathRules, setPathRules] = useState<readonly PathRuleConfig[]>([]);
   useEffect(() => { getProfiles().then(setProfiles).catch(() => undefined); }, []);
+  useEffect(() => { void getPreferences().then((p) => {
+    setPerm(p.preferences.permissions.default);
+    setPermModes(p.preferences.permissions.modes);
+    setPathRules(p.preferences.permissions.path_rules ?? []);
+  }).catch(() => undefined); }, []);
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -287,7 +296,7 @@ export default function AgentConsole(): JSX.Element {
 
     const status = await runAgent({
       messages,
-      permissions: { default: perm, modes: {} },
+      permissions: { default: perm, modes: permModes, path_rules: pathRules },
       onEvent: (event) => {
         if (event.type === "assistant_delta") countToken();
         setTurns((prev) => reduce(prev, event, nextId));

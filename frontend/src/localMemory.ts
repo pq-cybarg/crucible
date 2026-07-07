@@ -71,8 +71,78 @@ function sortCards<T extends { key: string; label?: string; size?: number; prior
   return [...items].sort((a, b) => { const av = fn(a), bv = fn(b); const c = av < bv ? -1 : av > bv ? 1 : 0; return desc ? -c : c; });
 }
 
-// --- BM25 lexical scoring (mirrors backend rag.py) -----------------------------------------
+// --- distance/similarity metrics (mirror backend crucible.metrics — the OFFLINE families only) ------
+// The statistical + lexical families run fully in-browser; embedding (needs an embed backend) and
+// llm-judged (needs a processing model) are backend-only and reported as unavailable here.
+export const OFFLINE_METRICS = ["bm25", "jaccard", "dice", "overlap", "tfidf", "edit"] as const;
+export const METRIC_LABELS: Record<string, string> = {
+  bm25: "lexical-bm25", jaccard: "statistical-jaccard", dice: "statistical-dice",
+  overlap: "statistical-overlap", tfidf: "statistical-tfidf-cosine", edit: "statistical-edit-distance",
+  embedding: "semantic-embedding", llm: "llm-judged",
+};
 function tokenize(t: string): string[] { return (t.toLowerCase().match(/[a-z0-9]+/g) ?? []); }
+function tset(t: string): Set<string> { return new Set(tokenize(t)); }
+function inter(a: Set<string>, b: Set<string>): number { let n = 0; for (const x of a) if (b.has(x)) n++; return n; }
+
+function jaccard(q: string, docs: string[]): number[] {
+  const qs = tset(q);
+  return docs.map((d) => { const ds = tset(d); const u = new Set([...qs, ...ds]).size; return u ? inter(qs, ds) / u : 0; });
+}
+function dice(q: string, docs: string[]): number[] {
+  const qs = tset(q);
+  return docs.map((d) => { const ds = tset(d); const s = qs.size + ds.size; return s ? (2 * inter(qs, ds)) / s : 0; });
+}
+function overlap(q: string, docs: string[]): number[] {
+  const qs = tset(q);
+  return docs.map((d) => { const ds = tset(d); const m = Math.min(qs.size, ds.size); return m ? inter(qs, ds) / m : 0; });
+}
+function tfidfCosine(q: string, docs: string[]): number[] {
+  const toks = docs.map(tokenize); const n = docs.length || 1;
+  const df = new Map<string, number>();
+  for (const t of toks) for (const w of new Set(t)) df.set(w, (df.get(w) ?? 0) + 1);
+  const idf = (w: string): number => Math.log((1 + n) / (1 + (df.get(w) ?? 0))) + 1;
+  const vec = (t: string[]): Map<string, number> => {
+    const tf = new Map<string, number>(); for (const w of t) tf.set(w, (tf.get(w) ?? 0) + 1);
+    const v = new Map<string, number>(); for (const [w, f] of tf) v.set(w, f * idf(w)); return v;
+  };
+  const cos = (a: Map<string, number>, b: Map<string, number>): number => {
+    if (!a.size || !b.size) return 0;
+    let dot = 0; for (const [w, x] of a) dot += x * (b.get(w) ?? 0);
+    const na = Math.sqrt([...a.values()].reduce((s, x) => s + x * x, 0));
+    const nb = Math.sqrt([...b.values()].reduce((s, x) => s + x * x, 0));
+    return na && nb ? dot / (na * nb) : 0;
+  };
+  const qv = vec(tokenize(q));
+  return toks.map((t) => cos(qv, vec(t)));
+}
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0; if (!a) return b.length; if (!b) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+function editSim(q: string, docs: string[]): number[] {
+  const ql = q.toLowerCase();
+  return docs.map((d) => { const t = d.toLowerCase(); const m = Math.max(ql.length, t.length); return m ? 1 - levenshtein(ql, t) / m : 1; });
+}
+function minmax(vs: number[]): number[] {
+  if (!vs.length) return []; const lo = Math.min(...vs), hi = Math.max(...vs); const span = hi - lo;
+  return span <= 0 ? vs.map(() => 0) : vs.map((v) => (v - lo) / span);
+}
+// Score docs by the named offline metric, normalized to [0,1]. Unknown/backend-only metrics fall
+// back to BM25 (honestly — the caller reports the actual method used).
+function metricScores(query: string, docs: string[], metric: string): { method: string; scores: number[] } {
+  const fn: Record<string, (q: string, d: string[]) => number[]> = {
+    bm25, jaccard, dice, overlap, tfidf: tfidfCosine, edit: editSim,
+  };
+  const chosen = fn[metric] ? metric : "bm25";
+  return { method: METRIC_LABELS[chosen]!, scores: minmax(fn[chosen]!(query, docs)) };
+}
+
 function bm25(query: string, docs: string[], k1 = 1.5, b = 0.75): number[] {
   const toks = docs.map(tokenize);
   const N = docs.length || 1;
@@ -135,18 +205,23 @@ export function localRead(key: string): MemoryNode {
   return { ...base, messages: n.messages ?? [] };
 }
 
-export function localSearch(query: string, session?: string, sort = "relevance"): MemorySearchResult {
+export function localSearch(query: string, session?: string, sort = "relevance", metric?: string): MemorySearchResult {
   const db = load();
   const cards = Object.values(db.nodes)
     .filter((n) => session === undefined || n.session === session)
     .map((n) => ({ n, c: card(n) }));
-  if (cards.length === 0) return { method: "lexical", matches: [] };
-  const scores = bm25(query, cards.map(({ c }) => `${c.label} ${c.summary}`));
+  // embedding/llm metrics can't run in-browser — fall back to bm25. With no explicit metric we report
+  // the plain "lexical" method (parity with the server default); an explicit metric gets its honest label.
+  const useMetric = metric && (OFFLINE_METRICS as readonly string[]).includes(metric) ? metric : "bm25";
+  const label = metric ? (METRIC_LABELS[useMetric] ?? "lexical-bm25") : "lexical";
+  if (cards.length === 0) return { method: label, matches: [] };
+  const { scores } = metricScores(query, cards.map(({ c }) => `${c.label} ${c.summary}`), useMetric);
+  const method = label;
   let matches: MemoryMatch[] = cards
     .map(({ c }, i) => ({ ...c, score: Math.round(scores[i]! * 1e4) / 1e4 }))
     .filter((m) => m.score > 0);
   matches = (sort === "relevance" ? matches.sort((a, b) => b.score - a.score) : sortCards(matches, sort)).slice(0, 5);
-  return { method: "lexical", matches };
+  return { method, matches };
 }
 
 // DAG parity: priority + typed cross-links + a graph view, matching the server store.

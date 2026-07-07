@@ -16,17 +16,47 @@ from pathlib import Path
 from crucible.metrics import METRICS
 from crucible.sorting import SORTS
 
+_MODES = ("allow", "ask", "deny")
+
+
+def _default_permissions() -> dict:
+    # Persisted tool-permission DEFAULTS the forge applies to every run: a global default mode,
+    # per-tool overrides, and path-scoped rules (limited-permission directories/files).
+    return {"default": "ask", "modes": {}, "path_rules": []}
+
+
 DEFAULTS: dict = {
     "default_sort": "recency",
     "balanced_recency_weight": 0.5,
     "default_metric": "bm25",
     "processing_model": None,
+    "permissions": _default_permissions(),
 }
 
 
+def _clean_permissions(data: dict) -> dict:
+    out = _default_permissions()
+    if isinstance(data, dict):
+        if data.get("default") in _MODES:
+            out["default"] = data["default"]
+        modes = data.get("modes")
+        if isinstance(modes, dict):
+            out["modes"] = {str(k): v for k, v in modes.items() if v in _MODES}
+        rules = data.get("path_rules")
+        if isinstance(rules, list):
+            clean = []
+            for r in rules:
+                if isinstance(r, dict) and str(r.get("glob", "")).strip() and r.get("mode", "deny") in _MODES:
+                    tools = r.get("tools") or []
+                    clean.append({"glob": str(r["glob"]).strip(), "mode": r.get("mode", "deny"),
+                                  "tools": [str(t) for t in tools if str(t).strip()]})
+            out["path_rules"] = clean
+    return out
+
+
 def _clean(data: dict) -> dict:
-    """Coerce/validate a raw dict onto DEFAULTS — unknown sorts/metrics and out-of-range weights fall
-    back rather than corrupting downstream ordering."""
+    """Coerce/validate a raw dict onto DEFAULTS — unknown sorts/metrics/modes and out-of-range weights
+    fall back rather than corrupting downstream ordering or leaking a permission."""
     out = dict(DEFAULTS)
     if data.get("default_sort") in SORTS:
         out["default_sort"] = data["default_sort"]
@@ -39,6 +69,7 @@ def _clean(data: dict) -> dict:
         pass
     pm = data.get("processing_model")
     out["processing_model"] = str(pm) if pm else None
+    out["permissions"] = _clean_permissions(data.get("permissions", {}))
     return out
 
 

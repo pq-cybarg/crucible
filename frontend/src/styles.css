@@ -238,7 +238,7 @@ body::after {
   align-self: flex-start;
 }
 .toolcard .tc-head {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-width: 0;
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid var(--line);
@@ -263,7 +263,7 @@ body::after {
   background: var(--graphite);
   padding: 14px 34px 18px;
 }
-.composer .row { display: flex; gap: 12px; align-items: flex-end; }
+.composer .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .composer textarea {
   flex: 1; resize: none; min-height: 46px; max-height: 180px;
   background: var(--steel-900); color: var(--bone);
@@ -288,10 +288,10 @@ body::after {
 }
 .btn.ghost:hover { color: var(--bone); border-color: var(--amber); }
 .composer .perm {
-  display: flex; gap: 8px; align-items: center; margin-top: 10px;
+  display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap;
   font-size: 10.5px; color: var(--ash); letter-spacing: 0.05em;
 }
-.seg { display: inline-flex; border: 1px solid var(--line-bright); border-radius: 3px; overflow: hidden; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line-bright); border-radius: 3px; overflow: hidden; }
 .seg button {
   background: none; border: none; color: var(--ash); cursor: pointer;
   font-family: var(--font-display); font-size: 10px; letter-spacing: 0.12em;
@@ -740,7 +740,7 @@ body::after {
 .permcard { background: rgba(255, 106, 26, 0.06); border: 1px solid var(--amber-dim); border-radius: 6px; padding: 11px 13px; }
 .perm-req { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .perm-name { font-family: var(--font-display); font-size: 12.5px; color: var(--bone); }
-.perm-actions { display: flex; gap: 8px; margin-top: 9px; }
+.perm-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
 .perm-yes { background: var(--flux-dim); border-color: var(--flux); color: var(--bone); font-size: 11px; padding: 4px 14px; }
 .perm-no { background: var(--steel-800); border-color: var(--ember); color: var(--ember); font-size: 11px; padding: 4px 14px; }
 .perm-done { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px; display: inline-block; }
@@ -775,7 +775,7 @@ body::after {
 .graph-stages { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
 .graph-stage { border: 1px solid var(--line); border-left: 3px solid var(--amber); border-radius: 7px;
   padding: 11px 13px; background: var(--steel-900); display: flex; flex-direction: column; gap: 8px; }
-.graph-stage-head { display: flex; align-items: center; gap: 10px; }
+.graph-stage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .graph-id { font-family: var(--font-mono); color: var(--amber-bright); font-size: 12px; }
 .graph-del { margin-left: auto; background: transparent; border: none; color: var(--ash); cursor: pointer; font-size: 13px; }
 .graph-del:hover { color: var(--danger, #e06c6c); }
@@ -803,7 +803,7 @@ body::after {
 .hier-del { background: none; border: none; color: var(--ash); cursor: pointer; font-size: 12px; }
 .hier-del:hover { color: var(--ember); }
 .hier-layers-edit { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
-.hier-layer { display: flex; align-items: flex-end; gap: 10px; padding: 8px 10px; border: 1px solid var(--line);
+.hier-layer { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line);
   border-left: 3px solid var(--amber); border-radius: 6px; background: var(--steel-900); }
 .hier-depth { font-family: var(--font-mono); color: var(--amber-bright); font-size: 12px; padding-bottom: 8px; }
 .hier-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
@@ -867,7 +867,8 @@ body::after {
 .mem-prio-ctl { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--amber-bright); }
 .mem-prio-ctl button { background: var(--steel-800); border: 1px solid var(--line-bright); color: var(--bone); border-radius: 3px; width: 20px; height: 20px; cursor: pointer; line-height: 1; }
 .mem-prio-ctl button:hover { border-color: var(--amber); }
-.mem-search { display: flex; gap: 8px; margin-bottom: 14px; }
+.mem-search { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.mem-search .in { flex: 1 1 200px; min-width: 0; }
 .mem-search .in { flex: 1; }
 .mem-search-results { margin-bottom: 16px; border: 1px solid var(--line); border-left: 3px solid var(--amber-bright);
   border-radius: 7px; padding: 8px 12px; background: var(--steel-900); }
@@ -940,6 +941,28 @@ body::after {
   color: var(--amber-bright); margin-right: 8px; }
 label.pipe-comp { cursor: pointer; }
 label.pipe-comp input { margin-right: 4px; }
+
+/* ===================== Preferences panel =================================== */
+.pref-section { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;
+  background: var(--steel-900); }
+.pref-section > .engrave { margin-bottom: 10px; }
+.pref-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.pref-weight { max-width: 460px; margin-top: 10px; }
+.pref-weight input[type="range"] { accent-color: var(--amber); width: 100%; }
+.pref-tools { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.pref-tool { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between;
+  padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--steel-800); }
+.pref-tool code { font-size: 11.5px; }
+.pref-rules { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.pref-rule { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px;
+  border: 1px solid var(--line); border-left: 3px solid var(--ember); border-radius: 6px; background: var(--steel-800); }
+.pref-rule .in { flex: 1 1 200px; min-width: 0; }
+.pref-rule-tools { flex: 0 1 200px; min-width: 120px; max-width: 220px; height: 64px; }
+.pref-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Global overflow safety: long inline code / args must never blow out a flex row — wrap anywhere and
+   let the flex child shrink. Applies broadly so any card degrades gracefully at high zoom. */
+.mem-summary, .toolcard code, .permcard code, .tc-args, .gedge, .pref-tool code { overflow-wrap: anywhere; min-width: 0; }
 
 /* ===================== Responsive / mobile ================================= */
 /* Tablet + phone: the vertical instrument rail becomes a horizontal bottom bar, grids collapse to

@@ -31,3 +31,20 @@ def test_partial_update_preserves_other_fields(tmp_path):
     store.save({"default_sort": "priority"})
     out = store.get()
     assert out["processing_model"] == "tiny" and out["default_sort"] == "priority"
+
+
+def test_permission_defaults_persist_and_validate(tmp_path):
+    store = PreferencesStore(tmp_path / "preferences.json")
+    assert store.get()["permissions"] == {"default": "ask", "modes": {}, "path_rules": []}
+    out = store.save({"permissions": {
+        "default": "allow",
+        "modes": {"bash": "deny", "read_file": "vibes"},          # invalid mode dropped
+        "path_rules": [
+            {"glob": "~/.ssh/**", "mode": "deny", "tools": ["read_file", ""]},
+            {"glob": "", "mode": "deny"},                          # empty glob dropped
+            {"glob": "/x", "mode": "telepathy"},                   # invalid mode dropped
+        ],
+    }})["permissions"]
+    assert out["default"] == "allow"
+    assert out["modes"] == {"bash": "deny"}                        # only the valid override kept
+    assert out["path_rules"] == [{"glob": "~/.ssh/**", "mode": "deny", "tools": ["read_file"]}]

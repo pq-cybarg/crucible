@@ -2,10 +2,10 @@ import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  consolidateMemory, getMemoryGraph, getMemoryTree, linkMemory, prioritizeMemory, readMemory,
+  consolidateMemory, getMemoryGraph, getMemoryTree, getMetrics, linkMemory, prioritizeMemory, readMemory,
   recrystallizeMemory, searchMemory,
 } from "../api";
-import type { MemoryGraph, MemoryMatch, MemoryNode, MemoryTreeNode } from "../api";
+import type { MemoryGraph, MemoryMatch, MemoryNode, MemoryTreeNode, MetricInfo } from "../api";
 import { getActiveModelId } from "../services";
 import MemoryMap from "./MemoryMap";
 
@@ -50,13 +50,15 @@ export default function MemoryPanel(): JSX.Element {
   const [graph, setGraph] = useState<MemoryGraph | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [sortBy, setSortBy] = useState("relevance");
+  const [metric, setMetric] = useState("");
+  const [metrics, setMetrics] = useState<readonly MetricInfo[]>([]);
   const [searchRes, setSearchRes] = useState<{ method: string; matches: readonly MemoryMatch[] } | null>(null);
 
-  async function runSearch(nextSort = sortBy): Promise<void> {
+  async function runSearch(nextSort = sortBy, nextMetric = metric): Promise<void> {
     const q = searchQ.trim();
     if (q.length === 0) { setSearchRes(null); return; }
     setErr(null);
-    try { setSearchRes(await searchMemory(q, undefined, nextSort)); }
+    try { setSearchRes(await searchMemory(q, undefined, nextSort, nextMetric || undefined)); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "search failed"); }
   }
 
@@ -65,7 +67,7 @@ export default function MemoryPanel(): JSX.Element {
     try { setTree(await getMemoryTree()); setGraph(await getMemoryGraph()); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed to load memory"); }
   }
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); void getMetrics().then((m) => setMetrics(m.metrics)).catch(() => { /* offline */ }); }, []);
 
   async function link(): Promise<void> {
     const [a, b] = [...selected];
@@ -149,10 +151,16 @@ export default function MemoryPanel(): JSX.Element {
           value={searchQ}
           onChange={(e) => setSearchQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void runSearch(); }} />
+        <select className="byo-modelsel" value={metric}
+          onChange={(e) => { setMetric(e.target.value); void runSearch(sortBy, e.target.value); }}
+          title="distance metric — how 'closeness' is measured (statistical / lexical / semantic / llm-judged)">
+          <option value="">auto (embedding if set, else lexical)</option>
+          {metrics.map((m) => <option key={m.name} value={m.name} disabled={!m.available}>{m.name}{m.available ? "" : " (needs backend)"}</option>)}
+        </select>
         <select className="byo-modelsel" value={sortBy}
           onChange={(e) => { setSortBy(e.target.value); void runSearch(e.target.value); }}
           title="how to order results — blend relevance with priority / recency">
-          {["relevance", "priority", "recency", "size", "degree"].map((s) => <option key={s} value={s}>{s}</option>)}
+          {["relevance", "priority", "recency", "size", "degree", "balanced"].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <button className="btn ghost" onClick={() => void runSearch()}>search</button>
         {searchRes && <button className="btn ghost" onClick={() => { setSearchQ(""); setSearchRes(null); }}>clear</button>}
