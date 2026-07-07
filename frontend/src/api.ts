@@ -190,6 +190,19 @@ export const BUILTIN_TOOLS = [
 ] as const;
 // Tools that take a filesystem path — path rules meaningfully apply to these.
 export const PATH_TOOLS = ["read_file", "write_file", "edit_file", "multi_edit", "list_dir", "glob", "grep", "bash"] as const;
+// Forget a dead/experiment model registry entry (does NOT delete weight files on disk).
+export async function forgetModel(modelId: string): Promise<void> {
+  const r = await cfetch(`${API_BASE}/api/models/${encodeURIComponent(modelId)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`forget model ${r.status}`);
+}
+// Re-point a model at a live endpoint — re-enable one whose server moved (e.g. aim it at Ollama).
+export async function repointModel(modelId: string, endpoint: string): Promise<void> {
+  const r = await cfetch(`${API_BASE}/api/models/${encodeURIComponent(modelId)}/endpoint`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint }),
+  });
+  if (!r.ok) throw new Error(`repoint model ${r.status}`);
+}
+
 // Does a model support NATIVE tool-calling? null = unknown/offline. The forge uses this to auto-turn-on
 // compatibility mode and explain it in plain language.
 export async function getModelToolSupport(modelId: string): Promise<boolean | null> {

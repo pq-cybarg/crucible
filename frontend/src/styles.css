@@ -942,6 +942,10 @@ body::after {
 label.pipe-comp { cursor: pointer; }
 label.pipe-comp input { margin-right: 4px; }
 
+/* actions on an unservable model row: re-point at a live endpoint, or forget the dead entry */
+.model-fix { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.model-fix .row-forget { font-size: 10px; color: var(--ember); border-color: var(--line); }
+
 /* subtle inline nudge when the forge auto-enables tool-use compatibility for a model */
 .compat-hint { font-size: 10.5px; color: var(--amber); opacity: 0.85; letter-spacing: 0.03em;
   font-style: italic; margin-left: 4px; }

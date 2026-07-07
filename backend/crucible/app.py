@@ -596,6 +596,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                         "servable": online or launchable or abliteration_adapter is not None})
         return out
 
+    @app.delete("/api/models/{model_id}")
+    def forget_model(model_id: str) -> dict:
+        """Forget a model registry entry — for cleaning up dead BYO endpoints or abandoned experiments
+        that show up but can't serve. Does NOT delete any weight files on disk, only the entry."""
+        if not reg.remove(model_id):
+            raise HTTPException(status_code=404, detail=f"model '{model_id}' not in registry")
+        return {"removed": model_id}
+
+    @app.post("/api/models/{model_id}/endpoint")
+    def repoint_model(model_id: str, body: dict) -> Model:
+        """Re-point a model at a live endpoint — the way to RE-ENABLE a model whose server moved or
+        went away (e.g. aim a stale BYO entry at your running Ollama). Empty string clears it."""
+        try:
+            reg.get(model_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"model '{model_id}' not in registry")
+        return reg.set_endpoint(model_id, str(body.get("endpoint", "")).rstrip("/"))
+
     @app.get("/api/models/{model_id}/tool-support")
     def model_tool_support(model_id: str) -> dict:
         """Does this model support NATIVE tool-calling? Probes with a 1-token request carrying a dummy

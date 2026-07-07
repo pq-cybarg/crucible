@@ -62,6 +62,15 @@ class Registry:
         self._save()
         return updated
 
+    def remove(self, id: str) -> bool:
+        """Forget a model (e.g. a dead BYO endpoint or an abandoned experiment). Returns False if the
+        id was unknown. Only touches the registry entry — it never deletes weight files on disk."""
+        if id not in self._models:
+            return False
+        del self._models[id]
+        self._save()
+        return True
+
     def lineage(self, id: str) -> list[Model]:
         chain: list[Model] = []
         cur: str | None = id

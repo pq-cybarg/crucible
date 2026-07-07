@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { getModels } from "../api";
+import { forgetModel, getModels, repointModel } from "../api";
 import type { ModelRow } from "../api";
 import ServicesPanel from "./ServicesPanel";
 import RuntimePanel from "./RuntimePanel";
@@ -42,17 +42,22 @@ export default function ModelsPanel(): JSX.Element {
     setActiveId(next);
   };
 
-  useEffect(() => {
-    let alive = true;
+  const refresh = (): void => {
     getModels()
-      .then((rows) => alive && setLoad({ state: "ready", rows }))
-      .catch((err: unknown) =>
-        alive && setLoad({ state: "error", message: err instanceof Error ? err.message : "unknown error" }),
-      );
-    return () => {
-      alive = false;
-    };
-  }, []);
+      .then((rows) => setLoad({ state: "ready", rows }))
+      .catch((err: unknown) => setLoad({ state: "error", message: err instanceof Error ? err.message : "unknown error" }));
+  };
+  useEffect(() => { refresh(); }, []);
+
+  const forget = (id: string): void => {
+    if (!window.confirm(`Forget "${id}"? This removes the registry entry only — no weight files are deleted.`)) return;
+    void forgetModel(id).then(() => { if (activeId === id) selectModel(id); refresh(); }).catch(() => undefined);
+  };
+  const repoint = (id: string): void => {
+    const ep = window.prompt(`Re-point "${id}" at a live endpoint URL (e.g. your Ollama):`, "http://localhost:11434");
+    if (ep == null || ep.trim().length === 0) return;
+    void repointModel(id, ep.trim()).then(refresh).catch(() => undefined);
+  };
 
   return (
     <div className="panel">
@@ -111,10 +116,12 @@ export default function ModelsPanel(): JSX.Element {
                   <td style={{ color: "var(--ash)" }}>{row.created}</td>
                   <td>
                     {status[row.id] && !status[row.id]?.servable ? (
-                      <button className="btn row-use" disabled
-                        title="no live endpoint and not a launchable local GGUF — connect an endpoint (Ollama/llama.cpp) or launch a server before using this model">
-                        unusable
-                      </button>
+                      <span className="model-fix" title="no live endpoint and not a launchable local GGUF — re-point it at a running server, or forget the entry">
+                        <button className="btn row-use" onClick={() => repoint(row.id)}
+                          title="aim this model at a live endpoint (e.g. your Ollama at :11434) to re-enable it">re-point</button>
+                        <button className="btn ghost row-forget" onClick={() => forget(row.id)}
+                          title="remove this dead registry entry (does not delete weight files)">forget</button>
+                      </span>
                     ) : (
                       <button
                         className={`btn row-use ${activeId === row.id ? "on" : ""}`}
