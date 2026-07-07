@@ -12,8 +12,53 @@ import httpx
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, RichLog, Static
+
+# Slash commands available in the composer (name -> help). Shown by /help and the autocomplete line.
+COMMANDS: dict[str, str] = {
+    "/help": "list commands",
+    "/models": "pick the model for this tab (browse & select)",
+    "/new": "/new [title] — open a new agent tab in the current dir",
+    "/sub": "/sub [title] — open a subagent under this tab",
+    "/close": "close the active tab",
+    "/clear": "clear this tab's conversation",
+    "/where": "show working dir, project, session + memory locations",
+    "/slots": "list the slots loaded into this tab",
+    "/load": "/load <memory-key|session-id> — load a slot",
+}
+
+
+class ModelPicker(ModalScreen):
+    """A browse-and-select model list (like OpenCode's model picker). Returns the chosen model id."""
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    CSS = """
+    ModelPicker { align: center middle; }
+    #picker { width: 70; height: 22; border: round $accent; background: $panel; padding: 1; }
+    #picker Label { color: $accent; text-style: bold; }
+    """
+
+    def __init__(self, models: list[dict]):
+        super().__init__()
+        self.models = models
+
+    def compose(self) -> ComposeResult:
+        items = []
+        for m in self.models:
+            dot = "[green]●[/green]" if m["online"] else ("[yellow]○[/yellow]" if m["servable"] else "[dim]·[/dim]")
+            it = ListItem(Label(f"{dot} {m['name']}  [dim]{m['id']} · {m['kind']}[/dim]"))
+            it.model_id = m["id"]  # type: ignore[attr-defined]
+            items.append(it)
+        with Vertical(id="picker"):
+            yield Label("SELECT MODEL  (Enter = choose · Esc = cancel)")
+            yield ListView(*items)   # construct with items — can't append before mount
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(getattr(event.item, "model_id", None))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class Client:
@@ -57,6 +102,23 @@ class Client:
         httpx.request("DELETE", f"{self.base}/api/agent-sessions/{sid}/slots",
                       params={"kind": kind, "ref": ref}, timeout=10)
 
+    def models(self) -> list[dict]:
+        """Registered models merged with live status (online/servable) — for the /models picker."""
+        rows = self._j(httpx.get(f"{self.base}/api/models", timeout=10))
+        try:   # status probes every endpoint and can be slow with many models — keep the picker snappy
+            status = {s["id"]: s for s in self._j(httpx.get(f"{self.base}/api/models/status", timeout=4))}
+        except httpx.HTTPError:
+            status = {}
+        return [{"id": m["id"], "name": m.get("name", m["id"]), "kind": m.get("kind", ""),
+                 "online": status.get(m["id"], {}).get("online", False),
+                 "servable": status.get(m["id"], {}).get("servable", False)} for m in rows]
+
+    def set_model(self, sid: str, model_id: str) -> None:
+        httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"model_id": model_id}, timeout=10)
+
+    def update_messages(self, sid: str, messages: list) -> None:
+        httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"messages": messages}, timeout=10)
+
 
 class CrucibleTUI(App):
     CSS = """
@@ -66,6 +128,7 @@ class CrucibleTUI(App):
     .heading { color: $accent; text-style: bold; padding: 0 1; }
     #slots { height: 8; border-bottom: solid $panel; }
     #context { height: 1fr; }
+    #suggest { height: auto; color: $text-muted; padding: 0 1; }
     Input { dock: bottom; }
     ListView { height: 1fr; }
     """
@@ -101,7 +164,8 @@ class CrucibleTUI(App):
                 yield ListView(id="slots")
                 yield Label("LIVE CONTEXT", classes="heading")
                 yield RichLog(id="context", wrap=True, markup=True)
-                yield Input(placeholder="message the active agent — Enter runs it in its directory…", id="composer")
+                yield Static("", id="suggest")
+                yield Input(placeholder="message the agent — or /help for commands…", id="composer")
             with Vertical(id="right"):
                 yield Label("BROWSE · LOAD (l)", classes="heading")
                 yield ListView(id="browser")
@@ -199,11 +263,12 @@ class CrucibleTUI(App):
         self.refresh_all()
 
     @work(thread=True)
-    def action_new_agent(self, parent: Optional[str] = None) -> None:
-        # a tab in the current directory by default; title from the id
+    def action_new_agent(self, parent: Optional[str] = None, title: Optional[str] = None) -> None:
         import os
+        cwd = os.getcwd()
+        name = title or (("sub of " + self.active) if parent else os.path.basename(cwd.rstrip("/")) or "agent")
         try:
-            card = self.client.create("agent", os.getcwd(), parent_id=parent)
+            card = self.client.create(name, cwd, parent_id=parent)
         except httpx.HTTPError as e:
             self.call_from_thread(self._toast, f"create failed: {e}"); return
         self.active = card["id"]
@@ -249,13 +314,108 @@ class CrucibleTUI(App):
             pass
         self.refresh_all()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        # slash-command autocomplete: show matching commands as you type "/"
+        sug = self.query_one("#suggest", Static)
+        val = event.value
+        if val.startswith("/"):
+            head = val.split(" ", 1)[0]
+            hits = [f"[b]{c}[/b] — {h}" for c, h in COMMANDS.items() if c.startswith(head)]
+            sug.update("  ".join(hits[:6]) if hits else "[dim]no such command — /help[/dim]")
+        else:
+            sug.update("")
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        msg = event.value.strip()
-        if not (self.active and msg):
-            return
+        val = event.value.strip()
         event.input.value = ""
-        self.query_one("#context", RichLog).write(f"[cyan]user[/cyan] {msg}")
-        self._run(self.active, msg)
+        self.query_one("#suggest", Static).update("")
+        if not val:
+            return
+        if val.startswith("/"):
+            self._command(val)
+            return
+        if not self.active:
+            self._toast("no active tab — /new to open one")
+            return
+        self.query_one("#context", RichLog).write(f"[cyan]user[/cyan] {val}")
+        self._run(self.active, val)
+
+    def _command(self, line: str) -> None:
+        parts = line.split()
+        cmd, args = parts[0], parts[1:]
+        log = self.query_one("#context", RichLog)
+        if cmd == "/help":
+            log.write("[b]commands[/b]: " + "  ".join(f"[cyan]{c}[/cyan]" for c in COMMANDS))
+            for c, h in COMMANDS.items():
+                log.write(f"  [cyan]{c}[/cyan] — {h}")
+        elif cmd == "/models":
+            self._open_models()
+        elif cmd == "/new":
+            self.action_new_agent(title=" ".join(args) or None)
+        elif cmd == "/sub":
+            if self.active:
+                self.action_new_agent(self.active, title=" ".join(args) or None)
+        elif cmd == "/close":
+            self.action_close_tab()
+        elif cmd == "/clear":
+            self._clear_convo()
+        elif cmd == "/where":
+            import os
+            log.write(f"[b]cwd[/b] {os.getcwd()}")
+            log.write(f"[b]control[/b] {self.control}")
+            if self.active:
+                d = self._active_doc
+                log.write(f"[b]tab[/b] {self.active} · dir {d.get('cwd')} · model {d.get('model_id') or '(server default)'}")
+        elif cmd == "/slots":
+            for sl in self._active_doc.get("slots", []):
+                log.write(f"  {'■' if sl['enabled'] else '□'} {sl['kind']} {sl['ref']} {sl['label']}")
+        elif cmd == "/load" and args:
+            ref = args[0]
+            kind = "context" if ref.startswith("a-") else "memory"
+            self._load_ref(kind, ref)
+        else:
+            log.write(f"[dim]unknown command '{cmd}' — /help[/dim]")
+
+    @work(thread=True)
+    def _open_models(self) -> None:
+        try:
+            models = self.client.models()
+        except httpx.HTTPError as e:
+            self.call_from_thread(self._toast, f"models unavailable: {e}"); return
+        self.call_from_thread(self._show_picker, models)
+
+    def _show_picker(self, models: list[dict]) -> None:
+        def picked(model_id: Optional[str]) -> None:
+            if model_id and self.active:
+                self._set_model(model_id)
+        self.push_screen(ModelPicker(models), picked)
+
+    @work(thread=True)
+    def _set_model(self, model_id: str) -> None:
+        if self.active:
+            try:
+                self.client.set_model(self.active, model_id)
+            except httpx.HTTPError:
+                pass
+        self.refresh_all()
+
+    @work(thread=True)
+    def _load_ref(self, kind: str, ref: str) -> None:
+        if self.active:
+            try:
+                self.client.attach(self.active, kind, ref)
+            except httpx.HTTPError as e:
+                self.call_from_thread(self._toast, f"load failed: {e}")
+        self.refresh_all()
+
+    @work(thread=True)
+    def _clear_convo(self) -> None:
+        if self.active:
+            try:
+                self.client.update_messages(self.active, [])
+            except httpx.HTTPError:
+                pass
+        self.refresh_all()
 
     @work(thread=True)
     def _run(self, sid: str, message: str) -> None:
