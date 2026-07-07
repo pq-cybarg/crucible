@@ -190,6 +190,18 @@ export const BUILTIN_TOOLS = [
 ] as const;
 // Tools that take a filesystem path — path rules meaningfully apply to these.
 export const PATH_TOOLS = ["read_file", "write_file", "edit_file", "multi_edit", "list_dir", "glob", "grep", "bash"] as const;
+// Does a model support NATIVE tool-calling? null = unknown/offline. The forge uses this to auto-turn-on
+// compatibility mode and explain it in plain language.
+export async function getModelToolSupport(modelId: string): Promise<boolean | null> {
+  if (isDemo()) return null;
+  try {
+    const r = await cfetch(`${API_BASE}/api/models/${encodeURIComponent(modelId)}/tool-support`);
+    if (!r.ok) return null;
+    const body = await r.json() as { supports_tools?: boolean | null };
+    return body.supports_tools ?? null;
+  } catch { return null; }
+}
+
 export async function getToolNames(): Promise<readonly string[]> {
   if (isDemo()) return [...BUILTIN_TOOLS];
   try {

@@ -942,6 +942,10 @@ body::after {
 label.pipe-comp { cursor: pointer; }
 label.pipe-comp input { margin-right: 4px; }
 
+/* subtle inline nudge when the forge auto-enables tool-use compatibility for a model */
+.compat-hint { font-size: 10.5px; color: var(--amber); opacity: 0.85; letter-spacing: 0.03em;
+  font-style: italic; margin-left: 4px; }
+
 /* ===================== Preferences panel =================================== */
 .pref-section { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;
   background: var(--steel-900); }

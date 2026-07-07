@@ -587,6 +587,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                         "servable": online or launchable or abliteration_adapter is not None})
         return out
 
+    @app.get("/api/models/{model_id}/tool-support")
+    def model_tool_support(model_id: str) -> dict:
+        """Does this model support NATIVE tool-calling? Probes with a 1-token request carrying a dummy
+        tool: a 'does not support tools' rejection means no. The forge uses this to auto-enable its
+        compatibility mode (text-based tool use) and tell the user in plain language — no jargon. Only
+        probes online endpoints (returns null/unknown otherwise, never launches a model just to check)."""
+        try:
+            m = reg.get(model_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"model '{model_id}' not in registry")
+        if not (m.endpoint and _endpoint_alive(m.endpoint)):
+            return {"supports_tools": None, "reason": "model is not online"}
+        from crucible.agent import endpoint_model
+        em = endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model, max_tokens=1)
+        dummy = [{"type": "function", "function": {"name": "noop", "description": "probe",
+                                                   "parameters": {"type": "object", "properties": {}}}}]
+        try:
+            em([{"role": "user", "content": "hi"}], dummy)
+        except Exception:
+            pass   # a probe failure other than tools-support shouldn't error the check
+        return {"supports_tools": bool(em.supports_tools)}
+
     @app.post("/api/models/connect", status_code=201)
     def connect_model(req: ConnectRequest) -> Model:
         """Register a BYO OpenAI-compatible endpoint as a base model so the agent can

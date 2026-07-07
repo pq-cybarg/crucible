@@ -3,7 +3,7 @@ import { useCallbackRef } from "../useCallbackRef";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { approveAgent, cancelAgent, compactConversation, getPreferences, getProfiles, runAgent } from "../api";
+import { approveAgent, cancelAgent, compactConversation, getModelToolSupport, getPreferences, getProfiles, runAgent } from "../api";
 import type { AgentEvent, ChatMessage, CompactMessage, HierarchyProfile, PathRuleConfig, PermissionMode } from "../api";
 
 // heuristic client-side token estimate (chars/4), mirrors the backend meter — for the UI only.
@@ -92,6 +92,9 @@ export default function AgentConsole(): JSX.Element {
   const [draft, setDraft] = useState("");
   const [perm, setPerm] = useState<PermissionMode>("ask");
   const [react, setReact] = useState(false);
+  // Auto-detected: does the active model support native tool-calling? false → we quietly switch on
+  // compatibility mode and tell the user in plain words (no "ReAct" jargon).
+  const [toolSupport, setToolSupport] = useState<boolean | null>(null);
   const [autoCompact, setAutoCompact] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [profile, setProfile] = useState("");
@@ -106,6 +109,20 @@ export default function AgentConsole(): JSX.Element {
     setPermModes(p.preferences.permissions.modes);
     setPathRules(p.preferences.permissions.path_rules ?? []);
   }).catch(() => undefined); }, []);
+  // Watch the active model; when it can't do native tool use, quietly turn on compatibility mode.
+  useEffect(() => {
+    let last = "";
+    const check = (): void => {
+      const id = getActiveModelId();
+      if (id && id !== last) {
+        last = id;
+        void getModelToolSupport(id).then((s) => { setToolSupport(s); if (s === false) setReact(true); });
+      }
+    };
+    check();
+    const h = window.setInterval(check, 3000);
+    return () => window.clearInterval(h);
+  }, []);
   const [busy, setBusy] = useState(false);
   const counter = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -447,10 +464,15 @@ export default function AgentConsole(): JSX.Element {
               </button>
             ))}
           </span>
-          <label className="react-toggle" title="Tools work with any model by default (native + text fallback). Check to FORCE the pure text ReAct format for models where native tool-calls misbehave.">
+          <label className="react-toggle" title="Some models can't use tools natively. Turn this on to let them use tools through a text-based workaround. The forge switches it on automatically when it detects a model needs it.">
             <input type="checkbox" checked={react} onChange={(e) => setReact(e.target.checked)} />
-            force ReAct
+            tool-use compatibility{toolSupport === false ? " (auto)" : ""}
           </label>
+          {toolSupport === false && (
+            <span className="compat-hint" title="This model can't call tools natively; compatibility mode lets it use them via a text protocol.">
+              this model needs compatibility mode for tools — turned on for you
+            </span>
+          )}
           <span className="ctx-controls">
             <span className={`ctx-meter ${estTokens > CONTEXT_LIMIT ? "over" : ""}`}
               title={`estimated context ≈ ${estTokens} tokens (heuristic, chars/4). Limit ${CONTEXT_LIMIT}.`}>
