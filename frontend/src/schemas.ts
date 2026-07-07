@@ -108,6 +108,7 @@ export const modalityDirectionP: Parser<ModalityDirection> = object({
 const _msgP = object({ role: str, content: str });
 export const memoryCardP: Parser<MemoryCard> = object({
   key: str, label: str, summary: str, kind: str, session: str, size: num, ref: nullable(str),
+  priority: optional(num), degree: optional(num),
 });
 // recursive: a tree node is a card with optional child tree-nodes (lazy self-reference)
 export const memoryTreeNodeP: Parser<MemoryTreeNode> = (v, path) => object({
@@ -119,6 +120,10 @@ export const memoryNodeP: Parser<MemoryNode> = object({
   messages: optional(array(_msgP)), children: optional(array(memoryCardP)),
 });
 export const memoryIndexP = object({ memories: array(memoryCardP), versioned: bool });
+export const memoryGraphP = object({
+  nodes: array(memoryCardP), n_nodes: num, n_edges: num,
+  edges: array(object({ from: str, to: str, type: str, kind: str })),
+});
 export const memorySearchP = object({
   method: str,
   matches: array(object({

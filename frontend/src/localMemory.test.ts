@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  localCompact, localConsolidate, localCrystallize, localIndex, localRead, localReadForSplit,
-  localRecrystallize, localSearch, localTree,
+  localCompact, localConsolidate, localCrystallize, localGraph, localIndex, localLink, localRead,
+  localReadForSplit, localRecrystallize, localSearch, localSetPriority, localTree,
 } from "./localMemory";
 
 // vitest/node has no localStorage — install a Map-backed shim so the on-device store is exercised.
@@ -20,11 +20,12 @@ describe("localMemory (on-device crystallized memory)", () => {
   it("crystallize + index (summary passthrough)", () => {
     localCrystallize(msgs(4), "abliteration removed the refusal", "uncensor", "s1");
     localCrystallize(msgs(6), "quantized weights for speed", "quantize", "s1");
-    const idx = localIndex();
+    const idx = localIndex();   // default recency (newest first), matching the server
     expect(idx.versioned).toBe(false);
-    expect(idx.memories.map((m) => m.key)).toEqual(["m-0001", "m-0002"]);
-    expect(idx.memories[1]?.size).toBe(6);
+    expect(idx.memories.map((m) => m.key)).toEqual(["m-0002", "m-0001"]);
+    expect(idx.memories[0]?.size).toBe(6);
     expect("messages" in idx.memories[0]!).toBe(false);   // cheap card, no bodies
+    expect(localIndex(undefined, "oldest").memories.map((m) => m.key)).toEqual(["m-0001", "m-0002"]);
   });
 
   it("index filters by session", () => {
@@ -79,6 +80,28 @@ describe("localMemory (on-device crystallized memory)", () => {
     localRecrystallize("m-0001", localReadForSplit("m-0001", 1));
     expect(() => localConsolidate(["m-0001"], "one")).toThrow();
     expect(() => localConsolidate(["m-0001", "m-0002"], "parent+child")).toThrow();
+  });
+
+  it("priority + configurable sort (parity with the server)", () => {
+    localCrystallize(msgs(2), "first", "a");
+    localCrystallize(msgs(2), "second", "b");
+    localSetPriority("m-0001", 9);
+    expect(localIndex(undefined, "recency").memories.map((m) => m.key)).toEqual(["m-0002", "m-0001"]);
+    expect(localIndex(undefined, "priority").memories[0]?.key).toBe("m-0001");
+    expect(localIndex().memories.find((m) => m.key === "m-0001")?.priority).toBe(9);
+  });
+
+  it("typed cross-links form a graph (parity with the server)", () => {
+    localCrystallize(msgs(2), "A", "a");
+    localCrystallize(msgs(2), "B", "b");
+    localLink("m-0001", "m-0002", "refines");
+    localLink("m-0001", "m-0002", "refines");   // dup ignored
+    const g = localGraph();
+    const links = g.edges.filter((e) => e.kind === "link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ from: "m-0001", to: "m-0002", type: "refines" });
+    expect(() => localLink("m-0001", "m-0001")).toThrow();   // no self-loop
+    expect(g.n_nodes).toBe(2);
   });
 
   it("local compaction crystallizes an extractive summary (no model)", () => {

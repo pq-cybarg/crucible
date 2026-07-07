@@ -2,9 +2,10 @@ import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  consolidateMemory, getMemoryTree, readMemory, recrystallizeMemory, searchMemory,
+  consolidateMemory, getMemoryGraph, getMemoryTree, linkMemory, prioritizeMemory, readMemory,
+  recrystallizeMemory, searchMemory,
 } from "../api";
-import type { MemoryMatch, MemoryNode, MemoryTreeNode } from "../api";
+import type { MemoryGraph, MemoryMatch, MemoryNode, MemoryTreeNode } from "../api";
 import { getActiveModelId } from "../services";
 import MemoryMap from "./MemoryMap";
 
@@ -45,7 +46,8 @@ export default function MemoryPanel(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [view, setView] = useState<"tree" | "map">("map");
+  const [view, setView] = useState<"tree" | "map" | "graph">("map");
+  const [graph, setGraph] = useState<MemoryGraph | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [sortBy, setSortBy] = useState("relevance");
   const [searchRes, setSearchRes] = useState<{ method: string; matches: readonly MemoryMatch[] } | null>(null);
@@ -60,10 +62,23 @@ export default function MemoryPanel(): JSX.Element {
 
   async function refresh(): Promise<void> {
     setErr(null);
-    try { setTree(await getMemoryTree()); }
+    try { setTree(await getMemoryTree()); setGraph(await getMemoryGraph()); }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed to load memory"); }
   }
   useEffect(() => { void refresh(); }, []);
+
+  async function link(): Promise<void> {
+    const [a, b] = [...selected];
+    if (!a || !b) return;
+    setBusy(true); setErr(null); setNote(null);
+    try { await linkMemory(a, b, "relates"); setNote(`linked ${a} → ${b}`); setSelected(new Set()); await refresh(); }
+    catch (e: unknown) { setErr(e instanceof Error ? e.message : "link failed"); } finally { setBusy(false); }
+  }
+  async function bumpPriority(key: string, delta: number): Promise<void> {
+    const cur = opened && opened.key === key ? (opened.priority ?? 0) : 0;
+    try { await prioritizeMemory(key, Math.max(0, cur + delta)); setNote(`priority ${key} = ${Math.max(0, cur + delta)}`); await open(key); await refresh(); }
+    catch (e: unknown) { setErr(e instanceof Error ? e.message : "failed"); }
+  }
 
   const count = useMemo(() => {
     let n = 0;
@@ -122,6 +137,7 @@ export default function MemoryPanel(): JSX.Element {
         <span className="seg">
           <button className={view === "map" ? "on" : ""} onClick={() => setView("map")}>map</button>
           <button className={view === "tree" ? "on" : ""} onClick={() => setView("tree")}>tree</button>
+          <button className={view === "graph" ? "on" : ""} onClick={() => setView("graph")}>graph</button>
         </span>
         <span className="hint" style={{ margin: 0 }}>{count} memories · {selected.size} selected</span>
         {err && <span className="runtime-err">{err}</span>}
@@ -163,10 +179,26 @@ export default function MemoryPanel(): JSX.Element {
           <input className="in" placeholder="label (optional)" value={consLabel} onChange={(e) => setConsLabel(e.target.value)} />
           <input className="in" placeholder="summary for the new parent memory" value={consSummary} onChange={(e) => setConsSummary(e.target.value)} />
           <button className="btn" disabled={busy || consSummary.trim().length === 0} onClick={() => void consolidate()}>consolidate</button>
+          {selected.size === 2 && <button className="btn ghost" disabled={busy} onClick={() => void link()} title="add a directed 'relates' link between the two selected memories">link →</button>}
         </div>
       )}
 
-      {view === "map" ? (
+      {view === "graph" ? (
+        <div className="mem-graph">
+          {(graph?.edges.length ?? 0) === 0 && <div className="hint">no edges yet — consolidate (parent edges) or link two memories to build the graph.</div>}
+          {graph?.nodes.map((n) => {
+            const outs = graph.edges.filter((e) => e.from === n.key);
+            return (
+              <div key={n.key} className="graphrow">
+                <button className="mem-label" onClick={() => void open(n.key)}>{n.label}</button>
+                <code className="mem-key">{n.key}</code>
+                {(n.priority ?? 0) > 0 && <span className="mem-prio">★{n.priority}</span>}
+                {outs.map((e, i) => <span key={i} className={`gedge ${e.kind}`}>{e.type}→{e.to}</span>)}
+              </div>
+            );
+          })}
+        </div>
+      ) : view === "map" ? (
         <MemoryMap tree={tree} onOpen={(k) => void open(k)} />
       ) : (
         <div className="mem-tree">
@@ -182,6 +214,11 @@ export default function MemoryPanel(): JSX.Element {
           <div className="mem-open-head">
             <code className="mem-key">{opened.key}</code> <b>{opened.label}</b>
             <span className="mem-kind">{opened.kind}</span>
+            <span className="mem-prio-ctl" title="priority — higher surfaces first when sorting by priority">
+              <button onClick={() => void bumpPriority(opened.key, -1)}>−</button>
+              ★{opened.priority ?? 0}
+              <button onClick={() => void bumpPriority(opened.key, +1)}>+</button>
+            </span>
             {opened.kind === "leaf" && (
               <button className="btn ghost" disabled={busy} onClick={() => void recrystallize(opened.key)}
                 title="split this memory into finer labelled/summarized subchunks (uses the active model)">

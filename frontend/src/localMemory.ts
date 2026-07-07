@@ -12,6 +12,7 @@ type Stored = {
   key: string; kind: "leaf" | "chunked"; label: string; summary: string; session: string;
   parent: string | null; n_messages: number; stats: Record<string, unknown>;
   messages?: readonly CompactMessage[]; children?: string[];
+  priority?: number; links?: { to: string; type: string }[];
 };
 type Db = { seq: number; nodes: Record<string, Stored> };
 
@@ -35,9 +36,25 @@ function deriveLabel(summary: string): string {
   const w = (summary || "").replace(/\n/g, " ").split(" ").filter(Boolean).slice(0, 6).join(" ").replace(/[.,:;—-]+$/, "");
   return w || "memory";
 }
-function card(n: Stored): MemoryCard {
+function card(n: Stored): MemoryCard & { priority: number; degree: number } {
   const size = n.kind === "chunked" ? (n.children?.length ?? 0) : n.n_messages;
-  return { key: n.key, label: n.label, summary: n.summary, kind: n.kind, session: n.session, size, ref: null };
+  return { key: n.key, label: n.label, summary: n.summary, kind: n.kind, session: n.session, size, ref: null,
+    priority: n.priority ?? 0, degree: (n.links ?? []).length };
+}
+
+// Configurable ordering, mirroring the backend sorting module (recency / priority / size / degree / label).
+function seq(key: string): number { const d = key.replace(/\D/g, ""); return d ? Number(d) : 0; }
+function sortCards<T extends { key: string; label?: string; size?: number; priority?: number; degree?: number; score?: number }>(items: T[], by: string): T[] {
+  const keyed: Record<string, [(x: T) => number | string, boolean]> = {
+    relevance: [(x) => x.score ?? 0, true], priority: [(x) => (x.priority ?? 0) * 1e7 + seq(x.key), true],
+    size: [(x) => x.size ?? 0, true], degree: [(x) => x.degree ?? 0, true],
+    recency: [(x) => seq(x.key), true], oldest: [(x) => seq(x.key), false],
+    label: [(x) => (x.label ?? "").toLowerCase(), false],
+  };
+  const spec = keyed[by];
+  if (!spec) return items;
+  const [fn, desc] = spec;
+  return [...items].sort((a, b) => { const av = fn(a), bv = fn(b); const c = av < bv ? -1 : av > bv ? 1 : 0; return desc ? -c : c; });
 }
 
 // --- BM25 lexical scoring (mirrors backend rag.py) -----------------------------------------
@@ -76,12 +93,11 @@ export function localCrystallize(messages: readonly CompactMessage[], summary: s
   return card(db.nodes[key]!);
 }
 
-export function localIndex(session?: string): { memories: readonly MemoryCard[]; versioned: boolean } {
+export function localIndex(session?: string, sort = "recency"): { memories: readonly MemoryCard[]; versioned: boolean } {
   const db = load();
-  const memories = Object.values(db.nodes)
+  const memories = sortCards(Object.values(db.nodes)
     .filter((n) => n.parent === null && (session === undefined || n.session === session))
-    .sort((a, b) => a.key.localeCompare(b.key))
-    .map(card);
+    .map(card), sort);
   return { memories, versioned: false };
 }
 
@@ -105,19 +121,47 @@ export function localRead(key: string): MemoryNode {
   return { ...base, messages: n.messages ?? [] };
 }
 
-export function localSearch(query: string, session?: string): MemorySearchResult {
+export function localSearch(query: string, session?: string, sort = "relevance"): MemorySearchResult {
   const db = load();
   const cards = Object.values(db.nodes)
     .filter((n) => session === undefined || n.session === session)
     .map((n) => ({ n, c: card(n) }));
   if (cards.length === 0) return { method: "lexical", matches: [] };
   const scores = bm25(query, cards.map(({ c }) => `${c.label} ${c.summary}`));
-  const matches: MemoryMatch[] = cards
+  let matches: MemoryMatch[] = cards
     .map(({ c }, i) => ({ ...c, score: Math.round(scores[i]! * 1e4) / 1e4 }))
-    .filter((m) => m.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .filter((m) => m.score > 0);
+  matches = (sort === "relevance" ? matches.sort((a, b) => b.score - a.score) : sortCards(matches, sort)).slice(0, 5);
   return { method: "lexical", matches };
+}
+
+// DAG parity: priority + typed cross-links + a graph view, matching the server store.
+export function localSetPriority(key: string, priority: number): MemoryCard {
+  const db = load();
+  const n = db.nodes[key];
+  if (!n) throw new Error(`no memory ${key}`);
+  n.priority = priority; save(db);
+  return card(n);
+}
+export function localLink(src: string, dst: string, type = "relates"): { from: string; to: string; type: string } {
+  if (src === dst) throw new Error("a memory cannot link to itself");
+  const db = load();
+  if (!db.nodes[src] || !db.nodes[dst]) throw new Error("both memories must exist");
+  const links = (db.nodes[src]!.links ??= []);
+  if (!links.some((e) => e.to === dst && e.type === type)) { links.push({ to: dst, type }); save(db); }
+  return { from: src, to: dst, type };
+}
+export function localGraph(session?: string): { nodes: MemoryCard[]; edges: { from: string; to: string; type: string; kind: string }[]; n_nodes: number; n_edges: number } {
+  const db = load();
+  const nodes: MemoryCard[] = [];
+  const edges: { from: string; to: string; type: string; kind: string }[] = [];
+  for (const n of Object.values(db.nodes)) {
+    if (session !== undefined && n.session !== session) continue;
+    nodes.push({ ...card(n), parent: n.parent } as MemoryCard);
+    for (const c of n.children ?? []) edges.push({ from: n.key, to: c, type: "child", kind: "parent" });
+    for (const e of n.links ?? []) edges.push({ from: n.key, to: e.to, type: e.type, kind: "link" });
+  }
+  return { nodes, edges, n_nodes: nodes.length, n_edges: edges.length };
 }
 
 export function localConsolidate(keys: readonly string[], summary: string, label = ""): MemoryCard {

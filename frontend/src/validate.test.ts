@@ -4,8 +4,8 @@ import {
 } from "./validate";
 import {
   benchmarksInfoP, compactResultP, graphResultP, guardrailConfigP, hierarchyProfileP, lineageP,
-  mediaStatusP, memoryNodeP, memorySearchP, memoryTreeP, modalityDirectionP, modelRowP, modelRowsP,
-  profilesP, publishedPayloadP, runtimeStatusP, verifyReportP, weightsViewP,
+  mediaStatusP, memoryGraphP, memoryNodeP, memorySearchP, memoryTreeP, modalityDirectionP, modelRowP,
+  modelRowsP, profilesP, publishedPayloadP, runtimeStatusP, verifyReportP, weightsViewP,
 } from "./schemas";
 
 describe("validate combinators", () => {
@@ -250,6 +250,19 @@ describe("real schemas parse valid payloads and reject malformed ones", () => {
     expect(p.layers[1]?.communicator).toBe("haiku");
     expect(profilesP({ profiles: [p] }).profiles[0]?.name).toBe("research");
     expect(() => hierarchyProfileP({ name: "x", layers: [{ worker: 5, communicator: null }] })).toThrow(/worker/);
+  });
+
+  it("memoryGraphP parses nodes + typed edges", () => {
+    const g = memoryGraphP({
+      n_nodes: 2, n_edges: 1,
+      nodes: [
+        { key: "m-0001", label: "a", summary: "s", kind: "leaf", session: "x", size: 2, ref: null, priority: 5, degree: 1 },
+        { key: "m-0002", label: "b", summary: "s", kind: "leaf", session: "x", size: 2, ref: null },
+      ],
+      edges: [{ from: "m-0001", to: "m-0002", type: "relates", kind: "link" }],
+    });
+    expect(g.nodes[0]?.priority).toBe(5);
+    expect(g.edges[0]?.kind).toBe("link");
   });
 
   it("a truncated/HTML error body fails loudly instead of silently passing", () => {

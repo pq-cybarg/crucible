@@ -859,6 +859,14 @@ body::after {
 .ctx-total { margin-left: auto; font-family: var(--font-mono); }
 /* Crystallized-memory browser. */
 .mem-toolbar { display: flex; align-items: center; gap: 12px; margin: 8px 0 14px; flex-wrap: wrap; }
+.mem-graph { display: flex; flex-direction: column; gap: 5px; }
+.graphrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.gedge { font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line-bright); color: var(--ash); }
+.gedge.link { color: var(--amber); border-color: var(--amber-dim); }
+.mem-prio { font-family: var(--font-mono); font-size: 11px; color: var(--amber-bright); }
+.mem-prio-ctl { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--amber-bright); }
+.mem-prio-ctl button { background: var(--steel-800); border: 1px solid var(--line-bright); color: var(--bone); border-radius: 3px; width: 20px; height: 20px; cursor: pointer; line-height: 1; }
+.mem-prio-ctl button:hover { border-color: var(--amber); }
 .mem-search { display: flex; gap: 8px; margin-bottom: 14px; }
 .mem-search .in { flex: 1; }
 .mem-search-results { margin-bottom: 16px; border: 1px solid var(--line); border-left: 3px solid var(--amber-bright);

@@ -23,8 +23,8 @@ function withAuth(init?: RequestInit): RequestInit {
 
 import { demoRespond, isDemo } from "./demo";
 import {
-  localCompact, localConsolidate, localIndex, localReadForSplit, localRead,
-  localRecrystallize, localSearch, localTree,
+  localCompact, localConsolidate, localGraph, localIndex, localLink, localReadForSplit, localRead,
+  localRecrystallize, localSearch, localSetPriority, localTree,
 } from "./localMemory";
 import {
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
@@ -32,7 +32,7 @@ import {
   hierarchyProfileP, lineageP, profilesP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
   compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
-  memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
+  memoryGraphP, memoryNodeP, memorySearchP, memoryTreeP, publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
   runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
   verifyReportP, weightsViewP,
 } from "./schemas";
@@ -504,6 +504,8 @@ export interface MemoryCard {
   readonly session: string;
   readonly size: number;
   readonly ref: string | null;
+  readonly priority?: number;   // agent-set weight for prioritized recall
+  readonly degree?: number;     // number of out-links (graph)
 }
 export interface MemoryTreeNode extends MemoryCard {
   readonly children?: readonly MemoryTreeNode[];
@@ -532,13 +534,38 @@ export interface MemorySearchResult {
 }
 // Relevance search over crystallized memories (semantic if an embedding backend is set, else lexical).
 export async function searchMemory(q: string, session?: string, sort = "relevance"): Promise<MemorySearchResult> {
-  if (isDemo()) return localSearch(q, session);
+  if (isDemo()) return localSearch(q, session, sort);
   try {
     const s = session ? `&session=${encodeURIComponent(session)}` : "";
     const r = await cfetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}${s}`);
     if (!r.ok) throw new Error(`memory search ${r.status}`);
     return memorySearchP(await r.json());
-  } catch { return localSearch(q, session); }
+  } catch { return localSearch(q, session, sort); }
+}
+
+export interface MemoryEdge { readonly from: string; readonly to: string; readonly type: string; readonly kind: string }
+export interface MemoryGraph { readonly nodes: readonly MemoryCard[]; readonly edges: readonly MemoryEdge[]; readonly n_nodes: number; readonly n_edges: number }
+
+export async function getMemoryGraph(session?: string): Promise<MemoryGraph> {
+  if (isDemo()) return localGraph(session);
+  try {
+    const q = session ? `?session=${encodeURIComponent(session)}` : "";
+    const r = await cfetch(API_BASE + "/api/memory/graph" + q);
+    if (!r.ok) throw new Error(`memory graph ${r.status}`);
+    return memoryGraphP(await r.json());
+  } catch { return localGraph(session); }
+}
+export async function prioritizeMemory(key: string, priority: number): Promise<void> {
+  if (isDemo()) { localSetPriority(key, priority); return; }
+  await cfetch(`${API_BASE}/api/memory/${encodeURIComponent(key)}/priority`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority }),
+  });
+}
+export async function linkMemory(src: string, dst: string, type = "relates"): Promise<void> {
+  if (isDemo()) { localLink(src, dst, type); return; }
+  await cfetch(API_BASE + "/api/memory/link", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ src, dst, type }),
+  });
 }
 
 export async function getMemoryTree(session?: string): Promise<readonly MemoryTreeNode[]> {
