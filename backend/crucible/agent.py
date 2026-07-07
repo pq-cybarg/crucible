@@ -149,14 +149,38 @@ class EndpointModel:
     Network paths are not unit-tested; parse_openai_stream() and URL normalization are."""
 
     def __init__(self, chat_url: str, token: str = "", model_name: str = "local",
-                 max_tokens: int = 1024):
+                 max_tokens: int = 1024, served_model: str | None = None):
         url = chat_url.rstrip("/")
         if not url.endswith("/chat/completions"):
             url = url + ("/chat/completions" if url.endswith("/v1") else "/v1/chat/completions")
         self.url = url
+        self.models_url = url[: -len("/chat/completions")].rstrip("/") + "/models"
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
-        self.model_name = model_name
+        # An explicit served_model is the exact tag the upstream expects (e.g. Ollama's "llama3.2:latest").
+        # Absent one, model_name is often a Crucible REGISTRY LABEL like "ollama-localhost-11434" — which
+        # the upstream does not know, so a chat 404s. We remember the registry label and, on a 404,
+        # auto-resolve the real tag from GET /v1/models and retry — so BYO backends "just work".
+        self.model_name = served_model or model_name
+        self._explicit = served_model is not None
+        self._resolved = served_model is not None
         self.max_tokens = max_tokens
+
+    def _resolve_served_model(self) -> bool:
+        """Ask the upstream what it actually serves (GET /v1/models) and adopt the first model.
+        Returns True if it changed the model name. Never raises — a failure just leaves it as-is."""
+        import httpx
+        try:
+            r = httpx.get(self.models_url, headers=self.headers, timeout=10)
+            r.raise_for_status()
+            data = r.json().get("data") or []
+            ids = [m.get("id") for m in data if m.get("id")]
+        except (httpx.HTTPError, ValueError, KeyError):
+            ids = []
+        self._resolved = True
+        if ids and self.model_name not in ids:
+            self.model_name = ids[0]
+            return True
+        return False
 
     def _payload(self, messages: list[dict], tools: list[dict], stream: bool) -> dict:
         p: dict = {"model": self.model_name, "messages": messages, "max_tokens": self.max_tokens}
@@ -170,18 +194,30 @@ class EndpointModel:
         import httpx
         r = httpx.post(self.url, json=self._payload(messages, tools, False),
                        headers=self.headers, timeout=600)
+        if r.status_code == 404 and not self._explicit and self._resolve_served_model():
+            r = httpx.post(self.url, json=self._payload(messages, tools, False),
+                           headers=self.headers, timeout=600)
         r.raise_for_status()
         return extract_openai_message(r.json())
 
     def stream(self, messages: list[dict], tools: list[dict]) -> Iterator[tuple[str, object]]:
         import httpx
+        # httpx exposes the status BEFORE the body streams, so on a 404 (wrong/registry-label model
+        # tag) we resolve the real served model and retry once — the UI never sees a broken stream.
         with httpx.stream("POST", self.url, json=self._payload(messages, tools, True),
                           headers=self.headers, timeout=600) as r:
+            if r.status_code == 404 and not self._explicit and self._resolve_served_model():
+                with httpx.stream("POST", self.url, json=self._payload(messages, tools, True),
+                                  headers=self.headers, timeout=600) as r2:
+                    r2.raise_for_status()
+                    yield from parse_openai_stream(r2.iter_lines())
+                    return
             r.raise_for_status()
             yield from parse_openai_stream(r.iter_lines())
 
 
 def endpoint_model(chat_url: str, token: str = "", model_name: str = "local",
-                   max_tokens: int = 1024) -> EndpointModel:
-    """Construct an EndpointModel (kept as a function for call-site compatibility)."""
-    return EndpointModel(chat_url, token, model_name, max_tokens)
+                   max_tokens: int = 1024, served_model: str | None = None) -> EndpointModel:
+    """Construct an EndpointModel (kept as a function for call-site compatibility). `served_model`
+    pins the exact upstream model tag; without it the tag auto-resolves from /v1/models on a 404."""
+    return EndpointModel(chat_url, token, model_name, max_tokens, served_model)

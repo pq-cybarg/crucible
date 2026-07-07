@@ -71,6 +71,7 @@ def test_endpoint_model_url_normalization(monkeypatch):
     seen = {}
 
     class _Resp:
+        status_code = 200
         def raise_for_status(self): pass
         def json(self): return {"choices": [{"message": {"content": "ok"}}]}
 
@@ -101,3 +102,55 @@ def test_endpoint_model_url_normalization(monkeypatch):
     endpoint_model("http://node:8081/v1/chat/completions")([], [])
     assert seen["url"] == "http://node:8081/v1/chat/completions"
     assert seen["headers"] == {}
+
+
+def test_models_url_is_sibling_of_chat():
+    for url in ("http://localhost:11434", "http://localhost:11434/v1",
+                "http://localhost:11434/v1/chat/completions"):
+        assert endpoint_model(url).models_url == "http://localhost:11434/v1/models"
+
+
+def test_registry_label_model_auto_resolves_on_404(monkeypatch):
+    # Ollama rejects the registry LABEL ("ollama-localhost-11434") with 404; we resolve the real
+    # served tag from /v1/models and retry once — the bug the user hit, fixed.
+    posts = []
+
+    class _Resp:
+        def __init__(self, status): self.status_code = status
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise AssertionError("should not raise after resolution")
+        def json(self): return {"choices": [{"message": {"content": "hi"}}]}
+
+    def fake_post(url, json, headers, timeout):
+        posts.append(json["model"])
+        return _Resp(404 if json["model"] == "ollama-localhost-11434" else 200)
+
+    class _Models:
+        def raise_for_status(self): pass
+        def json(self): return {"data": [{"id": "llama3.2:latest"}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "get", lambda url, headers, timeout: _Models())
+
+    m = endpoint_model("http://localhost:11434", model_name="ollama-localhost-11434")
+    out = m([{"role": "user", "content": "hey"}], [])
+    assert posts == ["ollama-localhost-11434", "llama3.2:latest"]   # retried with the real tag
+    assert out == {"role": "assistant", "content": "hi"}
+    assert m.model_name == "llama3.2:latest"                        # remembered for next call
+
+
+def test_explicit_served_model_is_never_overridden(monkeypatch):
+    posts = []
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": "hi"}}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", lambda url, json, headers, timeout: (posts.append(json["model"]), _Resp())[1])
+    m = endpoint_model("http://localhost:11434", model_name="label", served_model="qwen2.5:7b")
+    m([{"role": "user", "content": "x"}], [])
+    assert posts == ["qwen2.5:7b"]     # the explicit tag is used verbatim, no resolution

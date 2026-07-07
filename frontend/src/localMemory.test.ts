@@ -91,6 +91,16 @@ describe("localMemory (on-device crystallized memory)", () => {
     expect(localIndex().memories.find((m) => m.key === "m-0001")?.priority).toBe(9);
   });
 
+  it("balanced sort blends recency + priority (parity with the server)", () => {
+    localCrystallize(msgs(2), "first", "a");    // m-0001, older
+    localCrystallize(msgs(2), "second", "b");   // m-0002, newest
+    localSetPriority("m-0001", 9);              // older but salient
+    // balanced (50/50) surfaces the salient-but-older memory ahead of the newest-but-trivial one
+    expect(localIndex(undefined, "balanced").memories[0]?.key).toBe("m-0001");
+    // pure recency still puts the newest first — the two biases remain distinct
+    expect(localIndex(undefined, "recency").memories[0]?.key).toBe("m-0002");
+  });
+
   it("typed cross-links form a graph (parity with the server)", () => {
     localCrystallize(msgs(2), "A", "a");
     localCrystallize(msgs(2), "B", "b");

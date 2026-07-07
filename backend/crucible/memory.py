@@ -239,12 +239,13 @@ class MemoryStore:
         return [node(c["key"]) for c in self.index(session)]
 
     def search(self, query: str, embedder=None, k: int = 5, session: Optional[str] = None,
-               sort: str = "relevance") -> dict:
+               sort: str = "relevance", metric: Optional[str] = None, solver=None) -> dict:
         """Relevance search over ALL memories (leaves + chunked, at any depth) by their label +
-        summary. With an embedder it's semantic (cosine); without one it's lexical (BM25) — the
-        method is reported honestly. Results are ordered by `sort` (default relevance; or priority /
-        recency / … to blend ranking with agent priority). Returns {method, matches:[card + score]}."""
-        from crucible.rag import rank
+        summary. `metric` picks the distance/similarity family (statistical / lexical / embedding /
+        llm-judged — see crucible.metrics); None keeps the default (semantic if an embedder is given,
+        else lexical BM25). The method is reported honestly so a keyword or bag-of-words hit is never
+        mistaken for meaning. Results are then ordered by `sort` (relevance / priority / recency /
+        balanced / …). Returns {method, matches:[card + score]}."""
         from crucible.sorting import sort_items
         cards = []
         for p in sorted(self.mem_dir.glob("m-*.json")):
@@ -253,9 +254,16 @@ class MemoryStore:
                 continue
             cards.append(self._card(n))
         if not cards:
-            return {"method": "semantic" if embedder else "lexical", "matches": []}
+            base = "semantic" if embedder else "lexical"
+            from crucible.metrics import LABELS
+            return {"method": LABELS.get(metric, base) if metric else base, "matches": []}
         docs = [f"{c['label']} {c['summary']}" for c in cards]
-        r = rank(query, docs, k=k, embedder=embedder)
+        if metric:
+            from crucible.metrics import rank as metric_rank
+            r = metric_rank(query, docs, k=k, metric=metric, embedder=embedder, solver=solver)
+        else:
+            from crucible.rag import rank
+            r = rank(query, docs, k=k, embedder=embedder)
         matches = [{**cards[res["index"]], "score": res["score"]} for res in r["results"]]
         if sort != "relevance":
             matches = sort_items(matches, sort)

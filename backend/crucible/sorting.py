@@ -18,7 +18,15 @@ _KEYS: dict[str, tuple[Callable[[dict], object], bool]] = {
     "label":     (lambda d: str(d.get("label", "")).lower(), False),
 }
 
-SORTS = tuple(_KEYS)
+# "balanced" is not a per-item key — it needs list-wide min/max to normalize — so it lives outside
+# _KEYS and is handled specially in sort_items. It blends recency and priority (salience) the way human
+# recall does: privilege what's *recent* AND what *matters*, instead of pure positional (recency/oldest)
+# bias. See _balanced_scores.
+SORTS = (*_KEYS, "balanced")
+
+# Default weight on recency vs. priority for the balanced sort. 0.5 = equal; ->1 leans recency,
+# ->0 leans salience. Exposed as a parameter so a caller/preference can tune the human-recall curve.
+BALANCED_RECENCY_WEIGHT = 0.5
 
 
 def _seq(d: dict) -> float:
@@ -28,10 +36,40 @@ def _seq(d: dict) -> float:
     return float(digits) if digits else 0.0
 
 
-def sort_items(items: list[dict], by: str = "recency", descending: bool | None = None) -> list[dict]:
+def _norm(values: list[float]) -> dict[int, float]:
+    """Min-max normalize to [0,1] by index. A flat set (all equal) maps to 0.5 so it contributes
+    neutrally rather than dominating."""
+    lo, hi = min(values), max(values)
+    span = hi - lo
+    if span <= 0:
+        return {i: 0.5 for i in range(len(values))}
+    return {i: (v - lo) / span for i, v in enumerate(values)}
+
+
+def _balanced_scores(items: list[dict], recency_weight: float) -> list[float]:
+    """Salience-weighted recency: score = w·norm(recency) + (1−w)·norm(priority). Normalizing each
+    axis across the set keeps the two comparable regardless of their raw scales (ids climb into the
+    thousands; priorities are small integers)."""
+    w = max(0.0, min(1.0, recency_weight))
+    rec = _norm([_seq(d) for d in items])
+    pri = _norm([float(d.get("priority", 0)) for d in items])
+    return [w * rec[i] + (1.0 - w) * pri[i] for i in range(len(items))]
+
+
+def sort_items(
+    items: list[dict],
+    by: str = "recency",
+    descending: bool | None = None,
+    recency_weight: float = BALANCED_RECENCY_WEIGHT,
+) -> list[dict]:
     """Return items ordered by the named key. `descending=None` uses the key's sensible default
     (relevance/priority/size/degree/recency -> newest/biggest first; oldest/label -> ascending).
-    Stable and pure; an unknown `by` leaves the order untouched."""
+    `balanced` blends recency + priority (salience) with `recency_weight` in [0,1]. Stable and pure;
+    an unknown `by` leaves the order untouched."""
+    if by == "balanced":
+        scores = _balanced_scores(items, recency_weight)
+        order = sorted(range(len(items)), key=lambda i: scores[i], reverse=descending is not False)
+        return [items[i] for i in order]
     spec = _KEYS.get(by)
     if spec is None:
         return list(items)

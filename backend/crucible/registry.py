@@ -16,6 +16,9 @@ class Model(BaseModel):
     endpoint: str | None
     created: str
     notes: str = ""
+    # The exact model tag the upstream endpoint expects (e.g. Ollama's "llama3.2:latest"). None lets
+    # EndpointModel auto-resolve it from /v1/models — so the registry id can be a friendly label.
+    served_model: str | None = None
 
 
 class Registry:

@@ -120,6 +120,7 @@ class ConnectRequest(BaseModel):
     endpoint: str
     quant: str = "remote"
     notes: str = ""
+    served_model: str | None = None   # exact upstream tag; None auto-resolves from /v1/models
 
 
 class RuntimeStartRequest(BaseModel):
@@ -445,6 +446,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     memory = MemoryStore(settings.data_dir / "memory")
     from crucible.hierarchy import ProfileStore
     hierarchy_store = ProfileStore(settings.data_dir / "hierarchy.json")
+    from crucible.prefs import PreferencesStore
+    prefs_store = PreferencesStore(settings.data_dir / "preferences.json")
 
     def _profile(name: str | None):
         if not name:
@@ -587,6 +590,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             endpoint=req.endpoint.rstrip("/"),
             created=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             notes=req.notes or "connected BYO endpoint (OpenAI-compatible)",
+            served_model=req.served_model,
         )
         try:
             return reg.register(m)
@@ -1308,7 +1312,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"model '{model_id}' not in registry")
             if m.endpoint:
-                em = endpoint_model(m.endpoint, model_name=m.id)
+                em = endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model)
                 return lambda p: (em([{"role": "user", "content": p}], []) or {}).get("content", "")
         if abliteration_adapter is not None:
             return lambda p: abliteration_adapter.generate_chat([{"role": "user", "content": p}], 128)
@@ -2081,7 +2085,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"model '{req.model_id}' not in registry")
             if m.endpoint and _endpoint_alive(m.endpoint):
-                return endpoint_model(m.endpoint, model_name=m.id)
+                return endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model)
             # endpoint missing/offline -> (re)launch a local GGUF file on demand
             if _is_gguf_file(m.path):
                 inst = runtime.ensure(m.id, m.path)
@@ -2090,7 +2094,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     runtime.stop(m.id)
                     raise HTTPException(status_code=502, detail=f"model {m.id} failed to start")
                 reg.set_endpoint(m.id, inst.endpoint)
-                return endpoint_model(inst.endpoint, model_name=m.id)
+                return endpoint_model(inst.endpoint, model_name=m.id, served_model=m.served_model)
             if m.endpoint:
                 raise HTTPException(status_code=502,
                     detail=f"model {m.id} endpoint {m.endpoint} is offline and not a launchable local GGUF")
@@ -2105,7 +2109,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return endpoint_model(env_ep)
         for m in reg.list():
             if m.endpoint:
-                return endpoint_model(m.endpoint, model_name=m.id)
+                return endpoint_model(m.endpoint, model_name=m.id, served_model=m.served_model)
         if abliteration_adapter is not None:
             return _adapter_chat_model(abliteration_adapter)
         return None
@@ -2279,13 +2283,15 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         return out
 
     @app.get("/api/memory/index")
-    def memory_index(session: str | None = None, sort: str = "recency") -> dict:
+    def memory_index(session: str | None = None, sort: str | None = None) -> dict:
         """The summary passthrough: every top-level crystallized memory as a cheap card — scan these
         before opening any full context. Optional session filter; `sort` = recency/priority/size/
-        degree/label to prioritize recall cheaply."""
+        degree/label/balanced to prioritize recall cheaply. Omitting `sort` uses the configured
+        default-sort preference (primacy/recency/salience/balanced)."""
         from crucible.sorting import SORTS
-        return {"memories": memory.index(session, sort=sort), "versioned": memory.versioned,
-                "sorts": list(SORTS)}
+        chosen = sort or prefs_store.get()["default_sort"]
+        return {"memories": memory.index(session, sort=chosen), "versioned": memory.versioned,
+                "sorts": list(SORTS), "sort": chosen}
 
     @app.get("/api/memory/tree")
     def memory_tree(session: str | None = None) -> dict:
@@ -2313,16 +2319,53 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return [d["embedding"] for d in r.json().get("data", [])]
         return embed
 
+    @app.get("/api/metrics")
+    def metrics_catalog() -> dict:
+        """The distance/similarity families search & reorganization can use, each with its HONEST
+        method label and whether it's runnable right now (offline stats always; embedding needs an
+        embedding backend; llm-judged needs the configured processing model)."""
+        from crucible.metrics import LABELS, METRICS, available
+        embedder = _make_embedder()
+        pm = prefs_store.get()["processing_model"]
+        solver = _make_solver(pm) if pm else None
+        return {"metrics": [{"name": m, "label": LABELS[m],
+                             "available": available(m, embedder, solver)} for m in METRICS],
+                "processing_model": pm}
+
     @app.get("/api/memory/search")
-    def memory_search(q: str, k: int = 5, session: str | None = None, sort: str = "relevance") -> dict:
-        """Relevance search over crystallized memories. Uses the configured embedding backend for
-        SEMANTIC search if available; otherwise LEXICAL (BM25). The method is reported honestly so a
-        keyword hit is never mistaken for meaning. `sort` blends ranking with priority/recency/…"""
+    def memory_search(q: str, k: int = 5, session: str | None = None,
+                      sort: str = "relevance", metric: str | None = None) -> dict:
+        """Relevance search over crystallized memories. `metric` selects the distance family
+        (statistical / lexical / embedding / llm-judged); omitting it uses the default-metric
+        preference, or the embedding backend if configured, else lexical BM25. The llm-judged metric
+        runs through the configured (small) processing model. The method is always reported honestly
+        so a keyword or bag-of-words hit is never mistaken for meaning. `sort` blends the ranking with
+        priority/recency/balanced/…"""
+        prefs = prefs_store.get()
+        chosen = metric or (prefs["default_metric"] if prefs["default_metric"] != "bm25" else None)
+        pm = prefs["processing_model"]
+        solver = _make_solver(pm) if (pm and chosen == "llm") else None
         try:
-            return memory.search(q, embedder=_make_embedder(), k=k, session=session, sort=sort)
+            return memory.search(q, embedder=_make_embedder(), k=k, session=session,
+                                 sort=sort, metric=chosen, solver=solver)
         except Exception:
-            # a flaky embedding backend must not break search — fall back to lexical
+            # a flaky embedding backend or an unavailable metric must not break search — fall back to
+            # honest lexical BM25 rather than erroring or fabricating a score.
             return memory.search(q, embedder=None, k=k, session=session, sort=sort)
+
+    @app.get("/api/preferences")
+    def get_preferences() -> dict:
+        """Organizational preferences: default recall ordering, the balanced-sort recency weight, the
+        default distance metric, and the preferred processing model for llm-judged distance."""
+        from crucible.metrics import METRICS
+        from crucible.sorting import SORTS
+        return {"preferences": prefs_store.get(), "sorts": list(SORTS), "metrics": list(METRICS)}
+
+    @app.post("/api/preferences")
+    def set_preferences(body: dict) -> dict:
+        """Update organizational preferences (validated: unknown sort/metric and out-of-range weights
+        fall back to safe defaults)."""
+        return {"preferences": prefs_store.save(body or {})}
 
     @app.post("/api/memory/link")
     def memory_link(body: dict) -> dict:

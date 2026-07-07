@@ -87,6 +87,44 @@ def test_memory_search_endpoint_lexical(tmp_path, monkeypatch):
     assert res["method"] == "lexical" and res["matches"][0]["label"] == "a"
 
 
+def test_metric_search_and_catalog(tmp_path, monkeypatch):
+    monkeypatch.delenv("CRUCIBLE_EMBED_ENDPOINT", raising=False)   # no embedder -> offline metrics
+    c = mkapp(tmp_path, monkeypatch, Summarizer())
+    from crucible.memory import MemoryStore
+    from crucible.config import get_settings
+    store = MemoryStore(get_settings().data_dir / "memory")
+    store.crystallize([{"role": "user", "content": "x"}], "abliteration removes the refusal direction", label="a")
+    store.crystallize([{"role": "user", "content": "y"}], "quantization compresses weights", label="b")
+    # the catalog lists every family with honest labels + availability
+    cat = c.get("/api/metrics").json()
+    names = {m["name"]: m for m in cat["metrics"]}
+    assert names["jaccard"]["label"] == "statistical-jaccard" and names["jaccard"]["available"]
+    assert names["embedding"]["available"] is False        # no embedder configured
+    assert names["llm"]["available"] is False              # no processing model configured
+    # search with an explicit statistical metric reports that honest method label
+    res = c.get("/api/memory/search", params={"q": "refusal direction", "metric": "jaccard"}).json()
+    assert res["method"] == "statistical-jaccard" and res["matches"][0]["label"] == "a"
+
+
+def test_preferences_default_sort_drives_index(tmp_path, monkeypatch):
+    c = mkapp(tmp_path, monkeypatch, Summarizer())
+    from crucible.memory import MemoryStore
+    from crucible.config import get_settings
+    store = MemoryStore(get_settings().data_dir / "memory")
+    store.crystallize([{"role": "user", "content": "x"}], "first", label="a")
+    store.crystallize([{"role": "user", "content": "y"}], "second", label="b")
+    store.set_priority("m-0001", 9)
+    # default sort is recency (newest first) until a preference changes it
+    assert c.get("/api/memory/index").json()["memories"][0]["key"] == "m-0002"
+    saved = c.post("/api/preferences", json={"default_sort": "priority"}).json()["preferences"]
+    assert saved["default_sort"] == "priority"
+    # now the un-parameterized index honors the salience preference
+    idx = c.get("/api/memory/index").json()
+    assert idx["memories"][0]["key"] == "m-0001" and idx["sort"] == "priority"
+    # an explicit sort still overrides the default
+    assert c.get("/api/memory/index", params={"sort": "recency"}).json()["memories"][0]["key"] == "m-0002"
+
+
 def test_memory_graph_link_priority_endpoints(tmp_path, monkeypatch):
     c = mkapp(tmp_path, monkeypatch, Summarizer())
     from crucible.memory import MemoryStore

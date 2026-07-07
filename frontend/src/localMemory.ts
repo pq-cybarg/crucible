@@ -42,9 +42,23 @@ function card(n: Stored): MemoryCard & { priority: number; degree: number } {
     priority: n.priority ?? 0, degree: (n.links ?? []).length };
 }
 
-// Configurable ordering, mirroring the backend sorting module (recency / priority / size / degree / label).
+// Configurable ordering, mirroring the backend sorting module (recency / priority / size / degree /
+// label / balanced). "balanced" blends recency + priority (salience) the way human recall does —
+// privilege what's recent AND what matters — instead of pure positional bias.
 function seq(key: string): number { const d = key.replace(/\D/g, ""); return d ? Number(d) : 0; }
-function sortCards<T extends { key: string; label?: string; size?: number; priority?: number; degree?: number; score?: number }>(items: T[], by: string): T[] {
+export const BALANCED_RECENCY_WEIGHT = 0.5;
+function normBy<T>(items: T[], val: (x: T) => number): (i: number) => number {
+  const vs = items.map(val); const lo = Math.min(...vs), hi = Math.max(...vs); const span = hi - lo;
+  return (i) => (span <= 0 ? 0.5 : (vs[i]! - lo) / span);   // flat set → neutral 0.5, not dominant
+}
+function sortCards<T extends { key: string; label?: string; size?: number; priority?: number; degree?: number; score?: number }>(
+  items: T[], by: string, recencyWeight = BALANCED_RECENCY_WEIGHT): T[] {
+  if (by === "balanced") {
+    const w = Math.max(0, Math.min(1, recencyWeight));
+    const rec = normBy(items, (x) => seq(x.key)), pri = normBy(items, (x) => x.priority ?? 0);
+    const score = items.map((_, i) => w * rec(i) + (1 - w) * pri(i));
+    return items.map((_, i) => i).sort((a, b) => score[b]! - score[a]!).map((i) => items[i]!);
+  }
   const keyed: Record<string, [(x: T) => number | string, boolean]> = {
     relevance: [(x) => x.score ?? 0, true], priority: [(x) => (x.priority ?? 0) * 1e7 + seq(x.key), true],
     size: [(x) => x.size ?? 0, true], degree: [(x) => x.degree ?? 0, true],
