@@ -28,7 +28,8 @@ HELP = """commands:
   /tools                list tools
   /save <name>          save this session
   /load <name>          load a session
-  /sessions             list saved sessions
+  /sessions             list saved sessions (in this project)
+  /where                show working dir, project root, session store + memory dir
   /config               show settings   ·   /config save  persists current settings
   /recipe <layers> <rank> | /recipe clear   set/clear the served runtime recipe
   /diagnose <id>        run censorship diagnosis
@@ -36,14 +37,36 @@ HELP = """commands:
 (any other text → the agent)"""
 
 
-def home() -> Path:
-    h = Path(os.environ.get("CRUCIBLE_HOME", Path.home() / ".crucible"))
-    h.mkdir(parents=True, exist_ok=True)
-    return h
+# A project is the nearest ancestor of the CWD carrying one of these markers — so sessions/settings
+# live INSIDE the project folder and travel with it. Unlike a global store keyed by absolute path
+# (Claude-style), moving or renaming the folder never orphans your sessions.
+PROJECT_MARKERS = (".crucible", ".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod")
+
+
+def project_root(start: Path | None = None) -> Path:
+    cur = (start or Path.cwd()).resolve()
+    for d in (cur, *cur.parents):
+        if any((d / m).exists() for m in PROJECT_MARKERS):
+            return d
+    return cur
+
+
+def store_dir() -> Path:
+    """Where CLI state (sessions, settings, audit) lives. `CRUCIBLE_HOME` forces a specific dir
+    (e.g. a shared/global one); otherwise it's <project>/.crucible — inside the folder, so the whole
+    working set moves with the project. Created on demand."""
+    env = os.environ.get("CRUCIBLE_HOME")
+    d = Path(env).expanduser() if env else project_root() / ".crucible"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# kept as an alias so existing call sites (audit path etc.) read naturally
+home = store_dir
 
 
 def load_settings() -> dict:
-    f = home() / "settings.json"
+    f = store_dir() / "settings.json"
     out = dict(DEFAULTS)
     if f.exists():
         try:
@@ -54,13 +77,20 @@ def load_settings() -> dict:
 
 
 def save_settings(s: dict) -> None:
-    (home() / "settings.json").write_text(json.dumps(s, indent=2))
+    (store_dir() / "settings.json").write_text(json.dumps(s, indent=2))
 
 
 def session_path(name: str) -> Path:
-    d = home() / "sessions"
+    d = store_dir() / "sessions"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{name}.json"
+
+
+def most_recent_session() -> str | None:
+    """The newest session in this project — what --continue resumes."""
+    d = store_dir() / "sessions"
+    files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if d.exists() else []
+    return files[0].stem if files else None
 
 
 def save_session(name: str, convo: list[dict]) -> None:
@@ -73,8 +103,26 @@ def load_session(name: str) -> list[dict]:
 
 
 def list_sessions() -> list[str]:
-    d = home() / "sessions"
+    d = store_dir() / "sessions"
     return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
+
+
+def browse_sessions() -> list[dict]:
+    """Rich, newest-first listing of every session in THIS project — for browsing/picking, not just
+    names: message count, when it was last touched, and a preview of the first user turn."""
+    import time
+    d = store_dir() / "sessions"
+    out = []
+    for p in (d.glob("*.json") if d.exists() else []):
+        try:
+            convo = json.loads(p.read_text())
+        except (OSError, ValueError):
+            convo = []
+        first = next((m.get("content", "") for m in convo if m.get("role") == "user"), "")
+        out.append({"name": p.stem, "msgs": len(convo), "mtime": p.stat().st_mtime,
+                    "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime)),
+                    "preview": " ".join(first.split())[:60]})
+    return sorted(out, key=lambda s: s["mtime"], reverse=True)
 
 
 def parse_chat_response(data: dict) -> dict:
@@ -118,13 +166,28 @@ def main(argv=None) -> int:
     ap.add_argument("--control", default=cfg["control"])
     ap.add_argument("--perm", default=cfg["perm"], choices=["allow", "ask", "deny"])
     ap.add_argument("--token", default=cfg.get("token", ""))
-    ap.add_argument("--session", default=None)
+    ap.add_argument("--session", default=None, help="name a session to save/load in <project>/.crucible/sessions")
+    ap.add_argument("-c", "--continue", dest="cont", action="store_true",
+                    help="resume the most recent session in this project")
+    ap.add_argument("--resume", nargs="?", const="__recent__", default=None,
+                    help="resume a named session (or the most recent if no name given)")
     ap.add_argument("prompt", nargs="*")
     a = ap.parse_args(argv)
 
+    # Resolve the session to resume: --resume <name> | --resume/-c (most recent) | --session <name>.
+    sess = a.session
+    if a.resume is not None:
+        sess = most_recent_session() if a.resume == "__recent__" else a.resume
+    elif a.cont:
+        sess = most_recent_session()
+    if (a.cont or a.resume is not None) and sess is None:
+        print("  (no previous session in this project — starting fresh as 'default')")
+        sess = "default"
+    convo = load_session(sess) if (sess and session_path(sess).exists()) else []
+
     st = {"chat": a.endpoint.rstrip("/") + "/chat/completions", "endpoint": a.endpoint,
           "control": a.control, "perm": a.perm,
-          "convo": load_session(a.session) if a.session else [], "session": a.session, "token": a.token}
+          "convo": convo, "session": sess, "token": a.token}
     audit = AuditLog(home() / "cli-audit.jsonl")
     registry = default_registry(Path.cwd())
     mcp_clients, mcp_tools = load_mcp(cfg.get("mcp", {}))
@@ -172,12 +235,29 @@ def main(argv=None) -> int:
             st["convo"] = load_session(parts[1])
             print(f"  loaded '{parts[1]}' ({len(st['convo'])} msgs)")
         elif cmd == "/sessions":
-            print("  " + (", ".join(list_sessions()) or "(none)"))
+            rows = browse_sessions()
+            if not rows:
+                print("  (no sessions in this project yet — /save <name> or run with -c to start one)")
+            for s in rows:
+                mark = "→" if s["name"] == st["session"] else " "
+                print(f"  {mark} {s['name']:20} {s['msgs']:>4} msgs · {s['when']} · {s['preview']}")
         elif cmd == "/config" and len(parts) > 1 and parts[1] == "save":
             save_settings({"endpoint": st["endpoint"], "control": st["control"], "perm": st["perm"]})
             print(f"  settings saved → {home() / 'settings.json'}")
         elif cmd == "/config":
             print(f"  endpoint={st['endpoint']} control={st['control']} perm={st['perm']} session={st['session']}")
+        elif cmd == "/where":
+            root = project_root()
+            print(f"  cwd:           {Path.cwd()}")
+            print(f"  project root:  {root}" + ("  (found via marker)" if root != Path.cwd() else "  (no marker — using cwd)"))
+            print(f"  session store: {store_dir() / 'sessions'}   ← inside the project, moves with it")
+            cur = st["session"]
+            print(f"  this session:  {cur or '(unsaved)'}" + (f"  → {session_path(cur)}" if cur else ""))
+            try:
+                cfgd = httpx.get(f"{st['control']}/api/config", timeout=3).json()
+                print(f"  memory dir:    {cfgd.get('memory_dir')}   (server-side; set CRUCIBLE_DATA_DIR to relocate)")
+            except (httpx.HTTPError, ValueError):
+                print("  memory dir:    (backend offline — start the Crucible API to see it)")
         elif cmd == "/clear":
             st["convo"] = []
             print("  conversation reset")
@@ -201,6 +281,7 @@ def main(argv=None) -> int:
         return 0
     print(BANNER)
     print(f"endpoint: {st['endpoint']} · perm: {st['perm']}{' · session: ' + st['session'] if st['session'] else ''} · /help")
+    print(f"project: {project_root()} · sessions: {store_dir() / 'sessions'} (/where for details)")
     while True:
         try:
             line = input(f"\ncrucible[{st['perm']}]> ").strip()

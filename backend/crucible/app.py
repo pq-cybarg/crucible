@@ -542,6 +542,15 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     def health():
         return {"ok": True}
 
+    @app.get("/api/config")
+    def config() -> dict:
+        """Where the server keeps its state, so the CLI/GUI can SHOW it (memory, registry, models).
+        Relocate with CRUCIBLE_DATA_DIR — it's a plain directory, not a hidden global keyed by path."""
+        return {"data_dir": str(settings.data_dir),
+                "memory_dir": str(settings.data_dir / "memory"),
+                "models_dir": str(settings.models_dir),
+                "registry": str(settings.registry_path)}
+
     @app.get("/api/models")
     def list_models() -> list[Model]:
         return reg.list()
