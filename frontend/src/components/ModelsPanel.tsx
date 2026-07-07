@@ -110,13 +110,22 @@ export default function ModelsPanel(): JSX.Element {
                   <td>{row.endpoint ?? "—"}</td>
                   <td style={{ color: "var(--ash)" }}>{row.created}</td>
                   <td>
-                    <button
-                      className={`btn row-use ${activeId === row.id ? "on" : ""}`}
-                      onClick={() => selectModel(row.id)}
-                      title="route the forge console to this model"
-                    >
-                      {activeId === row.id ? "active ✓" : "use"}
-                    </button>
+                    {status[row.id] && !status[row.id]?.servable ? (
+                      <button className="btn row-use" disabled
+                        title="no live endpoint and not a launchable local GGUF — connect an endpoint (Ollama/llama.cpp) or launch a server before using this model">
+                        unusable
+                      </button>
+                    ) : (
+                      <button
+                        className={`btn row-use ${activeId === row.id ? "on" : ""}`}
+                        onClick={() => selectModel(row.id)}
+                        title={status[row.id]?.launchable && !status[row.id]?.online
+                          ? "no live endpoint — the forge will launch this local GGUF on first use"
+                          : "route the forge console to this model"}
+                      >
+                        {activeId === row.id ? "active ✓" : "use"}
+                      </button>
+                    )}
                   </td>
                 </motion.tr>
               ))}
