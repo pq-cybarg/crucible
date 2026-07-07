@@ -35,9 +35,17 @@ from crucible.registry import Model, Registry
 from crucible.tools import default_registry
 
 
+class PathRuleConfig(BaseModel):
+    glob: str
+    mode: str = "deny"
+    tools: list[str] = Field(default_factory=list)
+
+
 class PermissionConfig(BaseModel):
     default: str = "ask"
     modes: dict[str, str] = Field(default_factory=dict)
+    # Path-scoped rules: allow/ask/deny a tool for specific files/directories (e.g. deny ~/.ssh/**).
+    path_rules: list[PathRuleConfig] = Field(default_factory=list)
 
 
 class AgentRunRequest(BaseModel):
@@ -2211,7 +2219,11 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                             {"type": "error", "data": {"reason": "blocked by guardrails"}}) + "\n\n")
                     return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
-        policy = PermissionPolicy(default=req.permissions.default, modes=req.permissions.modes)
+        from crucible.permissions import PathRule
+        policy = PermissionPolicy(
+            default=req.permissions.default, modes=req.permissions.modes,
+            path_rules=[PathRule(glob=r.glob, mode=r.mode, tools=tuple(r.tools))
+                        for r in req.permissions.path_rules])
         tools = default_registry(root)
         _attach_spawn(tools, active_model, req.spawn_depth, req.spawn_total, profile=_profile(req.profile))
         audit = AuditLog(settings.data_dir / "audit.jsonl")
