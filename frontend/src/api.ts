@@ -190,6 +190,58 @@ export const BUILTIN_TOOLS = [
 ] as const;
 // Tools that take a filesystem path — path rules meaningfully apply to these.
 export const PATH_TOOLS = ["read_file", "write_file", "edit_file", "multi_edit", "list_dir", "glob", "grep", "bash"] as const;
+// --- live agent sessions: tabs (dirs / subagents) + loadable memory/context slots ---------------
+export interface AgentSlot { readonly kind: "memory" | "context"; readonly ref: string; readonly label: string; readonly enabled: boolean }
+export interface AgentSessionCard {
+  readonly id: string; readonly title: string; readonly cwd: string; readonly model_id: string | null;
+  readonly parent_id: string | null; readonly status: string; readonly created: string;
+  readonly updated: string; readonly n_messages: number; readonly n_slots: number; readonly n_loaded: number;
+}
+export interface AgentSessionFull extends AgentSessionCard {
+  readonly messages: readonly ChatMessage[]; readonly slots: readonly AgentSlot[];
+}
+async function jbody(r: Response, what: string): Promise<unknown> {
+  if (!r.ok) throw new Error(`${what} ${r.status}`);
+  return r.json();
+}
+export async function listAgentSessions(opts?: { top?: boolean; parent?: string }): Promise<readonly AgentSessionCard[]> {
+  if (isDemo()) return [];
+  const q = opts?.top ? "?top=true" : opts?.parent ? `?parent=${encodeURIComponent(opts.parent)}` : "";
+  try { const b = await jbody(await cfetch(API_BASE + "/api/agent-sessions" + q), "sessions") as { sessions: AgentSessionCard[] }; return b.sessions; }
+  catch { return []; }
+}
+export async function createAgentSession(body: { title: string; cwd: string; model_id?: string | null; parent_id?: string | null }): Promise<AgentSessionCard> {
+  const r = await cfetch(API_BASE + "/api/agent-sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return await jbody(r, "create session") as AgentSessionCard;
+}
+export async function getAgentSession(id: string): Promise<AgentSessionFull> {
+  return await jbody(await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}`), "get session") as AgentSessionFull;
+}
+export async function updateAgentSession(id: string, fields: Record<string, unknown>): Promise<AgentSessionCard> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) });
+  return await jbody(r, "update session") as AgentSessionCard;
+}
+export async function deleteAgentSession(id: string): Promise<void> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`delete session ${r.status}`);
+}
+export async function getAgentSessionContext(id: string): Promise<readonly ChatMessage[]> {
+  const b = await jbody(await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/context`), "context") as { messages: ChatMessage[] };
+  return b.messages;
+}
+export async function attachSlot(id: string, kind: "memory" | "context", ref: string, label = ""): Promise<AgentSessionFull> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/slots`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, ref, label }) });
+  return await jbody(r, "attach slot") as AgentSessionFull;
+}
+export async function toggleSlot(id: string, kind: "memory" | "context", ref: string, enabled: boolean): Promise<AgentSessionFull> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/slots`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, ref, enabled }) });
+  return await jbody(r, "toggle slot") as AgentSessionFull;
+}
+export async function detachSlot(id: string, kind: "memory" | "context", ref: string): Promise<AgentSessionFull> {
+  const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/slots?kind=${kind}&ref=${encodeURIComponent(ref)}`, { method: "DELETE" });
+  return await jbody(r, "detach slot") as AgentSessionFull;
+}
+
 // Forget a dead/experiment model registry entry (does NOT delete weight files on disk).
 export async function forgetModel(modelId: string): Promise<void> {
   const r = await cfetch(`${API_BASE}/api/models/${encodeURIComponent(modelId)}`, { method: "DELETE" });

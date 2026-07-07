@@ -950,6 +950,41 @@ label.pipe-comp input { margin-right: 4px; }
 .compat-hint { font-size: 10.5px; color: var(--amber); opacity: 0.85; letter-spacing: 0.03em;
   font-style: italic; margin-left: 4px; }
 
+/* ===================== Agent tabs + slots ================================== */
+.agents-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+.atab { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--steel-900); padding: 2px 4px 2px 8px; }
+.atab.on { border-color: var(--amber); background: rgba(255, 106, 26, 0.1); }
+.atab-name { background: none; border: none; color: var(--bone); cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; font-family: var(--font-display); font-size: 12px; }
+.atab-sub { color: var(--amber-bright); }
+.atab-meta { font-size: 9.5px; color: var(--ash); font-family: var(--font-mono); letter-spacing: 0; text-transform: none;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atab-x { background: none; border: none; color: var(--ash); cursor: pointer; padding: 2px 4px; }
+.atab-x:hover { color: var(--ember); }
+.agents-body { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.agents-browse { border-left: 1px solid var(--line); padding-left: 14px; }
+.slot-list, .browse-list { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.slot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--steel-800); }
+.slot.off { opacity: 0.5; }
+.slot-kind { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid var(--line-bright); color: var(--ash); }
+.slot-kind.memory { color: var(--flux); border-color: var(--flux-dim); }
+.slot-kind.context { color: var(--amber-bright); border-color: var(--amber-dim, var(--line-bright)); }
+.slot-label { color: var(--ash); font-size: 11px; overflow-wrap: anywhere; }
+.slot-x { margin-left: auto; background: none; border: none; color: var(--ash); cursor: pointer; }
+.slot-x:hover { color: var(--ember); }
+.ctx-preview { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px; background: var(--steel-900); display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ctx-msg { font-size: 12px; color: var(--bone); overflow-wrap: anywhere; }
+.browse-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.browse-add { font-size: 9.5px; padding: 2px 8px; background: var(--steel-800); border: 1px solid var(--line-bright);
+  color: var(--amber-bright); border-radius: 3px; cursor: pointer; }
+.browse-add:disabled { color: var(--ash); cursor: default; opacity: 0.6; }
+@media (max-width: 820px) { .agents-body { grid-template-columns: 1fr; }
+  .agents-browse { border-left: none; border-top: 1px solid var(--line); padding-left: 0; padding-top: 12px; } }
+
 /* ===================== Preferences panel =================================== */
 .pref-section { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;
   background: var(--steel-900); }

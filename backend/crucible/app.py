@@ -456,6 +456,19 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     hierarchy_store = ProfileStore(settings.data_dir / "hierarchy.json")
     from crucible.prefs import PreferencesStore
     prefs_store = PreferencesStore(settings.data_dir / "preferences.json")
+    from crucible.agent_sessions import AgentSessionStore
+    agent_sessions = AgentSessionStore(settings.data_dir / "agent_sessions.json")
+
+    def _memory_text(key: str) -> str:
+        """Resolve a memory key to loadable text — its summary as a header plus its full messages (if a
+        leaf) — what an agent session injects when that memory slot is loaded."""
+        node = memory.read(key)
+        parts = []
+        if node.get("summary"):
+            parts.append(node["summary"])
+        if node.get("messages"):
+            parts.append("\n".join(f"{m.get('role')}: {m.get('content','')}" for m in node["messages"]))
+        return "\n".join(parts)
 
     def _profile(name: str | None):
         if not name:
@@ -2381,6 +2394,81 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         """The memory GRAPH: nodes (cards) + edges — parent/child (the tree) plus directed typed
         cross-links (the semicyclic layer). The DAG view beyond the strict hierarchy."""
         return memory.graph(session)
+
+    # --- live agent sessions: tabs (dirs / subagents) + loadable memory & context slots ------------
+    @app.get("/api/agent-sessions")
+    def agent_sessions_list(parent: str | None = None, top: bool = False) -> dict:
+        """Cards for the tab bar / browser. `top=true` → only top-level (hide subagents); `parent=<id>`
+        → that session's subagents; neither → every session."""
+        pid = None if top else (parent if parent is not None else "__all__")
+        return {"sessions": agent_sessions.list(parent_id=pid)}
+
+    @app.post("/api/agent-sessions", status_code=201)
+    def agent_sessions_create(body: dict) -> dict:
+        """Open a new agent tab: a session bound to a working directory, optionally a subagent of
+        another (parent_id)."""
+        try:
+            return agent_sessions.create(title=str(body.get("title", "")), cwd=str(body.get("cwd", ".")),
+                                         model_id=body.get("model_id"), parent_id=body.get("parent_id"))
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @app.get("/api/agent-sessions/{sid}")
+    def agent_sessions_get(sid: str) -> dict:
+        try:
+            return agent_sessions.read(sid)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+
+    @app.patch("/api/agent-sessions/{sid}")
+    def agent_sessions_update(sid: str, body: dict) -> dict:
+        try:
+            return agent_sessions.update(sid, **body)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+
+    @app.delete("/api/agent-sessions/{sid}")
+    def agent_sessions_delete(sid: str) -> dict:
+        if not agent_sessions.delete(sid):
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+        return {"removed": sid}
+
+    @app.get("/api/agent-sessions/{sid}/context")
+    def agent_sessions_context(sid: str) -> dict:
+        """The session's LIVE assembled context — enabled memory + context slots injected ahead of its
+        conversation. Exactly what a run would send, so the UI can preview what's loaded."""
+        try:
+            return {"messages": agent_sessions.assembled_context(sid, memory_text=_memory_text)}
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+
+    @app.post("/api/agent-sessions/{sid}/slots")
+    def agent_sessions_attach(sid: str, body: dict) -> dict:
+        """Load a memory or another context INTO this session (slot it in)."""
+        try:
+            return agent_sessions.attach_slot(sid, str(body.get("kind", "")), str(body.get("ref", "")),
+                                              label=str(body.get("label", "")))
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    @app.patch("/api/agent-sessions/{sid}/slots")
+    def agent_sessions_toggle_slot(sid: str, body: dict) -> dict:
+        """Slot a loaded memory/context IN or OUT without removing it (the load/unload toggle)."""
+        try:
+            return agent_sessions.set_slot_enabled(sid, str(body.get("kind", "")), str(body.get("ref", "")),
+                                                   bool(body.get("enabled", True)))
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @app.delete("/api/agent-sessions/{sid}/slots")
+    def agent_sessions_detach(sid: str, kind: str, ref: str) -> dict:
+        """Remove a slot entirely."""
+        try:
+            return agent_sessions.detach_slot(sid, kind, ref)
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     def _make_embedder():
         """A texts->list[vector] embedder from the configured embedding backend (OpenAI /v1/embeddings),
