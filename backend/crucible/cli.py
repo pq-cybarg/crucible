@@ -171,8 +171,16 @@ def main(argv=None) -> int:
                     help="resume the most recent session in this project")
     ap.add_argument("--resume", nargs="?", const="__recent__", default=None,
                     help="resume a named session (or the most recent if no name given)")
+    ap.add_argument("--tui", action="store_true", help="launch the fullscreen agent-workbench TUI")
     ap.add_argument("prompt", nargs="*")
     a = ap.parse_args(argv)
+
+    # `crucible tui` or `crucible --tui` → the fullscreen multi-agent workbench (shares the backend
+    # with the web UI: same tabs, subagents, and loadable memory/context slots).
+    if a.tui or (a.prompt and a.prompt[0] == "tui"):
+        from crucible.tui import run_tui
+        run_tui(a.control)
+        return 0
 
     # Resolve the session to resume: --resume <name> | --resume/-c (most recent) | --session <name>.
     sess = a.session
