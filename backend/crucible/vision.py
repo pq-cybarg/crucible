@@ -44,6 +44,66 @@ def describe_images(image_paths: list[str], prompt: str, model: str,
     return (r.json().get("message") or {}).get("content", "").strip()
 
 
+def is_url(path: str) -> bool:
+    return path.startswith("http://") or path.startswith("https://")
+
+
+def download_video(url: str, out_dir: str | None = None, max_height: int = 360,
+                   max_seconds: float = 0.0) -> str:
+    """Download a video (incl. YouTube) to a LOW-RES local file with yt-dlp — 360p by default so a long
+    video stays small and frame-sampling stays cheap. `max_seconds`>0 grabs only the opening window.
+    Returns the downloaded file path. Raises if yt-dlp isn't available or the download fails."""
+    import yt_dlp
+
+    out_dir = out_dir or tempfile.mkdtemp(prefix="crucible-yt-")
+    opts: dict = {
+        "format": f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best",
+        "outtmpl": os.path.join(out_dir, "video.%(ext)s"),
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+    }
+    if max_seconds and max_seconds > 0:
+        opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(0, float(max_seconds))])
+        opts["force_keyframes_at_cuts"] = True
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        path = ydl.prepare_filename(info)
+    if not os.path.exists(path):                      # merged/remuxed extension may differ
+        cands = [os.path.join(out_dir, f) for f in os.listdir(out_dir)]
+        cands = [c for c in cands if os.path.isfile(c)]
+        if not cands:
+            raise RuntimeError("download produced no file")
+        path = max(cands, key=os.path.getsize)
+    return path
+
+
+def unload_model(model: str, endpoint: str | None = None) -> None:
+    """Tell Ollama to drop the model now (free its RAM). Best-effort."""
+    import httpx
+    try:
+        httpx.post((endpoint or vision_endpoint()) + "/api/chat",
+                   json={"model": model, "keep_alive": 0, "messages": []}, timeout=15)
+    except httpx.HTTPError:
+        pass
+
+
+def describe_frames(frame_paths: list[str], prompt: str, model: str, endpoint: str | None = None,
+                    timeout: float = 180.0) -> str:
+    """Describe frames ONE AT A TIME (single image per call) so it works with any vision model no matter
+    how small its context window — small models (moondream) overflow on multiple images. Keeps the model
+    loaded across the frames, then UNLOADS it so RAM is freed. Returns the per-frame notes joined."""
+    ep = endpoint or vision_endpoint()
+    notes: list[str] = []
+    for i, fp in enumerate(frame_paths):
+        try:
+            desc = describe_images([fp], prompt, model, endpoint=ep,
+                                   keep_alive="60s", timeout=timeout)   # stay resident across the batch
+        except Exception as e:
+            desc = f"(failed: {e})"
+        notes.append(f"Frame {i + 1}: {desc}")
+    unload_model(model, ep)                                            # free RAM right after
+    return "\n".join(notes)
+
+
 def video_duration(path: str) -> float:
     """Seconds, via ffprobe. 0.0 if unknown."""
     try:

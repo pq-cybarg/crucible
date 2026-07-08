@@ -26,7 +26,7 @@ def test_see_image_calls_vision_model(tmp_path, monkeypatch):
     monkeypatch.setenv("CRUCIBLE_DATA_DIR", str(tmp_path))
     from crucible.prefs import PreferencesStore
     PreferencesStore(tmp_path / "preferences.json").save(
-        {"vision_model": "moondream", "resource_limits": {"keep_alive": "0", "num_ctx": 2048}})
+        {"vision_model": "moondream", "resource_limits": {"keep_alive": "0", "num_ctx": 8192}})
     img = tmp_path / "shot.png"
     img.write_bytes(b"\x89PNG\r\nfake")
 
@@ -49,7 +49,7 @@ def test_see_image_calls_vision_model(tmp_path, monkeypatch):
     assert sent["url"].endswith("/api/chat")
     assert sent["body"]["model"] == "moondream"
     assert sent["body"]["keep_alive"] == "0"                   # unloads after — no lingering RAM
-    assert sent["body"]["options"]["num_ctx"] == 2048          # ctx cap applied
+    assert "options" not in sent["body"]                       # vision does NOT cap num_ctx (would break image tokens)
     assert sent["body"]["messages"][0]["images"]               # image was attached (base64)
 
 

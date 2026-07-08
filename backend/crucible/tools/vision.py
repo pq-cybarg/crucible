@@ -14,9 +14,11 @@ def _vision_config() -> dict:
         from crucible.prefs import PreferencesStore
         prefs = PreferencesStore(get_settings().data_dir / "preferences.json").get()
         rl = prefs.get("resource_limits", {})
+        # NOTE: do NOT apply the general num_ctx cap to vision — an image needs a large context for its
+        # tokens, and a small cap (e.g. 2048) makes the vision model 400 or return nothing. Memory
+        # safety for vision comes from keep_alive (unload right after), not from starving context.
         return {"model": prefs.get("vision_model", ""),
-                "num_ctx": int(rl.get("num_ctx", 0) or 0),
-                # default to unload-after for vision even if the general keep_alive is longer
+                "num_ctx": 0,
                 "keep_alive": str(rl.get("keep_alive", "") or "0")}
     except Exception:
         return {"model": "", "num_ctx": 0, "keep_alive": "0"}
@@ -56,31 +58,38 @@ class SeeImage:
 class WatchVideo:
     name = "watch_video"
     description = ("Watch a video by sampling frames and describing them (delegates to a vision model). "
-                   "Args: path (video file), question (optional), frames (default 4, max 16).")
+                   "A local file path OR a video URL (YouTube etc. — downloaded low-res first). Args: "
+                   "path (file or URL), question (optional), frames (default 6, max 16), "
+                   "max_seconds (optional: only the opening window, for long/URL videos).")
     parameters = {"type": "object",
                   "properties": {"path": {"type": "string"}, "question": {"type": "string"},
-                                 "frames": {"type": "number"}},
+                                 "frames": {"type": "number"}, "max_seconds": {"type": "number"}},
                   "required": ["path"]}
 
     def __init__(self, root=None):
         self.root = str(root) if root else "."
 
-    def run(self, path: str = "", question: str = "", frames: int = 4) -> ToolResult:
+    def run(self, path: str = "", question: str = "", frames: int = 6, max_seconds: float = 0.0) -> ToolResult:
         cfg = _vision_config()
         if not cfg["model"]:
             return ToolResult(ok=False, output="", error="no vision model set — pick a SMALL one in "
                               "Preferences → vision model")
-        full = path if os.path.isabs(path) else os.path.join(self.root, path)
-        if not os.path.exists(full):
-            return ToolResult(ok=False, output="", error=f"video not found: {full}")
-        from crucible.vision import describe_images, extract_frames
+        from crucible.vision import describe_frames, download_video, extract_frames, is_url
+        note = ""
         try:
+            if is_url(path):
+                full = download_video(path, max_height=360, max_seconds=max_seconds)
+                note = f"downloaded {path} → {os.path.basename(full)}\n"
+            else:
+                full = path if os.path.isabs(path) else os.path.join(self.root, path)
+            if not os.path.exists(full):
+                return ToolResult(ok=False, output="", error=f"video not found: {full}")
             imgs = extract_frames(full, int(frames))
             if not imgs:
                 return ToolResult(ok=False, output="", error="could not extract frames (is ffmpeg installed?)")
-            prompt = (f"These are {len(imgs)} still frames sampled in order from a video. "
-                      + (question or "Describe what happens across the video."))
-            out = describe_images(imgs, prompt, cfg["model"], num_ctx=cfg["num_ctx"], keep_alive=cfg["keep_alive"])
-            return ToolResult(ok=True, output=f"[{len(imgs)} frames sampled]\n{out}")
+            # describe one frame at a time (small vision models overflow on multiple images), then combine
+            q = question or "Describe what is shown."
+            out = describe_frames(imgs, q, cfg["model"])
+            return ToolResult(ok=True, output=f"{note}[{len(imgs)} frames sampled, in order]\n{out}")
         except Exception as e:
             return ToolResult(ok=False, output="", error=f"watch_video failed: {e}")
