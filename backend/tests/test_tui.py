@@ -22,6 +22,27 @@ def test_tui_mounts_and_survives_offline_backend():
     asyncio.run(go())
 
 
+def test_ensure_backend_when_already_up(monkeypatch):
+    from crucible import tui
+
+    class _R:
+        status_code = 200
+    monkeypatch.setattr(tui.httpx, "get", lambda url, timeout: _R())
+    # already healthy → returns True without trying to spawn anything
+    assert tui.ensure_backend("http://127.0.0.1:8400") is True
+
+
+def test_ensure_backend_leaves_remote_alone(monkeypatch):
+    from crucible import tui
+    import httpx
+
+    def boom(url, timeout):
+        raise httpx.ConnectError("down")
+    monkeypatch.setattr(tui.httpx, "get", boom)
+    # a non-local server that's unreachable is NOT ours to start → False, no spawn
+    assert tui.ensure_backend("http://some-remote-host:8400") is False
+
+
 def test_tui_slash_commands_and_autocomplete_offline():
     """Slash commands route as commands (not sent to the agent) and autocomplete matches — all the
     pure UI parts work without a backend."""

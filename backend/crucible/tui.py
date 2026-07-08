@@ -546,5 +546,49 @@ class CrucibleTUI(App):
             pass
 
 
+def ensure_backend(control: str, timeout: float = 25.0) -> bool:
+    """Make `crucible` one-command: if the control server isn't up (and it's LOCAL), start it detached and
+    wait for health. Returns True if the backend is reachable. A remote/unreachable non-local URL is left
+    alone (we can't start someone else's server)."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from urllib.parse import urlparse
+
+    def healthy() -> bool:
+        try:
+            return httpx.get(control.rstrip("/") + "/api/health", timeout=1.5).status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    if healthy():
+        return True
+    u = urlparse(control)
+    host = u.hostname or "127.0.0.1"
+    if host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        return False                                     # not ours to start
+    port = str(u.port or 8400)
+    log_dir = os.path.join(os.path.expanduser("~"), ".crucible")
+    os.makedirs(log_dir, exist_ok=True)
+    print(f"starting Crucible server on {host}:{port} …")
+    try:
+        with open(os.path.join(log_dir, "server.log"), "ab") as lf:
+            subprocess.Popen([sys.executable, "-m", "uvicorn", "crucible.app:app", "--host", host, "--port", port],
+                             stdout=lf, stderr=lf, start_new_session=True, env=dict(os.environ))
+    except Exception as e:
+        print(f"  could not start server: {e}")
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if healthy():
+            print("  server up.")
+            return True
+        time.sleep(0.4)
+    print("  server did not come up in time — the TUI will show offline until it does.")
+    return False
+
+
 def run_tui(control: str = "http://127.0.0.1:8400", cwd: str = ".") -> None:
+    ensure_backend(control)     # auto-start the backend so the workspace is one command
     CrucibleTUI(control, cwd=cwd).run()
