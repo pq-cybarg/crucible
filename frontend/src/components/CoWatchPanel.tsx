@@ -10,7 +10,14 @@ function youtubeEmbed(url: string): string | null {
 }
 
 type Line = { kind: "commentary" | "reaction"; t: number; text: string };
-const REACTION_ICON: Record<string, string> = { jumpscare: "😱", scene_cut: "⚡", loud: "🔊" };
+// display icons; the backend vocabulary is extensible and may send words not listed here (→ ❗ fallback).
+const REACTION_ICON: Record<string, string> = {
+  jumpscare: "😱", scene_cut: "⚡", loud: "🔊",
+  funny: "😂", tense: "😬", scary: "😱", sad: "😢", exciting: "🤩", cute: "🥰", beautiful: "😍",
+  gross: "🤢", shocking: "😲", surprising: "😮", wholesome: "🥹", awkward: "😅", epic: "🔥",
+  calm: "😌", romantic: "❤️", action: "💥", boring: "🥱", confusing: "🤔", sus: "🤨", cringe: "😖",
+  wtf: "🫥", dialogue: "💬",
+};
 
 export default function CoWatchPanel(): JSX.Element {
   const [source, setSource] = useState("");
