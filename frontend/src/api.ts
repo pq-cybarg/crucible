@@ -232,9 +232,10 @@ export async function getAgentSessionContext(id: string): Promise<readonly ChatM
 // Run a tab's agent in its working directory with its assembled (slotted) context; stream SSE events.
 export async function runAgentSession(id: string, message: string,
                                      onEvent: (ev: { type: string; data: Record<string, unknown> }) => void,
-                                     signal?: AbortSignal): Promise<void> {
+                                     runId?: string, signal?: AbortSignal): Promise<void> {
   const r = await cfetch(`${API_BASE}/api/agent-sessions/${encodeURIComponent(id)}/run`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message }),
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, ...(runId ? { run_id: runId } : {}) }),
     ...(signal ? { signal } : {}),
   });
   if (!r.ok || !r.body) throw new Error(`run ${r.status}`);

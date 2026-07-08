@@ -32,6 +32,24 @@ def test_final_takes_precedence_when_first():
     assert s["kind"] == "final"
 
 
+def test_parse_json_tool_call_variants():
+    # many local models emit a JSON tool call instead of the ReAct text format — execute those too
+    fenced = '```json\n{"name": "crystallize_memory", "arguments": {"summary": "s", "content": "c"}}\n```'
+    assert parse_react(fenced) == {"kind": "action", "tool": "crystallize_memory",
+                                   "input": {"summary": "s", "content": "c"}}
+    assert parse_react('{"name": "list_dir"}') == {"kind": "action", "tool": "list_dir", "input": {}}
+    assert parse_react('ok\n{"tool": "bash", "input": {"command": "ls"}}') == {
+        "kind": "action", "tool": "bash", "input": {"command": "ls"}}
+    assert parse_react('{"function": {"name": "grep", "arguments": {"pattern": "x"}}}') == {
+        "kind": "action", "tool": "grep", "input": {"pattern": "x"}}
+
+
+def test_ordinary_json_data_is_not_a_tool_call():
+    # a JSON object that's just data (name + unrelated keys) must NOT be run as a tool
+    assert parse_react('{"name": "John Smith", "age": 30, "city": "NYC"}')["kind"] == "final"
+    assert parse_react("The current directory is /tmp.")["kind"] == "final"
+
+
 def test_bare_reply_is_final():
     assert parse_react("just a normal answer")["kind"] == "final"
 

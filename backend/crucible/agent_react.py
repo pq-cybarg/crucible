@@ -100,10 +100,62 @@ def hybrid_preamble(tool_schemas: list[dict]) -> str:
     )
 
 
+_NAME_KEYS = ("name", "tool", "tool_name")
+_ARG_KEYS = ("arguments", "input", "parameters", "args", "params")
+
+
+def _first_json_obj(text: str) -> object:
+    """Extract + decode the first balanced-brace {...} object in the text (fenced or bare). Returns the
+    decoded object or None. Tolerant of surrounding prose and ```json fences."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            c = text[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
+def json_tool_call(text: str):
+    """Detect a tool call emitted as JSON (what many local models produce instead of the ReAct text
+    format): {"name": "tool", "arguments": {...}}, ```json fenced, or {"tool"/"function"/"parameters"}
+    variants. Returns (tool_name, args_dict) or None. Requires a name AND an args key (or a bare
+    single-key object) so ordinary JSON data isn't mistaken for a call."""
+    obj = _first_json_obj(text)
+    if not isinstance(obj, dict):
+        return None
+    if isinstance(obj.get("function"), dict):        # OpenAI-shaped {"function": {name, arguments}}
+        obj = obj["function"]
+    name = next((obj[k] for k in _NAME_KEYS if isinstance(obj.get(k), str)), None)
+    if not name:
+        return None
+    arg_key = next((k for k in _ARG_KEYS if k in obj), None)
+    if arg_key is None and len(obj) != 1:            # {"name": "x", "unrelated": ...} → not a call
+        return None
+    args = obj.get(arg_key, {}) if arg_key else {}
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            args = {"input": args}
+    if not isinstance(args, dict):
+        args = {"input": args}
+    return name, args
+
+
 def parse_react(text: str) -> dict:
     """Parse a model turn into a ReAct step. Returns one of:
     {"kind": "final", "text": ...} or {"kind": "action", "tool": ..., "input": {...}}.
-    A 'Final Answer' takes precedence; a bare reply with no Action is treated as final."""
+    A 'Final Answer' takes precedence; then an explicit Action:; then a JSON tool call; else final."""
     fin = _FINAL.search(text)
     act = _ACTION.search(text)
     # If both appear, honor whichever comes first in the text.
@@ -127,6 +179,10 @@ def parse_react(text: str) -> dict:
         if not isinstance(args, dict):
             args = {"input": args}
         return {"kind": "action", "tool": tool, "input": args}
+    # No ReAct scaffold — many local models instead emit a JSON tool call. Detect + execute it.
+    jt = json_tool_call(text)
+    if jt and jt[0].lower() not in _SENTINEL_TOOLS:
+        return {"kind": "action", "tool": jt[0], "input": jt[1]}
     return {"kind": "final", "text": text.strip()}
 
 

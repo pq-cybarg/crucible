@@ -982,8 +982,22 @@ label.pipe-comp input { margin-right: 4px; }
 .browse-add { font-size: 9.5px; padding: 2px 8px; background: var(--steel-800); border: 1px solid var(--line-bright);
   color: var(--amber-bright); border-radius: 3px; cursor: pointer; }
 .browse-add:disabled { color: var(--ash); cursor: default; opacity: 0.6; }
+.ctx-tool { font-family: var(--font-mono); font-size: 11px; color: var(--amber-bright); overflow-wrap: anywhere; }
+.slot-approve { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px;
+  border: 1px solid var(--amber); border-radius: 6px; background: rgba(255, 106, 26, 0.08); font-size: 12px; }
+.slot-approve code { color: var(--ash); overflow-wrap: anywhere; }
+.approve-btns { display: flex; gap: 6px; margin-left: auto; }
 .agent-composer { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .agent-composer .in { flex: 1 1 220px; min-width: 0; }
+.cmd-hint { font-size: 10.5px; color: var(--ash); margin-top: 6px; overflow-wrap: anywhere; }
+.cmd-out { position: relative; margin-top: 8px; padding: 6px 24px 6px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--steel-900); }
+.cmd-x { position: absolute; top: 4px; right: 6px; background: none; border: none; color: var(--ash); cursor: pointer; }
+.model-pick { margin-top: 8px; padding: 8px; border: 1px solid var(--amber); border-radius: 6px; background: var(--steel-900);
+  max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.model-pick-row { text-align: left; background: none; border: 1px solid transparent; border-radius: 4px;
+  color: var(--bone); cursor: pointer; padding: 3px 6px; }
+.model-pick-row:hover { border-color: var(--amber); background: rgba(255, 106, 26, 0.08); }
 @media (max-width: 820px) { .agents-body { grid-template-columns: 1fr; }
   .agents-browse { border-left: none; border-top: 1px solid var(--line); padding-left: 0; padding-top: 12px; } }
 

@@ -61,6 +61,33 @@ class ModelPicker(ModalScreen):
         self.dismiss(None)
 
 
+class ApprovalScreen(ModalScreen):
+    """Prompt to approve/deny a pending 'ask' tool call from a running tab."""
+    BINDINGS = [Binding("a", "ok", "Approve"), Binding("d", "no", "Deny"), Binding("escape", "no", "Deny")]
+    CSS = """
+    ApprovalScreen { align: center middle; }
+    #ask { width: 66; height: auto; border: round $warning; background: $panel; padding: 1 2; }
+    #ask Label { color: $warning; text-style: bold; }
+    """
+
+    def __init__(self, name: str, args: dict):
+        super().__init__()
+        self.tool_name = name
+        self.args = args
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="ask"):
+            yield Label(f"approve tool: {self.tool_name}?")
+            yield Static(str(self.args)[:200])
+            yield Static("[b]a[/b] approve   ·   [b]d[/b] deny", markup=True)
+
+    def action_ok(self) -> None:
+        self.dismiss(True)
+
+    def action_no(self) -> None:
+        self.dismiss(False)
+
+
 class Client:
     """Blocking HTTP client for the control server (used from worker threads)."""
 
@@ -115,6 +142,10 @@ class Client:
 
     def set_model(self, sid: str, model_id: str) -> None:
         httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"model_id": model_id}, timeout=10)
+
+    def approve(self, run_id: str, call_id: str, approved: bool) -> None:
+        httpx.post(f"{self.base}/api/agent/approve",
+                   json={"run_id": run_id, "call_id": call_id, "approved": approved}, timeout=10)
 
     def update_messages(self, sid: str, messages: list) -> None:
         httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"messages": messages}, timeout=10)
@@ -419,11 +450,13 @@ class CrucibleTUI(App):
 
     @work(thread=True)
     def _run(self, sid: str, message: str) -> None:
+        import time
         log = self.query_one("#context", RichLog)
+        run_id = f"{sid}-{int(time.monotonic() * 1000)}"
         acc = ""
         try:
             with httpx.stream("POST", f"{self.control}/api/agent-sessions/{sid}/run",
-                              json={"message": message}, timeout=600) as r:
+                              json={"message": message, "run_id": run_id}, timeout=600) as r:
                 if r.status_code >= 400:
                     self.call_from_thread(log.write, f"[red]run error {r.status_code}[/red]"); return
                 for line in r.iter_lines():
@@ -434,17 +467,37 @@ class CrucibleTUI(App):
                         ev = json.loads(line[5:])
                     except ValueError:
                         continue
-                    if ev["type"] == "assistant_delta":
+                    t = ev["type"]
+                    if t == "assistant_delta":
                         acc += str(ev["data"].get("delta", ""))
-                    elif ev["type"] in ("assistant", "done") and ev["data"].get("content"):
+                    elif t in ("assistant", "done") and ev["data"].get("content"):
                         acc = str(ev["data"]["content"])
-                    elif ev["type"] == "error":
+                    elif t == "tool_call":
+                        self.call_from_thread(log.write, f"[yellow]→ {ev['data'].get('name')}[/yellow] {json.dumps(ev['data'].get('args'))[:80]}")
+                    elif t == "tool_result":
+                        self.call_from_thread(log.write, f"  {'✓' if ev['data'].get('ok') else '✗'} {str(ev['data'].get('output') or ev['data'].get('error') or '')[:120]}")
+                    elif t == "permission_request":
+                        self.call_from_thread(self._ask_approval, run_id, str(ev["data"]["id"]),
+                                              str(ev["data"]["name"]), ev["data"].get("args", {}))
+                    elif t == "error":
                         self.call_from_thread(log.write, f"[red]{ev['data'].get('reason')}[/red]")
         except httpx.HTTPError as e:
             self.call_from_thread(log.write, f"[red]{e}[/red]")
         if acc:
             self.call_from_thread(log.write, f"[green]assistant[/green] {acc}")
         self.refresh_all()
+
+    def _ask_approval(self, run_id: str, call_id: str, name: str, args: dict) -> None:
+        def decided(ok: Optional[bool]) -> None:
+            self._send_approval(run_id, call_id, bool(ok))
+        self.push_screen(ApprovalScreen(name, args), decided)
+
+    @work(thread=True)
+    def _send_approval(self, run_id: str, call_id: str, approved: bool) -> None:
+        try:
+            self.client.approve(run_id, call_id, approved)
+        except httpx.HTTPError:
+            pass
 
 
 def run_tui(control: str = "http://127.0.0.1:8400", cwd: str = ".") -> None:
