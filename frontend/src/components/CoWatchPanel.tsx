@@ -9,7 +9,8 @@ function youtubeEmbed(url: string): string | null {
   return m ? `https://www.youtube.com/embed/${m[1]}` : null;
 }
 
-type Line = { t: number; text: string };
+type Line = { kind: "commentary" | "reaction"; t: number; text: string };
+const REACTION_ICON: Record<string, string> = { jumpscare: "😱", scene_cut: "⚡", loud: "🔊" };
 
 export default function CoWatchPanel(): JSX.Element {
   const [source, setSource] = useState("");
@@ -35,7 +36,11 @@ export default function CoWatchPanel(): JSX.Element {
       await cowatchStream(src, interval, question, (ev) => {
         if (ev.type === "commentary") {
           const d = ev.data as { t: number; text: string };
-          if (d.text && d.text.trim()) setLines((p) => [...p, { t: d.t, text: d.text }]);
+          if (d.text && d.text.trim()) setLines((p) => [...p, { kind: "commentary", t: d.t, text: d.text }]);
+        } else if (ev.type === "reaction") {
+          const d = ev.data as { t: number; type: string; intensity: number };
+          const icon = REACTION_ICON[d.type] ?? "❗";
+          setLines((p) => [...p, { kind: "reaction", t: d.t, text: `${icon} ${d.type.replace("_", " ")}` }]);
         } else if (ev.type === "done") setWatching(false);
       }, ac.signal);
     } catch (e: unknown) {
@@ -78,7 +83,7 @@ export default function CoWatchPanel(): JSX.Element {
           <div className="engrave" style={{ margin: 0 }}>live commentary {watching && <span className="cowatch-live">● watching</span>}</div>
           {lines.length === 0 && !watching && <div className="hint">press watch to begin.</div>}
           {lines.map((l, i) => (
-            <div key={i} className="cowatch-line"><span className="cowatch-t">{l.t}s</span>{l.text}</div>
+            <div key={i} className={`cowatch-line ${l.kind}`}><span className="cowatch-t">{l.t}s</span>{l.text}</div>
           ))}
         </div>
       </div>

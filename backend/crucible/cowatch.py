@@ -21,33 +21,49 @@ def _frame_at(video_path: str, t: float, out_dir: str) -> str | None:
 
 
 def stream_commentary(video_path: str, describe: Callable[[str, str], str],
-                      interval: float = 5.0, question: str = "", pace: bool = True,
+                      interval: float = 5.0, question: str = "", events: list[dict] | None = None,
+                      tick: float = 0.5, pace: bool = True,
                       sleep: Callable[[float], None] = time.sleep,
                       clock: Callable[[], float] = time.monotonic,
                       max_points: int = 240) -> Iterator[dict]:
-    """Yield {t, text} commentary for a video, one frame every `interval` seconds. `describe(frame, prompt)
-    -> text` is the injected vision call. With `pace`, emissions are spaced to wall-clock so they track
-    the video timeline (start your playback at the same time to watch along). Bounded by max_points."""
+    """Stream a video co-watch, paced to real-time. Yields TYPED items:
+      - {"kind":"reaction", t, type, intensity} — fast non-LLM detector events (scene_cut/jumpscare/loud),
+        emitted at their exact timestamp (within one `tick`) so downstream can react in the moment;
+      - {"kind":"commentary", t, text} — a vision-model description every `interval` seconds.
+    The loop ticks every `tick` s (finer than `interval`) so reactions land on time even between comments.
+    `describe(frame, prompt)->text` is injected (testable). Bounded by max_points commentary points."""
     dur = video_duration(video_path)
     out_dir = tempfile.mkdtemp(prefix="crucible-cowatch-")
     prompt = question or "Briefly say what is happening right now, as live commentary."
+    ev = sorted(events or [], key=lambda e: e["t"])
+    ei = 0
     start = clock()
     t = 0.0
+    next_comment = 0.0
     n = 0
     while (dur <= 0 or t < dur) and n < max_points:
-        frame = _frame_at(video_path, t, out_dir)
-        if frame:
-            try:
-                text = describe(frame, prompt)
-            except Exception as e:
-                text = f"(vision error: {e})"
-            yield {"t": round(t, 1), "text": text}
-            n += 1
-        t += interval
+        # 1) any detector events whose moment has arrived — emit immediately (real-time reaction)
+        while ei < len(ev) and ev[ei]["t"] <= t + 1e-9:
+            yield {"kind": "reaction", **ev[ei]}
+            ei += 1
+        # 2) a vision-model comment every `interval`
+        if t >= next_comment - 1e-9:
+            frame = _frame_at(video_path, t, out_dir)
+            if frame:
+                try:
+                    text = describe(frame, prompt)
+                except Exception as e:
+                    text = f"(vision error: {e})"
+                yield {"kind": "commentary", "t": round(t, 1), "text": text}
+                n += 1
+            next_comment += interval
+        t += tick
         if pace:
             target = start + t
             now = clock()
             if now < target:
                 sleep(target - now)
-        if dur > 0 and t >= dur:
-            break
+    # flush any remaining detector events past the last tick
+    while ei < len(ev):
+        yield {"kind": "reaction", **ev[ei]}
+        ei += 1

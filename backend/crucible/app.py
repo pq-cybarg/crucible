@@ -2587,11 +2587,20 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         def describe(frame: str, prompt: str) -> str:
             return describe_images([frame], prompt, model, endpoint=ep, keep_alive="5m")
 
+        # FAST non-LLM detector pass first (scene cuts / jumpscares / loud onsets) — cheap, so the stream
+        # can react at the exact moment without waiting on the vision model.
+        from crucible.detect import detect_events
+        try:
+            events = detect_events(path)
+        except Exception:
+            events = []
+
         def stream():
             try:
-                yield f"data: {json.dumps({'type': 'start', 'data': {'source': source}})}\n\n"
-                for point in stream_commentary(path, describe, interval=interval, question=question):
-                    yield f"data: {json.dumps({'type': 'commentary', 'data': point})}\n\n"
+                yield f"data: {json.dumps({'type': 'start', 'data': {'source': source, 'n_events': len(events)}})}\n\n"
+                for item in stream_commentary(path, describe, interval=interval, question=question, events=events):
+                    kind = item.pop("kind", "commentary")
+                    yield f"data: {json.dumps({'type': kind, 'data': item})}\n\n"
                 yield f"data: {json.dumps({'type': 'done', 'data': {}})}\n\n"
             finally:
                 unload_model(model, ep)   # free the vision model's RAM when the watch ends
