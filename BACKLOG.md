@@ -33,6 +33,33 @@ Deferred / planned work, captured so nothing is lost.
 - [ ] **Resource-aware self-restraint** ("don't overwhelm the brain"): a governor that bounds concurrent subagents/tools by live load (CPU/RAM/model-queue) and, while co-watching, deprioritizes other work so frames aren't dropped. Extends SpawnBudget with a dynamic, load-sensitive cap; the agent should *choose* fewer helpers when saturated.
 - [ ] **Chrome/Brave extension as a tool**: capture frames (and audio) from the user's LIVE tab (their real YouTube session) and post to Crucible via a local endpoint — so the AI co-watches what the user is actually watching, no re-download. Native-messaging or a localhost bridge.
 
+## VTuber avatar / AI companion (requested — researched)
+Research notes (how real VTubers work): avatars are **Live2D** (2D, Cubism parameters) or **VRM/3D**
+(ARKit 52 blendshapes). Rigs are driven by continuous **parameters** (brow/eye/mouth/…), with named
+**expression presets**/hotkeys, procedural **idle** (blink/breath/sway), **lip-sync** from audio
+(visemes A/I/U/E/O), and **layered** expressions (smoothly interpolated, not jump-cut). Programmatic
+control: **VTube Studio API** over WebSocket (`InjectParameterData`, re-send ≥1×/s) or the **VMC/OSC**
+protocol to VSeeFace/Warudo. For an AI companion (no face to track) the avatar is driven by the AI's
+emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM→TTS loop).
+- [x] **Expression model** (`crucible.expression`): continuous face params (brow/eye_open/eye_wide/smile/
+      mouth_open/blush/head_tilt) + named presets; reaction-word → expression mapping (drives off the
+      reaction stream). Tested.
+- [x] **Pixel-art terminal renderer** (`crucible.pixelface`): image → ANSI upper-half-block color blocks
+      at low res, with palette reduction + Floyd–Steinberg dither + duotone ramps (the sepia/2-color
+      "terminal-waifu" look from the reference). Verified rendering the reference portrait. Tested.
+- [ ] **TUI face window**: a fixed low-res, low-fps pixel-art face+upper-body box in the TUI right rail,
+      showing live reactions while you code — swap the sprite on reaction/talk/blink; two-color/duotone.
+- [ ] **Expression sprite sets**: an avatar = a base + per-expression pixel-art sprites (+ blink/mouth
+      frames). Load/compose/replace components like real VTubers (outfits/accessories/models).
+- [ ] **Real-time drive loop**: emotional state → param interpolation (layered, smoothed) at N fps,
+      independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
+- [ ] **Web avatar window**: render Live2D (pixi-live2d-display) or VRM (three-vrm), driven by the same
+      param stream; user replaces/adds components.
+- [ ] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
+      API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar.
+- [ ] **Nuanced expression**: many blendshape-like params + blends (not just presets) for subtle,
+      layered emotion; micro-expressions; gaze/saccades.
+
 ## Non-LLM subagents / tools (requested)
 - [ ] **ML-algorithm tools**: expose classic ML (classifiers/clustering/regression via numpy/scikit) as agent tools the model can RUN on data (incl. video features) — non-LLM subagents.
 - [ ] **Train/tune tools**: let the agent TRAIN + tune those ML models (fit/validate/select hyperparams) to dial in the right settings itself — a self-improving toolbox alongside the abliteration/training pipeline.
