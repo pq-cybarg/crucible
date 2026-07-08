@@ -18,8 +18,10 @@ Deferred / planned work, captured so nothing is lost.
 ## Browser & media driving (requested — test-verified gaps)
 - [x] Verified: Crucible can build a web app agentically (write_file) and inspect a running app over HTTP (bash curl + web_fetch both reach a served localhost app)
 - [x] **Browser-automation tool** — `browser` tool drives Brave (Playwright, executable_path, no browser download) on a dedicated thread with a persistent page: goto/click/fill/text/content/eval/screenshot/wait. Verified: clicked a live counter app and read the incremented DOM through the server. `CRUCIBLE_BROWSER_PATH` / `CRUCIBLE_BROWSER_HEADLESS` env overrides.
-- [ ] **Snapshot processing**: page/screen snapshots as agent input (vision) + a snapshot tool
-- [ ] **Audio processing** end-to-end: wire a real transcribe backend (the transcribe tool exists but needs a media backend) + TTS out
+- [x] **Vision / snapshot input** (delegated): `see_image` + `watch_video` tools send images/sampled video frames to a configured VISION model (Ollama /api/chat with images) and return TEXT — so a text-only agent can see. Vision calls ALWAYS apply resource limits (keep_alive unload-after + num_ctx cap) so a big model can't linger and freeze the machine. `vision_model` preference (default empty/disabled). ffmpeg frame sampling for video. Tested (real ffmpeg frames, mocked model).
+- [ ] Pull-in a SMALL default vision model (moondream ~1.8B / llava:7b) — gemma4:31b is vision-capable but too big to load safely here
+- [ ] Vision for the browser tool: `browser screenshot` → `see_image` in one step (agent watches the page it drives)
+- [ ] **Audio processing** end-to-end: wire a real transcribe backend (the transcribe tool exists but needs a media backend) + audio track of a video + TTS out
 
 ## Pull-in from OpenCode / OpenClaw (where OSS-licensed & design-compatible)
 - [ ] Evaluate + adapt: command palette / slash-command packs, model picker UX, session/checkpoint model, plan mode, permission prompts, LSP hooks

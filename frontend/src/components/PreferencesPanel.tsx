@@ -122,6 +122,16 @@ export default function PreferencesPanel(): JSX.Element {
         {llmMetricChosen && !prefs.processing_model && (
           <div className="runtime-err">llm-judged is the default metric but no processing model is set — search will fall back to lexical.</div>
         )}
+        <label className="fld">vision model <span className="hint" style={{ margin: 0 }}>— lets any agent see_image / watch_video (delegated). Use a SMALL one; big vision models can freeze the machine on load.</span>
+          <input className="in" list="vision-model-suggest" placeholder="e.g. moondream or llava:7b (empty = disabled)"
+            value={prefs.vision_model} onChange={(e) => patch({ vision_model: e.target.value })} />
+          <datalist id="vision-model-suggest">
+            <option value="moondream" /><option value="llava:7b" /><option value="qwen2.5vl:7b" /><option value="llama3.2-vision" />
+          </datalist>
+        </label>
+        {prefs.vision_model && (prefs.resource_limits.keep_alive === "" || prefs.resource_limits.keep_alive === "-1") && (
+          <div className="runtime-err">Tip: set keep-alive to “unload immediately” (below) so the vision model frees RAM after each look.</div>
+        )}
         <p className="hint" style={{ marginTop: 6 }}>
           Metrics are labeled by the KIND of closeness they measure — <b>statistical</b> (token/character
           overlap), <b>lexical</b> (BM25 keywords), <b>semantic</b> (real embeddings), <b>llm-judged</b>

@@ -718,6 +718,7 @@ export interface Preferences {
   readonly balanced_recency_weight: number;
   readonly default_metric: string;
   readonly processing_model: string | null;
+  readonly vision_model: string;
   readonly permissions: PermissionConfig;
   readonly resource_limits: ResourceLimits;
 }
@@ -725,7 +726,7 @@ export interface PreferencesResult { readonly preferences: Preferences; readonly
 const PREFS_KEY = "crucible_preferences";
 const DEFAULT_PREFS: Preferences = {
   default_sort: "recency", balanced_recency_weight: 0.5, default_metric: "bm25",
-  processing_model: null, permissions: { default: "ask", modes: {}, path_rules: [] },
+  processing_model: null, vision_model: "", permissions: { default: "ask", modes: {}, path_rules: [] },
   resource_limits: { num_ctx: 0, keep_alive: "", max_output_tokens: 0, num_gpu: -1 },
 };
 export async function getPreferences(): Promise<PreferencesResult> {

@@ -148,7 +148,8 @@ const _resourceLimitsP = object({
 });
 const _preferencesObjP = object({
   default_sort: str, balanced_recency_weight: num, default_metric: str,
-  processing_model: nullable(str), permissions: _permissionsP, resource_limits: _resourceLimitsP,
+  processing_model: nullable(str), vision_model: str,
+  permissions: _permissionsP, resource_limits: _resourceLimitsP,
 });
 export const preferencesResultP = object({
   preferences: _preferencesObjP, sorts: array(str), metrics: array(str),

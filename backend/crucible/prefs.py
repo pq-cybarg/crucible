@@ -42,6 +42,11 @@ DEFAULTS: dict = {
     "balanced_recency_weight": 0.5,
     "default_metric": "bm25",
     "processing_model": None,
+    # A separate VISION model (Ollama tag, e.g. "moondream" / "llava:7b") the see_image / watch_video
+    # tools call so ANY text-only agent can "see". Empty = disabled (nothing big loads unintentionally).
+    # Keep it SMALL — a 31B vision model can freeze the machine just loading. Vision calls always apply
+    # the resource_limits (unload-after + ctx cap) so they don't linger in RAM.
+    "vision_model": "",
     "permissions": _default_permissions(),
     "resource_limits": _default_resource_limits(),
 }
@@ -108,6 +113,8 @@ def _clean(data: dict) -> dict:
         pass
     pm = data.get("processing_model")
     out["processing_model"] = str(pm) if pm else None
+    vm = data.get("vision_model")
+    out["vision_model"] = str(vm).strip() if vm else ""
     out["permissions"] = _clean_permissions(data.get("permissions", {}))
     out["resource_limits"] = _clean_resource_limits(data.get("resource_limits", {}))
     return out
