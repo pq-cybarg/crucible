@@ -86,6 +86,28 @@ def test_render_composites_and_shrinks_to_the_box(tmp_path):
     assert isinstance(img, Image.Image) and img.size == (24, 30)
 
 
+def test_part_positioning_and_mirror_pair(tmp_path):
+    from PIL import Image
+    import numpy as np
+    from crucible.avatar import render_sprites
+    # a small single-eye sprite (a solid square), mirrored into a pair with a spacing gap
+    eye = Image.new("RGBA", (6, 6), (0, 0, 0, 255))
+    eye.save(tmp_path / "eye.png")
+    a = Avatar(name="t", size=(48, 60))
+    a.add_layer(Layer(id="eyes", part="eyes", mirror=True, spacing=10, pos=(0, 24),
+                      states={"open": str(tmp_path / "eye.png")}, default_state="open"))
+    a.set_expression("neutral", {"eyes": "open"})
+    arr = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    opaque_x = np.where(arr[..., 3].max(axis=0) > 0)[0]        # columns that have any eye pixel
+    cx = 24
+    assert opaque_x.min() < cx and opaque_x.max() > cx         # eyes on BOTH sides of centre
+    # tuning the spacing wider pushes the pair further apart (eye-distance knob)
+    a.layer("eyes").spacing = 24
+    arr2 = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    ox2 = np.where(arr2[..., 3].max(axis=0) > 0)[0]
+    assert (cx - ox2.min()) > (cx - opaque_x.min())           # left eye moved further from centre
+
+
 def test_full_chain_avatar_to_tui_pixels(tmp_path):
     from crucible.avatar import render_tui
     _sprite(tmp_path / "skin.png", (200, 180, 160, 255))

@@ -34,6 +34,10 @@ class Layer:
     z: int = 0                                  # override draw order; default derives from `part`
     states: dict = field(default_factory=dict)  # state name -> sprite path (sprites) or param dict (vrm/live2d)
     default_state: str = ""
+    # part-by-part placement (so the agent can design/position each part sprite independently):
+    pos: tuple = (0, 0)                         # top-left placement of a (small) part sprite on the canvas
+    mirror: bool = False                        # also draw the mirror image — for symmetric PAIRS (eyes/ears)
+    spacing: int = 0                            # gap between the mirrored pair — the eye-distance / sync knob
 
     def order(self) -> int:
         return self.z if self.z else (PARTS.index(self.part) if self.part in PARTS else 50)
@@ -120,7 +124,12 @@ class Avatar:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Avatar":
-        layers = [Layer(**l) for l in d.get("layers", [])]
+        layers = []
+        for l in d.get("layers", []):
+            l = dict(l)
+            if "pos" in l:
+                l["pos"] = tuple(l["pos"])
+            layers.append(Layer(**l))
         return cls(name=d["name"], kind=d.get("kind", "sprites"), model_path=d.get("model_path"),
                    size=tuple(d.get("size", (64, 80))), layers=layers,
                    expressions=d.get("expressions", {}), meta=d.get("meta", {}))
@@ -142,6 +151,7 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
 
     w, h = box or avatar.size
     canvas = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
+    from PIL import ImageOps
     for item in avatar.compose(expression, overrides):
         val = item["value"]
         if not val:
@@ -150,9 +160,20 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
             sprite = Image.open(val).convert("RGBA")
         except (FileNotFoundError, OSError):
             continue
-        if sprite.size != avatar.size:
-            sprite = sprite.resize(avatar.size, Image.NEAREST)
-        canvas.alpha_composite(sprite)
+        layer = avatar.layer(item["id"])
+        if layer and layer.mirror:
+            # a symmetric PAIR (eyes/ears): place the sprite left of centre and its mirror right of it,
+            # separated by `spacing` — the eye-distance knob that keeps the pair in sync.
+            cx = avatar.size[0] // 2
+            y = int(layer.pos[1])
+            canvas.alpha_composite(sprite, (cx - layer.spacing // 2 - sprite.width, y))
+            canvas.alpha_composite(ImageOps.mirror(sprite), (cx + layer.spacing // 2, y))
+        elif layer and tuple(layer.pos) != (0, 0):
+            canvas.alpha_composite(sprite, (int(layer.pos[0]), int(layer.pos[1])))   # placed part sprite
+        else:
+            if sprite.size != avatar.size:                    # a full-canvas part sprite (drawn in place)
+                sprite = sprite.resize(avatar.size, Image.NEAREST)
+            canvas.alpha_composite(sprite)
     if (w, h) != avatar.size:
         canvas = canvas.resize((w, h), Image.NEAREST)     # crisp downscale for the small TUI box
     return canvas

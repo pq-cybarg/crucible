@@ -123,6 +123,19 @@ def generate_avatar(name: str, out_dir: str, palette: Palette | None = None) -> 
     return a
 
 
+def ensure_default_avatar(data_dir: str) -> Avatar:
+    """Load the active avatar from <data_dir>/avatars/active, generating a default procedural one the
+    first time so the TUI face box always has something to show."""
+    active = os.path.join(data_dir, "avatars", "active")
+    spec = os.path.join(active, "avatar.json")
+    if os.path.exists(spec):
+        try:
+            return Avatar.load(spec)
+        except (OSError, ValueError):
+            pass
+    return generate_avatar("kiri", active)
+
+
 def import_portrait(image_path: str, name: str, out_dir: str, max_w: int = 128) -> Avatar:
     """Import a custom character image (e.g. a cute anime portrait) as a PROTECTED avatar. The image is
     COPIED into the avatar's own directory (so it's owned, and the original is never touched), then wrapped

@@ -151,6 +151,42 @@ class Client:
         httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"messages": messages}, timeout=10)
 
 
+class FaceWidget(Static):
+    """The avatar face box: a low-res, low-fps pixel-art face in the sidebar that blinks and shifts
+    expression in real time — so you see the companion react while you code, decoupled from replies."""
+
+    def __init__(self, avatar, cols: int = 18):
+        super().__init__(id="face")
+        self.avatar = avatar
+        self.cols = cols
+        self.expression = "neutral"
+        self._t = 0
+        self._blink = False
+
+    def on_mount(self) -> None:
+        self.redraw()
+        self.set_interval(0.4, self._tick)     # low frame rate on purpose
+
+    def _tick(self) -> None:
+        self._t += 1
+        self._blink = (self._t % 12 == 0)      # a quick blink roughly every ~5s
+        self.redraw()
+
+    def redraw(self) -> None:
+        from rich.text import Text
+        from crucible.avatar import render_tui
+        try:
+            ov = {"eyes": "closed"} if self._blink else None
+            lines = render_tui(self.avatar, self.expression, overrides=ov, cols=self.cols)
+            self.update(Text.from_ansi("\n".join(lines)))
+        except Exception as e:
+            self.update(f"[face error: {e}]")
+
+    def set_expression(self, expression: str) -> None:
+        self.expression = expression
+        self.redraw()
+
+
 class CrucibleTUI(App):
     CSS = """
     #cols { height: 1fr; }
@@ -159,6 +195,7 @@ class CrucibleTUI(App):
     .heading { color: $accent; text-style: bold; padding: 0 1; }
     #slots { height: 8; border-bottom: solid $panel; }
     #context { height: 1fr; }
+    #face { height: auto; padding: 0 1; }
     #suggest { height: auto; color: $text-muted; padding: 0 1; }
     Input { dock: bottom; }
     ListView { height: 1fr; }
@@ -183,6 +220,12 @@ class CrucibleTUI(App):
         self._active_doc: dict = {}
         self._browse: list[dict] = []       # loadable items: {kind, ref, label}
         self._bootstrapped = False          # auto-open a tab for cwd on first successful load
+        try:
+            from crucible.avatar_gen import ensure_default_avatar
+            from crucible.config import get_settings
+            self._avatar = ensure_default_avatar(str(get_settings().data_dir))
+        except Exception:
+            self._avatar = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -198,6 +241,9 @@ class CrucibleTUI(App):
                 yield Static("", id="suggest")
                 yield Input(placeholder="message the agent — or /help for commands…", id="composer")
             with Vertical(id="right"):
+                if self._avatar is not None:
+                    yield Label("COMPANION", classes="heading")
+                    yield FaceWidget(self._avatar)
                 yield Label("BROWSE · LOAD (l)", classes="heading")
                 yield ListView(id="browser")
         yield Footer()

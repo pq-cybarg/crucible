@@ -53,10 +53,28 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       (procedural + agentic). PROTECTED layers (custom imports) reject agentic/procedural edits. Save/
       load JSON. Abstracts model kind (sprites / vrm / live2d). `render_sprites` composites RGBA layers
       + `render_tui` → the pixel box (nearest-neighbour shrink keeps key features recognizable). Tested.
-- [ ] **TUI face window**: mount `avatar.render_tui` in the TUI right rail (fixed low-res, low-fps),
-      swapping expression/blink/talk on the reaction stream.
+- [x] **TUI face window**: `FaceWidget` mounted in the TUI right rail (right/COMPANION), renders the
+      active avatar via `render_tui` at low fps, blinks periodically; `set_expression` swaps expression.
+      Loads/creates the default avatar via `ensure_default_avatar`.
+- [x] **Higher-res rendering**: quadrant blocks (2×2 px/cell, `blocks="quad"`) — double resolution in the
+      same box width; default for the face box.
+- [x] **Procedural default avatar** (`avatar_gen.generate_avatar`) + **protected custom import**
+      (`import_portrait`, copies + owns the image, agentic-immutable).
+- [x] **Part placement + eye distance**: `Layer.pos` (independent placement), `mirror` + `spacing` for
+      symmetric PAIRS (eyes/ears) — the eye-distance/sync knob.
+- [ ] **Part-by-part agentic design** (the middle ground: NOT whole-character generation): give the model
+      tools to CREATE/EDIT individual part sprites (transparent PNGs) per state, place + size them on the
+      rig, and keep pairs (eyes) in sync — each part is a small focused task, composed in unison.
+- [ ] **Specialized per-part models**: use small models specialized to a part (an "eyes" model, a "mouth"
+      model, …) — and let Crucible CREATE/TRAIN them itself (ties into the training pipeline). Divide the
+      generation/animation workload across part-experts.
+- [ ] **Tunable character parameters**: expose knobs — eye distance (`spacing`), positioning (`pos`),
+      nose shape / hairstyle (part VARIANTS via states), and ART STYLE (palette/line-weight/proportions)
+      — tunable procedurally, agentically, and by the user.
 - [ ] **Bundled example sprite avatar** (a real, non-reference asset set — the sample images are
       REFERENCE ONLY, never shipped as avatar parts).
+- [ ] Wire the reaction stream (co-watch / chat semantic reactions) → `FaceWidget.set_expression` so the
+      companion reacts live while you work; add talk-animation from TTS.
 - [ ] **Real-time drive loop**: emotional state → param interpolation (layered, smoothed) at N fps,
       independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
 - [ ] **Web avatar window**: render Live2D (pixi-live2d-display) or VRM (three-vrm), driven by the same
