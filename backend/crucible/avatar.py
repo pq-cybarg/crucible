@@ -159,10 +159,11 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
 
 
 def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
-               cols: int = 22, duotone: str = "terminal-sepia", palette_size: int = 4) -> list[str]:
-    """Compose a sprite avatar's expression and render it to ANSI pixel blocks for the TUI face box —
-    small, limited-palette, dithered. (VRM/Live2D kinds are driven by the web engines, not rasterized
-    here; this is the terminal path.)"""
+               cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
+               blocks: str = "quad") -> list[str]:
+    """Compose a sprite avatar's expression and render it to ANSI pixel blocks for the TUI face box.
+    Defaults to `quad` blocks — 2×2 pixels per character, DOUBLE the resolution in the same box width so
+    key features stay recognizable. (VRM/Live2D kinds are driven by the web engines, not rasterized here.)"""
     from crucible.pixelface import render_image
     img = render_sprites(avatar, expression, overrides)
-    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size)
+    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)

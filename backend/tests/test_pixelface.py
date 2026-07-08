@@ -34,6 +34,22 @@ def test_duotone_limits_the_palette(tmp_path):
     assert 1 <= len(colors) <= 8
 
 
+def test_quad_blocks_double_resolution(tmp_path):
+    from crucible.pixelface import render_image, strip_ansi
+    from PIL import Image
+    p = tmp_path / "s.png"
+    _make_png(str(p), 80, 100)
+    img = Image.open(str(p))
+    half = render_image(img, cols=30, blocks="half")
+    quad = render_image(img, cols=30, blocks="quad")
+    # same character width...
+    assert all(len(s) == 30 for s in strip_ansi(half))
+    assert all(len(s) == 30 for s in strip_ansi(quad))
+    # ...but quad packs 2 vertical cells per half cell → ~2x the rows (2x2 vs 1x2 px per cell)
+    assert len(quad) >= len(half) * 1.8
+    assert any(ch in "".join(quad) for ch in "▘▝▖▗▚▞▛▜▙▟▌▐")   # quadrant glyphs used
+
+
 def test_two_color_palette(tmp_path):
     import re
     from crucible.pixelface import render_file

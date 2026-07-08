@@ -23,9 +23,11 @@ DUOTONES: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
 
 def render_image(img, cols: int = 44, rows: Optional[int] = None, palette_size: int = 0,
                  dither: bool = True, duotone: Optional[str] = None,
-                 bg: tuple = (26, 20, 16)) -> list[str]:
+                 bg: tuple = (26, 20, 16), blocks: str = "half") -> list[str]:
     """Render an in-memory PIL image (e.g. a composited avatar) to terminal pixel blocks. Transparent
-    pixels are flattened onto `bg` (the box background) so the small TUI face box has a solid backdrop."""
+    pixels are flattened onto `bg` (the box background). `blocks`: 'half' = ▀ half-blocks (1×2 px/cell,
+    full color); 'quad' = quadrant blocks (2×2 px/cell — DOUBLE the resolution in the same box width, at
+    2 colors/cell). Both keep pixel art crisp (nearest-neighbour resize)."""
     from PIL import Image
 
     if img.mode in ("RGBA", "LA", "P"):
@@ -36,15 +38,16 @@ def render_image(img, cols: int = 44, rows: Optional[int] = None, palette_size: 
     else:
         img = img.convert("RGB")
     w, h = img.size
+    sx = 2 if blocks == "quad" else 1                  # quad packs 2 subpixels per cell horizontally
     if rows is None:
-        rows = max(1, round(cols * (h / w) * 0.5))     # cells are ~twice as tall as wide
-    img = img.resize((cols, rows * 2), Image.NEAREST)  # nearest keeps pixel art crisp when shrunk
+        rows = max(1, round(cols * (h / w) * 0.5 * sx))
+    img = img.resize((cols * sx, rows * 2), Image.NEAREST)
     if duotone and duotone in DUOTONES:
         img = _apply_duotone(img, DUOTONES[duotone], palette_size if palette_size >= 2 else 0, dither)
     elif palette_size and palette_size >= 2:
         img = img.quantize(colors=palette_size,
                            dither=Image.FLOYDSTEINBERG if dither else Image.NONE).convert("RGB")
-    return _to_ansi(img)
+    return _to_ansi_quad(img) if blocks == "quad" else _to_ansi(img)
 
 
 def render_file(path: str, cols: int = 44, rows: Optional[int] = None, palette_size: int = 0,
@@ -98,6 +101,39 @@ def _to_ansi(img) -> list[str]:
                 parts.append(f"\x1b[38;2;{tr};{tg};{tb};48;2;{br};{bg};{bb}m")
                 prev = cell
             parts.append("▀")                      # ▀ upper half block
+        parts.append(RESET)
+        lines.append("".join(parts))
+    return lines
+
+
+# quadrant blocks by 2×2 bitmask: bit0=top-left, bit1=top-right, bit2=bottom-left, bit3=bottom-right
+_QUAD = [" ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"]
+
+
+def _to_ansi_quad(img) -> list[str]:
+    """2×2-pixels-per-cell renderer: for each block, split the 4 subpixels into two colors (bright vs
+    dark) and pick the quadrant glyph — twice the spatial resolution of half-blocks per character."""
+    import numpy as np
+
+    arr = np.asarray(img.convert("RGB")).astype(int)
+    hh, ww, _ = arr.shape
+    lum = (0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2])
+    lines: list[str] = []
+    for y in range(0, hh - 1, 2):
+        parts = []
+        prev = None
+        for x in range(0, ww - 1, 2):
+            px = [arr[y, x], arr[y, x + 1], arr[y + 1, x], arr[y + 1, x + 1]]
+            ls = [lum[y, x], lum[y, x + 1], lum[y + 1, x], lum[y + 1, x + 1]]
+            hi, lo = int(np.argmax(ls)), int(np.argmin(ls))
+            fg, bg = px[hi], px[lo]
+            mid = (ls[hi] + ls[lo]) / 2
+            mask = sum((1 << i) for i in range(4) if ls[i] >= mid)   # bright subpixels → fg
+            key = (fg[0], fg[1], fg[2], bg[0], bg[1], bg[2])
+            if key != prev:
+                parts.append(f"\x1b[38;2;{fg[0]};{fg[1]};{fg[2]};48;2;{bg[0]};{bg[1]};{bg[2]}m")
+                prev = key
+            parts.append(_QUAD[mask])
         parts.append(RESET)
         lines.append("".join(parts))
     return lines

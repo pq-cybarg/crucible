@@ -94,7 +94,8 @@ def test_full_chain_avatar_to_tui_pixels(tmp_path):
     a.add_layer(Layer(id="skin", part="skin", states={"base": str(tmp_path / "skin.png")}, default_state="base"))
     a.add_layer(Layer(id="eyes", part="eyes", states={"open": str(tmp_path / "eo.png")}, default_state="open"))
     a.set_expression("neutral", {"eyes": "open"})
-    lines = render_tui(a, "neutral", cols=20)                 # modular avatar → composited → ANSI pixel box
+    lines = render_tui(a, "neutral", cols=20)                 # modular avatar → composited → ANSI pixel box (quad)
     from crucible.pixelface import strip_ansi
-    assert lines and all("▀" in ln for ln in lines)
+    assert lines and all("\x1b[" in ln for ln in lines)       # ANSI color codes present
+    assert any(g in "".join(lines) for g in "▀▘▝▖▗█▌▐▚▞")     # block glyphs (quad renderer)
     assert all(len(s) == 20 for s in strip_ansi(lines))       # fits the small box width
