@@ -47,10 +47,16 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
 - [x] **Pixel-art terminal renderer** (`crucible.pixelface`): image → ANSI upper-half-block color blocks
       at low res, with palette reduction + Floyd–Steinberg dither + duotone ramps (the sepia/2-color
       "terminal-waifu" look from the reference). Verified rendering the reference portrait. Tested.
-- [ ] **TUI face window**: a fixed low-res, low-fps pixel-art face+upper-body box in the TUI right rail,
-      showing live reactions while you code — swap the sprite on reaction/talk/blink; two-color/duotone.
-- [ ] **Expression sprite sets**: an avatar = a base + per-expression pixel-art sprites (+ blink/mouth
-      frames). Load/compose/replace components like real VTubers (outfits/accessories/models).
+- [x] **Modular avatar rig** (`crucible.avatar`): an avatar = a stack of part LAYERS (skin/face/brows/
+      eyes/mouth/hair/clothes/accessory…), each with named STATES; an EXPRESSION selects a state per
+      part; `compose()` resolves back-to-front with blink/talk overrides. Parts are swappable/removable
+      (procedural + agentic). PROTECTED layers (custom imports) reject agentic/procedural edits. Save/
+      load JSON. Abstracts model kind (sprites / vrm / live2d). `render_sprites` composites RGBA layers
+      + `render_tui` → the pixel box (nearest-neighbour shrink keeps key features recognizable). Tested.
+- [ ] **TUI face window**: mount `avatar.render_tui` in the TUI right rail (fixed low-res, low-fps),
+      swapping expression/blink/talk on the reaction stream.
+- [ ] **Bundled example sprite avatar** (a real, non-reference asset set — the sample images are
+      REFERENCE ONLY, never shipped as avatar parts).
 - [ ] **Real-time drive loop**: emotional state → param interpolation (layered, smoothed) at N fps,
       independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
 - [ ] **Web avatar window**: render Live2D (pixi-live2d-display) or VRM (three-vrm), driven by the same

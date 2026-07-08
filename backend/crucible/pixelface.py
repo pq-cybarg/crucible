@@ -21,9 +21,35 @@ DUOTONES: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
 }
 
 
+def render_image(img, cols: int = 44, rows: Optional[int] = None, palette_size: int = 0,
+                 dither: bool = True, duotone: Optional[str] = None,
+                 bg: tuple = (26, 20, 16)) -> list[str]:
+    """Render an in-memory PIL image (e.g. a composited avatar) to terminal pixel blocks. Transparent
+    pixels are flattened onto `bg` (the box background) so the small TUI face box has a solid backdrop."""
+    from PIL import Image
+
+    if img.mode in ("RGBA", "LA", "P"):
+        flat = Image.new("RGB", img.size, bg)
+        rgba = img.convert("RGBA")
+        flat.paste(rgba, mask=rgba.split()[-1])
+        img = flat
+    else:
+        img = img.convert("RGB")
+    w, h = img.size
+    if rows is None:
+        rows = max(1, round(cols * (h / w) * 0.5))     # cells are ~twice as tall as wide
+    img = img.resize((cols, rows * 2), Image.NEAREST)  # nearest keeps pixel art crisp when shrunk
+    if duotone and duotone in DUOTONES:
+        img = _apply_duotone(img, DUOTONES[duotone], palette_size if palette_size >= 2 else 0, dither)
+    elif palette_size and palette_size >= 2:
+        img = img.quantize(colors=palette_size,
+                           dither=Image.FLOYDSTEINBERG if dither else Image.NONE).convert("RGB")
+    return _to_ansi(img)
+
+
 def render_file(path: str, cols: int = 44, rows: Optional[int] = None, palette_size: int = 0,
                 dither: bool = True, duotone: Optional[str] = None) -> list[str]:
-    """Return ANSI lines rendering the image as terminal pixel blocks. `cols` = width in characters;
+    """Return ANSI lines rendering the image FILE as terminal pixel blocks. `cols` = width in characters;
     `rows` (character rows) defaults to preserve aspect (each row = 2 pixels). `palette_size`>=2 reduces
     to that many colors (dithered); `duotone` maps luminance onto a named two-color ramp."""
     from PIL import Image
@@ -31,7 +57,7 @@ def render_file(path: str, cols: int = 44, rows: Optional[int] = None, palette_s
     img = Image.open(path).convert("RGB")
     w, h = img.size
     if rows is None:
-        rows = max(1, round(cols * (h / w) * 0.5))     # cells are ~twice as tall as wide
+        rows = max(1, round(cols * (h / w) * 0.5))
     img = img.resize((cols, rows * 2), Image.LANCZOS)
     if duotone and duotone in DUOTONES:
         img = _apply_duotone(img, DUOTONES[duotone], palette_size if palette_size >= 2 else 0, dither)
