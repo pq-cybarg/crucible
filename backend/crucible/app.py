@@ -2557,6 +2557,46 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             return [d["embedding"] for d in r.json().get("data", [])]
         return embed
 
+    @app.post("/api/vision/cowatch")
+    def vision_cowatch(body: dict):
+        """Co-watch a video: stream commentary from the vision model WHILE it plays, one frame every
+        `interval` seconds, paced to real-time so you can watch along. Body: {source (url/path),
+        interval, question}. Requires a (small) vision model set in preferences."""
+        prefs = prefs_store.get()
+        model = prefs.get("vision_model", "")
+        if not model:
+            raise HTTPException(status_code=409, detail="no vision model set — pick a SMALL one in Preferences")
+        source = str(body.get("source", "")).strip()
+        if not source:
+            raise HTTPException(status_code=422, detail="source (a video url or path) required")
+        interval = max(1.0, float(body.get("interval", 5.0)))
+        question = str(body.get("question", ""))
+
+        from crucible.cowatch import stream_commentary
+        from crucible.vision import describe_images, download_video, is_url, unload_model, vision_endpoint
+
+        try:
+            path = download_video(source, max_height=360) if is_url(source) else source
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"could not load video: {e}")
+        if not os.path.exists(path):
+            raise HTTPException(status_code=404, detail=f"video not found: {path}")
+
+        ep = vision_endpoint()
+        # keep the (small) model resident during the session; describe each frame, unload at the end
+        def describe(frame: str, prompt: str) -> str:
+            return describe_images([frame], prompt, model, endpoint=ep, keep_alive="5m")
+
+        def stream():
+            try:
+                yield f"data: {json.dumps({'type': 'start', 'data': {'source': source}})}\n\n"
+                for point in stream_commentary(path, describe, interval=interval, question=question):
+                    yield f"data: {json.dumps({'type': 'commentary', 'data': point})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'data': {}})}\n\n"
+            finally:
+                unload_model(model, ep)   # free the vision model's RAM when the watch ends
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
     @app.get("/api/metrics")
     def metrics_catalog() -> dict:
         """The distance/similarity families search & reorganization can use, each with its HONEST

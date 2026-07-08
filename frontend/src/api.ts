@@ -269,6 +269,33 @@ export async function detachSlot(id: string, kind: "memory" | "context", ref: st
   return await jbody(r, "detach slot") as AgentSessionFull;
 }
 
+// Co-watch: stream commentary from the vision model while a video plays. onEvent gets {type, data}.
+export async function cowatchStream(source: string, interval: number, question: string,
+                                   onEvent: (ev: { type: string; data: Record<string, unknown> }) => void,
+                                   signal?: AbortSignal): Promise<void> {
+  const r = await cfetch(`${API_BASE}/api/vision/cowatch`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, interval, question }),
+    ...(signal ? { signal } : {}),
+  });
+  if (!r.ok || !r.body) throw new Error(`cowatch ${r.status}`);
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const p of parts) {
+      const line = p.trim();
+      if (!line.startsWith("data:")) continue;
+      try { onEvent(JSON.parse(line.slice(5)) as { type: string; data: Record<string, unknown> }); } catch { /* skip */ }
+    }
+  }
+}
+
 // Forget a dead/experiment model registry entry (does NOT delete weight files on disk).
 export async function forgetModel(modelId: string): Promise<void> {
   const r = await cfetch(`${API_BASE}/api/models/${encodeURIComponent(modelId)}`, { method: "DELETE" });

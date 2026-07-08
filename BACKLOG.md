@@ -23,6 +23,23 @@ Deferred / planned work, captured so nothing is lost.
 - [ ] Vision for the browser tool: `browser screenshot` → `see_image` in one step (agent watches the page it drives)
 - [ ] **Audio processing** end-to-end: wire a real transcribe backend (the transcribe tool exists but needs a media backend) + audio track of a video + TTS out
 
+## Real-time / reactive multimodal (requested — big architecture)
+- [x] **Co-watch v1**: `/api/vision/cowatch` streams paced commentary from the vision model while a video plays (frame every N s, real-time paced, model unloads after); `cowatch` web tab with a YouTube embed + live commentary feed. Verified live on a YouTube clip with moondream.
+- [ ] **Real-time reactive watching** (react at the exact moment — e.g. animate a VTuber at a jumpscare):
+      - a FAST non-LLM detector loop sampling densely (frame-diff / motion / audio-spike — cheap, no model) that emits low-latency `event`s (scene cut, sudden change ≈ jumpscare) — the "tiny subagents watching for interesting features";
+      - the vision model aggregates the detectors' findings PERIODICALLY into higher-level understanding (fits the fractal-subagent + hierarchy `relay` design);
+      - a `reaction` event stream (typed: jumpscare/scene-change/…) downstream consumers (VTuber rig, overlays) can hook — with timestamps for exact-moment sync.
+- [ ] **Real-time audio track**: extract + transcribe the audio in chunks (whisper) interleaved with the visual commentary so the AI hears + sees.
+- [ ] **Resource-aware self-restraint** ("don't overwhelm the brain"): a governor that bounds concurrent subagents/tools by live load (CPU/RAM/model-queue) and, while co-watching, deprioritizes other work so frames aren't dropped. Extends SpawnBudget with a dynamic, load-sensitive cap; the agent should *choose* fewer helpers when saturated.
+- [ ] **Chrome/Brave extension as a tool**: capture frames (and audio) from the user's LIVE tab (their real YouTube session) and post to Crucible via a local endpoint — so the AI co-watches what the user is actually watching, no re-download. Native-messaging or a localhost bridge.
+
+## Non-LLM subagents / tools (requested)
+- [ ] **ML-algorithm tools**: expose classic ML (classifiers/clustering/regression via numpy/scikit) as agent tools the model can RUN on data (incl. video features) — non-LLM subagents.
+- [ ] **Train/tune tools**: let the agent TRAIN + tune those ML models (fit/validate/select hyperparams) to dial in the right settings itself — a self-improving toolbox alongside the abliteration/training pipeline.
+
+## Vision model uncensoring (requested)
+- [ ] Abliterate/uncensor the **vision** model (moondream/llava) via Crucible's abliteration pipeline — vision-model architecture needs care (multimodal weights); pull a small one first, then run diagnose → orthogonalize on the language head.
+
 ## Pull-in from OpenCode / OpenClaw (where OSS-licensed & design-compatible)
 - [ ] Evaluate + adapt: command palette / slash-command packs, model picker UX, session/checkpoint model, plan mode, permission prompts, LSP hooks
 - [ ] Keep license compatibility in mind; adapt patterns, don't copy incompatible code
