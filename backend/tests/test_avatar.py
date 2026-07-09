@@ -121,3 +121,88 @@ def test_full_chain_avatar_to_tui_pixels(tmp_path):
     assert lines and all("\x1b[" in ln for ln in lines)       # ANSI color codes present
     assert any(g in "".join(lines) for g in "▀▘▝▖▗█▌▐▚▞")     # block glyphs (quad renderer)
     assert all(len(s) == 20 for s in strip_ansi(lines))       # fits the small box width
+
+
+def _blend_avatar(tmp_path) -> Avatar:
+    """A face part with three distinctly-colored expression states so a blend is measurably 'between'."""
+    from PIL import Image
+    Image.new("RGBA", (48, 60), (40, 40, 40, 255)).save(tmp_path / "neutral.png")   # dark
+    Image.new("RGBA", (48, 60), (240, 240, 240, 255)).save(tmp_path / "happy.png")  # bright
+    Image.new("RGBA", (48, 60), (240, 40, 40, 255)).save(tmp_path / "surprised.png")
+    a = Avatar(name="b", size=(48, 60))
+    a.add_layer(Layer(id="face", part="face", default_state="neutral", states={
+        "neutral": str(tmp_path / "neutral.png"),
+        "happy": str(tmp_path / "happy.png"),
+        "surprised": str(tmp_path / "surprised.png")}))
+    for e in ("neutral", "happy", "surprised"):
+        a.set_expression(e, {"face": e})
+    return a
+
+
+def test_blend_is_between_the_two_pure_expressions(tmp_path):
+    import numpy as np
+    from crucible.avatar import blend_expressions, render_sprites
+    a = _blend_avatar(tmp_path)
+    dark = np.asarray(render_sprites(a, "neutral").convert("RGB")).astype(float)
+    bright = np.asarray(render_sprites(a, "happy").convert("RGB")).astype(float)
+    mix = np.asarray(blend_expressions(a, {"neutral": 0.5, "happy": 0.5}).convert("RGB")).astype(float)
+    # a 50/50 blend sits strictly between the two pure faces (neither preset), ≈ their average
+    assert dark.mean() < mix.mean() < bright.mean()
+    assert abs(mix.mean() - (dark.mean() + bright.mean()) / 2) < 3.0
+
+
+def test_blend_weight_shifts_toward_the_heavier_expression(tmp_path):
+    import numpy as np
+    from crucible.avatar import blend_expressions
+    a = _blend_avatar(tmp_path)
+    mostly_dark = np.asarray(blend_expressions(a, {"neutral": 0.8, "happy": 0.2}).convert("RGB")).mean()
+    mostly_bright = np.asarray(blend_expressions(a, {"neutral": 0.2, "happy": 0.8}).convert("RGB")).mean()
+    assert mostly_dark < mostly_bright                        # heavier weight dominates the mix
+
+
+def test_blend_is_order_independent_and_normalized(tmp_path):
+    import numpy as np
+    from crucible.avatar import blend_expressions
+    a = _blend_avatar(tmp_path)
+    ab = np.asarray(blend_expressions(a, {"neutral": 1, "happy": 1, "surprised": 1}).convert("RGB")).astype(int)
+    ba = np.asarray(blend_expressions(a, {"surprised": 1, "happy": 1, "neutral": 1}).convert("RGB")).astype(int)
+    assert np.abs(ab - ba).max() <= 1                         # true average — order doesn't matter
+    # un-normalized weights == normalized weights (only the RATIO matters)
+    scaled = np.asarray(blend_expressions(a, {"neutral": 20, "happy": 20, "surprised": 20}).convert("RGB")).astype(int)
+    assert np.abs(ab - scaled).max() <= 1
+
+
+def test_blend_degenerate_cases(tmp_path):
+    import numpy as np
+    from crucible.avatar import blend_expressions, render_sprites
+    a = _blend_avatar(tmp_path)
+    # single-entry / empty / all-zero weights fall back sanely (no crash, no NaN)
+    one = np.asarray(blend_expressions(a, {"happy": 1.0}).convert("RGB"))
+    pure = np.asarray(render_sprites(a, "happy").convert("RGB"))
+    assert np.array_equal(one, pure)                          # one expression == that expression
+    empty = blend_expressions(a, {}).convert("RGB")           # empty → neutral fallback
+    zeros = blend_expressions(a, {"happy": 0.0, "neutral": 0.0}).convert("RGB")
+    assert empty.size == zeros.size == (48, 60)
+
+
+def test_blend_overrides_apply_through_the_mix(tmp_path):
+    import numpy as np
+    from PIL import Image
+    from crucible.avatar import blend_expressions
+    # eyes as a separate part so a blink override is visible; face states carry the mood color
+    Image.new("RGBA", (48, 60), (40, 40, 40, 255)).save(tmp_path / "neutral.png")
+    Image.new("RGBA", (48, 60), (240, 240, 240, 255)).save(tmp_path / "happy.png")
+    Image.new("RGBA", (12, 6), (0, 0, 0, 255)).save(tmp_path / "eopen.png")     # black eye bar
+    Image.new("RGBA", (12, 6), (0, 0, 0, 0)).save(tmp_path / "eclosed.png")     # transparent (blink)
+    a = Avatar(name="b", size=(48, 60))
+    a.add_layer(Layer(id="face", part="face", default_state="neutral", pos=(0, 0), states={
+        "neutral": str(tmp_path / "neutral.png"), "happy": str(tmp_path / "happy.png")}))
+    a.add_layer(Layer(id="eyes", part="eyes", pos=(18, 20), default_state="open",
+                      states={"open": str(tmp_path / "eopen.png"), "closed": str(tmp_path / "eclosed.png")}))
+    for e in ("neutral", "happy"):
+        a.set_expression(e, {"face": e, "eyes": "open"})
+    with_eyes = np.asarray(blend_expressions(a, {"neutral": 0.5, "happy": 0.5}).convert("RGBA"))
+    blinked = np.asarray(blend_expressions(a, {"neutral": 0.5, "happy": 0.5},
+                                           overrides={"eyes": "closed"}).convert("RGBA"))
+    # a blink override applies to every layer of the blend, so closing the eyes changes the composite
+    assert not np.array_equal(with_eyes, blinked)

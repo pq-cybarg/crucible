@@ -179,6 +179,41 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
     return canvas
 
 
+def blend_expressions(avatar: Avatar, weights: dict, overrides: Optional[dict] = None,
+                      box: Optional[tuple] = None):
+    """Blendshape-style mixing: render several named expressions and combine them by WEIGHT into one
+    face, instead of hard-switching between presets. e.g. {"happy": 0.6, "surprised": 0.4} → a face that's
+    mostly happy with a surprised undertone; {"neutral": 0.5, "smug": 0.5} → a faint smirk. This is the
+    sprite analog of ARKit blendshapes / Live2D parameters: continuous, layered emotion rather than 8
+    fixed moods. Weights are normalized; a single-entry dict is just that expression. `overrides` (blink/
+    talk frames) apply to every layer of the mix so animation still reads through the blend. Returns a PIL
+    image (RGBA). Micro-expressions = small weights on an accent mood over a dominant one."""
+    from PIL import Image
+
+    items = [(name, float(w)) for name, w in (weights or {}).items() if w and w > 0]
+    if not items:
+        return render_sprites(avatar, "neutral", overrides, box)
+    if len(items) == 1:
+        return render_sprites(avatar, items[0][0], overrides, box)
+    total = sum(w for _, w in items)
+
+    acc = None                                          # running weighted composite (float RGBA)
+    used = 0.0
+    for name, w in items:
+        frac = w / total
+        layer_img = render_sprites(avatar, name, overrides, box).convert("RGBA")
+        if acc is None:
+            acc = layer_img
+            used = frac
+            continue
+        # blend the accumulated mix with this expression by its share of the remaining weight, so the
+        # final result is the true weighted average of all rendered expressions (order-independent).
+        used += frac
+        alpha = frac / used
+        acc = Image.blend(acc, layer_img, alpha)
+    return acc
+
+
 def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
                cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
                blocks: str = "quad") -> list[str]:
@@ -187,4 +222,13 @@ def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[
     key features stay recognizable. (VRM/Live2D kinds are driven by the web engines, not rasterized here.)"""
     from crucible.pixelface import render_image
     img = render_sprites(avatar, expression, overrides)
+    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)
+
+
+def render_tui_blend(avatar: Avatar, weights: dict, overrides: Optional[dict] = None,
+                     cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
+                     blocks: str = "quad") -> list[str]:
+    """Like `render_tui` but for a WEIGHTED BLEND of expressions (blendshape-style) — mix moods live."""
+    from crucible.pixelface import render_image
+    img = blend_expressions(avatar, weights, overrides)
     return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)

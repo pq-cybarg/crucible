@@ -163,7 +163,10 @@ class FaceWidget(Static):
         self.talking = False
         self._t = 0
         self._blink = False
-        self._tween_from = ""       # crossfade (inbetween) source expression
+        # A face is a WEIGHTED BLEND of expressions (blendshape-style), not one preset — so we can hold
+        # e.g. {"happy":0.6,"surprised":0.4} for layered emotion. A single preset is just {name:1.0}.
+        self._weights = {"neutral": 1.0}
+        self._tween_from = None     # crossfade (inbetween) source weights
         self._tween = 1.0           # 0→1 progress of the blend
 
     def on_mount(self) -> None:
@@ -196,15 +199,15 @@ class FaceWidget(Static):
 
     def redraw(self) -> None:
         from rich.text import Text
-        from crucible.avatar import render_sprites
+        from crucible.avatar import blend_expressions
         from crucible.pixelface import render_image
         try:
             a = self.avatar
             ov = self._overrides()
-            img = render_sprites(a, self.expression, ov)
-            if self._tween < 1.0 and self._tween_from:   # crossfade inbetween from the previous expression
+            img = blend_expressions(a, self._weights, ov)
+            if self._tween < 1.0 and self._tween_from:   # crossfade inbetween from the previous mix
                 from PIL import Image
-                prev = render_sprites(a, self._tween_from, ov)
+                prev = blend_expressions(a, self._tween_from, ov)
                 img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
             lines = render_image(img, cols=self.cols, duotone="terminal-sepia", palette_size=6, blocks="quad")
             self.update(Text.from_ansi("\n".join(lines)))
@@ -212,10 +215,21 @@ class FaceWidget(Static):
             self.update(f"[face error: {e}]")
 
     def set_expression(self, expression: str) -> None:
-        if expression != self.expression:
-            self._tween_from = self.expression   # start a smooth crossfade to the new expression
+        """Settle on a single preset expression (crossfading from whatever mix is showing)."""
+        self.set_blend({expression: 1.0}, primary=expression)
+
+    def set_blend(self, weights: dict, primary: Optional[str] = None) -> None:
+        """Show a WEIGHTED BLEND of expressions (blendshape-style layered emotion), crossfading in from
+        the current mix. `primary` names the dominant expression (for overrides/labelling); defaults to
+        the highest-weighted entry."""
+        weights = {k: float(v) for k, v in (weights or {}).items() if v and v > 0} or {"neutral": 1.0}
+        if primary is None:
+            primary = max(weights, key=weights.get)
+        if weights != self._weights:
+            self._tween_from = self._weights     # start a smooth crossfade from the previous mix
             self._tween = 0.0
-        self.expression = expression
+        self._weights = weights
+        self.expression = primary
         self.redraw()
 
     def set_talking(self, talking: bool) -> None:
@@ -530,14 +544,19 @@ class CrucibleTUI(App):
                 pass
         self.refresh_all()
 
-    def _emote(self, expression: Optional[str] = None, talking: Optional[bool] = None) -> None:
-        """Drive the companion face — safe no-op if there's no face widget (no avatar)."""
+    def _emote(self, expression=None, talking: Optional[bool] = None) -> None:
+        """Drive the companion face — safe no-op if there's no face widget (no avatar). `expression` may be
+        a single preset name OR a weighted blend dict (blendshape-style layered emotion), e.g.
+        {"curious": 0.7, "happy": 0.3}."""
         try:
             fw = self.query_one("#face", FaceWidget)
         except Exception:
             return
         if expression is not None:
-            fw.set_expression(expression)
+            if isinstance(expression, dict):
+                fw.set_blend(expression)
+            else:
+                fw.set_expression(expression)
         if talking is not None:
             fw.set_talking(talking)
 
@@ -547,7 +566,7 @@ class CrucibleTUI(App):
         log = self.query_one("#context", RichLog)
         run_id = f"{sid}-{int(time.monotonic() * 1000)}"
         acc = ""
-        self.call_from_thread(self._emote, "curious", False)      # thinking…
+        self.call_from_thread(self._emote, {"curious": 0.7, "neutral": 0.3}, False)   # thinking… (a hint of focus)
         try:
             with httpx.stream("POST", f"{self.control}/api/agent-sessions/{sid}/run",
                               json={"message": message, "run_id": run_id}, timeout=600) as r:
@@ -565,7 +584,7 @@ class CrucibleTUI(App):
                     t = ev["type"]
                     if t == "assistant_delta":
                         acc += str(ev["data"].get("delta", ""))
-                        self.call_from_thread(self._emote, "happy", True)     # talking (mouth flaps)
+                        self.call_from_thread(self._emote, {"happy": 0.75, "surprised": 0.25}, True)  # lively talk
                     elif t in ("assistant", "done") and ev["data"].get("content"):
                         acc = str(ev["data"]["content"])
                     elif t == "tool_call":

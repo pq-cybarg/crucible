@@ -199,21 +199,31 @@ class AvatarGeneratePart:
 
 class AvatarRender:
     name = "avatar_render"
-    description = "Render the companion avatar (an expression) to a PNG file and return its path — then " \
-                  "use see_image on it to CHECK your work and iterate part by part."
+    description = ("Render the companion avatar to a PNG file and return its path — then use see_image on "
+                  "it to CHECK your work and iterate part by part. Pass a single `expression`, OR a `blend` "
+                  "map of expression→weight for a BLENDSHAPE-STYLE mix (e.g. {\"happy\":0.6,\"surprised\":"
+                  "0.4}) → layered emotion between presets, the same continuous mixing the live face uses.")
     parameters = {"type": "object", "properties": {
-        "expression": {"type": "string"}, "out": {"type": "string"}}, "required": []}
+        "expression": {"type": "string"},
+        "blend": {"type": "object", "description": "expression name → weight (mixed & normalized)"},
+        "out": {"type": "string"}}, "required": []}
 
     def __init__(self, root=None):
         self.root = str(root) if root else "."
 
-    def run(self, expression="neutral", out="") -> ToolResult:
-        from crucible.avatar import render_sprites
+    def run(self, expression="neutral", blend=None, out="") -> ToolResult:
+        from crucible.avatar import render_sprites, blend_expressions
         a, _ = _active()
-        img = render_sprites(a, expression)
+        if isinstance(blend, dict) and blend:
+            weights = {str(k): float(v) for k, v in blend.items()}
+            img = blend_expressions(a, weights)
+            label = "blend " + "+".join(f"{k}:{v:g}" for k, v in weights.items())
+        else:
+            img = render_sprites(a, expression)
+            label = f"'{expression}'"
         path = out if out else os.path.join(self.root, "avatar_preview.png")
         if not os.path.isabs(path):
             path = os.path.join(self.root, path)
         img.convert("RGBA").save(path)
-        return ToolResult(ok=True, output=f"rendered '{expression}' → {path} ({a.size[0]}x{a.size[1]}). "
+        return ToolResult(ok=True, output=f"rendered {label} → {path} ({a.size[0]}x{a.size[1]}). "
                           "Use see_image on it to review.")

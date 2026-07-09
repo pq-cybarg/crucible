@@ -91,9 +91,17 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       sad/angry/curious/love/smug/teasing/shy + blink/talk), assembled as a face-part rig; the TUI shows it.
 - [x] **Crossfade inbetweening**: FaceWidget tweens (alpha-blends) between expressions over a few frames.
 - [x] **Render fixes**: fixed the quad aspect (horizontal-squish) bug; flat art for low-res legibility.
-- [ ] **Continuous layered blending** (nuance): drive the rig by continuous PARAMETERS and mix independent
-      axes at once — gaze/look-direction + brow + eye-open + mouth + blush — not just discrete-state
-      crossfades. Micro-expressions, saccades, weighted blends of two emotions.
+- [~] **Blendshape-like params + blends** (nuanced expression): the canonical param set lives in
+      `crucible.expression` (brow/eye_open/eye_wide/smile/mouth_open/blush/head_tilt) — the same idea as
+      ARKit blendshapes / Live2D parameters. DONE: weighted N-expression BLENDING for sprites
+      (`avatar.blend_expressions` — mix happy+surprised+… by normalized weight, order-independent, not
+      just presets), wired into the live TUI face (`FaceWidget.set_blend`, so `_emote` can drive
+      `{"curious":0.7,"neutral":0.3}` layered moods with crossfade) and exposed agentically
+      (`avatar_render` `blend={...}`). Covered by tests. TODO: drive the params continuously and map them
+      to real VRM blendshapes / Live2D params; micro-expressions; saccades; per-part param blends rather
+      than whole-face image blends.
+- [ ] **Continuous layered axes**: mix independent axes at once — gaze/look-direction + brow + eye-open +
+      mouth + blush — driven by the blendshape params above, in real time.
 - [ ] **Gaze / look-direction axis**: separate eye/pupil offset layer, mixable with any expression in
       real time (look around while smiling).
 - [ ] **Crisper detail**: part-based rig for the generated art (slice eyes/mouth/hair) and/or a larger

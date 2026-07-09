@@ -47,6 +47,11 @@ def test_design_loop_set_part_tune_expression_render(tmp_path, monkeypatch):
     rr = t["render"].run(expression="happy", out="prev.png")
     assert rr.ok and os.path.exists(root / "prev.png")
 
+    # render a BLENDSHAPE-STYLE mix (layered emotion between presets) the agent can preview
+    t["expr"].run(name="neutral", mapping={"eyes": "open", "mouth": "smile"})
+    rb = t["render"].run(blend={"happy": 0.6, "neutral": 0.4}, out="blend.png")
+    assert rb.ok and "blend" in rb.output and os.path.exists(root / "blend.png")
+
 
 def test_protected_import_rejects_design_edits(tmp_path, monkeypatch):
     t, root = _tools(tmp_path, monkeypatch)
