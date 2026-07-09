@@ -82,8 +82,14 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       companion reacts live while you work; add talk-animation from TTS.
 - [ ] **Real-time drive loop**: emotional state → param interpolation (layered, smoothed) at N fps,
       independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
-- [ ] **Web avatar window**: render Live2D (pixi-live2d-display) or VRM (three-vrm), driven by the same
-      param stream; user replaces/adds components.
+- [~] **Web avatar window**: a live SVG companion face in the GUI (`companion` tab / `AvatarPanel`),
+      driven by the SAME engine-agnostic param stream — fetches a mood BLEND → Live2D params from
+      `POST /api/avatar/rig-frame` and overlays saccadic gaze + blink + talk locally (pure geometry in
+      `src/avatar/face.ts`, seeded client idle in `src/avatar/idle.ts`, validated at the fetch boundary).
+      Pick a mood, MIX several by weight (real-time blendshape sliders), toggle talk, manual/auto gaze,
+      and reaction chips map the co-watch vocabulary onto the face. Works offline/demo via `demoRig.ts`.
+      Frontend tests cover the geometry/idle/demo-rig. TODO: swap the SVG renderer for a real Live2D
+      (pixi-live2d-display) / VRM (three-vrm) model fed the same params; user replaces/adds components.
 - [~] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
       API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar. DONE (VTS):
       `crucible.vtsbridge.VTSBridge` — auth-token request + cache (with stale-token re-request),

@@ -26,7 +26,9 @@ import {
   localCompact, localConsolidate, localGraph, localIndex, localLink, localReadForSplit, localRead,
   localRecrystallize, localSearch, localSetPriority, localTree, METRIC_LABELS, OFFLINE_METRICS,
 } from "./localMemory";
+import { DEMO_AVATAR, DEMO_REACTION, demoRigFrame } from "./avatar/demoRig";
 import {
+  avatarInfoP, rigFrameP,
   abliterateOutP, autotuneReportP, benchScoreP, benchmarkResultP, benchmarksInfoP,
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   hierarchyProfileP, lineageP, profilesP,
@@ -1609,4 +1611,52 @@ export async function getFlow(baseId: string): Promise<FlowResult> {
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: flowReportP(await resp.json()) };
+}
+
+// --- avatar / companion rig ------------------------------------------------------------------
+// The web companion window: the backend is the source of truth for a mood → face PARAMS mapping (the same
+// engine-agnostic state that drives the TUI pixel face and any VTube-Studio rig). We fetch a RigFrame per
+// mood change and animate gaze/blink locally for smooth motion. `live2d` params drive the SVG face.
+export interface AvatarLayerInfo {
+  readonly id: string; readonly part: string; readonly protected: boolean;
+  readonly states: readonly string[]; readonly default_state: string;
+  readonly pos: readonly number[]; readonly mirror: boolean; readonly spacing: number;
+}
+export interface AvatarInfo {
+  readonly name: string; readonly kind: string; readonly size: readonly number[];
+  readonly expressions: readonly string[]; readonly layers: readonly AvatarLayerInfo[];
+}
+export interface RigFrame {
+  readonly params: Readonly<Record<string, number>>;
+  readonly gaze: readonly number[];
+  readonly blink: number;
+  readonly arkit: Readonly<Record<string, number>>;
+  readonly live2d: Readonly<Record<string, number>>;
+  readonly vrm: Readonly<Record<string, number>>;
+}
+
+export async function getAvatarInfo(): Promise<AvatarInfo> {
+  if (isDemo()) return DEMO_AVATAR;
+  const r = await cfetch(API_BASE + "/api/avatar");
+  if (!r.ok) throw new Error(`GET /api/avatar -> ${r.status}`);
+  return avatarInfoP(await r.json());
+}
+
+export async function postRigFrame(
+  weights: Readonly<Record<string, number>>, gaze?: readonly [number, number], blink = 0,
+): Promise<RigFrame> {
+  if (isDemo()) return demoRigFrame(weights, gaze, blink);
+  const r = await cfetch(API_BASE + "/api/avatar/rig-frame", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ weights, gaze: gaze ?? null, blink }),
+  });
+  if (!r.ok) throw new Error(`POST /api/avatar/rig-frame -> ${r.status}`);
+  return rigFrameP(await r.json());
+}
+
+export async function getReactionFrame(reaction: string): Promise<RigFrame> {
+  if (isDemo()) return demoRigFrame({ [DEMO_REACTION[reaction] ?? "neutral"]: 1 });
+  const r = await cfetch(API_BASE + "/api/avatar/reaction/" + encodeURIComponent(reaction));
+  if (!r.ok) throw new Error(`GET /api/avatar/reaction -> ${r.status}`);
+  return rigFrameP(await r.json());
 }

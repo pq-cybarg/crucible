@@ -1098,3 +1098,28 @@ label.pipe-comp input { margin-right: 4px; }
   .perm-actions .btn { flex: 1; padding: 8px 0; font-size: 12px; }
   .notice { font-size: 11.5px; padding: 8px 10px; }
 }
+
+/* --- companion avatar window ------------------------------------------------- */
+.avatar-stage { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+.avatar-face {
+  width: 260px; height: 300px; flex: 0 0 auto;
+  border: 1px solid var(--steel-600); border-radius: 14px;
+  background: radial-gradient(120% 120% at 50% 30%, #171a1f, var(--void));
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.5), var(--glow-amber);
+  padding: 16px;
+}
+.avatar-controls { flex: 1 1 320px; min-width: 300px; display: flex; flex-direction: column; gap: 14px; }
+.avatar-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.avatar-row .btn { padding: 6px 12px; font-size: 12px; text-transform: capitalize; }
+.avatar-row .btn.on { background: rgba(255,106,26,0.15); color: var(--amber-bright); border-color: var(--amber); }
+.avatar-toggles { margin-top: 4px; }
+.avatar-reactions { margin-top: 8px; }
+.avatar-reactions .chip { cursor: pointer; text-transform: capitalize; }
+.avatar-reactions .chip:hover { color: var(--amber-bright); border-color: var(--amber); }
+.avatar-gaze { display: flex; gap: 18px; color: var(--ash); font-size: 12px; }
+.avatar-gaze label { display: flex; align-items: center; gap: 8px; }
+.avatar-mix { border: 1px solid var(--steel-700); border-radius: 10px; padding: 12px 14px; }
+.avatar-hint { color: var(--ash); font-size: 12px; margin-bottom: 8px; }
+.avatar-slider { display: grid; grid-template-columns: 84px 1fr 40px; align-items: center; gap: 10px; font-size: 12px; color: var(--steel-text); text-transform: capitalize; }
+.avatar-slider em { color: var(--amber); font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
+.avatar-slider input, .avatar-gaze input { accent-color: var(--amber); }

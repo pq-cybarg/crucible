@@ -12,11 +12,12 @@ import GraphPanel from "./components/GraphPanel";
 import MemoryPanel from "./components/MemoryPanel";
 import AgentsPanel from "./components/AgentsPanel";
 import CoWatchPanel from "./components/CoWatchPanel";
+import AvatarPanel from "./components/AvatarPanel";
 import PreferencesPanel from "./components/PreferencesPanel";
 import { getApiBase, getApiToken, getHealth, getModels, probeNode, setApiBase, setApiToken } from "./api";
 import { isDemo } from "./demo";
 
-type TabId = "agent" | "agents" | "cowatch" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks" | "pipeline" | "graph" | "memory" | "preferences";
+type TabId = "agent" | "agents" | "cowatch" | "companion" | "models" | "guardrails" | "uncensor" | "weights" | "benchmarks" | "pipeline" | "graph" | "memory" | "preferences";
 
 interface Tab {
   readonly id: TabId;
@@ -28,6 +29,7 @@ const TABS: readonly Tab[] = [
   { id: "agent", label: "forge", path: "M4 13h7l-1 7 10-11h-7l1-7z" },
   { id: "agents", label: "agents", path: "M7 8a3 3 0 100-.01M17 8a3 3 0 100-.01M2 20c0-3 2.5-5 5-5s5 2 5 5M12 20c0-3 2.5-5 5-5s5 2 5 5" },
   { id: "cowatch", label: "cowatch", path: "M4 5h16v14H4zM10 9l5 3-5 3z" },
+  { id: "companion", label: "face", path: "M12 3a9 9 0 100 18 9 9 0 000-18zM9 10a1 1 0 100-.01M15 10a1 1 0 100-.01M8 15c1 1.5 2.5 2 4 2s3-.5 4-2" },
   { id: "models", label: "models", path: "M4 7l8-4 8 4-8 4-8-4zm0 5l8 4 8-4m-16 5l8 4 8-4" },
   { id: "guardrails", label: "guards", path: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z" },
   { id: "uncensor", label: "ablit", path: "M5 19l7-14 7 14M8 14h8" },
@@ -47,6 +49,8 @@ function Panel({ tab }: { readonly tab: TabId }): JSX.Element {
       return <AgentsPanel />;
     case "cowatch":
       return <CoWatchPanel />;
+    case "companion":
+      return <AvatarPanel />;
     case "models":
       return <ModelsPanel />;
     case "guardrails":

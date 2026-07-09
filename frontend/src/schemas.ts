@@ -4,6 +4,7 @@
 // backend can add fields (e.g. the `plain` cards now attached to analysis results) without
 // breaking anything here. Import these in api.ts and call them on `await r.json()`.
 import type {
+  AvatarInfo, AvatarLayerInfo, RigFrame,
   AblationImpact, AutotuneConfigResult, AutotuneReport, BenchScore, BenchmarkResult,
   BenchmarksInfo, BeforeAfter, DiagnosisReport, EditCommit, EditHistory, FeatureCard,
   FeatureTrigger, FlowCarrier, FlowReport, GuardrailAction, GuardrailConfig, GuardrailResult,
@@ -269,3 +270,16 @@ export const abliterateOutP = object({ variant: modelRowP, card: modelCardP });
 export const hhItemsWrapP = object({ items: array(hhItemP) });
 export const lmEvalWrapP = object({ results: array(lmEvalRowP) });
 export const probeWrapP = object({ rows: array(probeRowP) });
+
+// --- avatar / companion rig -----------------------------------------------------------------
+export const avatarLayerInfoP: Parser<AvatarLayerInfo> = object({
+  id: str, part: str, protected: bool, states: array(str), default_state: str,
+  pos: array(num), mirror: bool, spacing: num,
+});
+export const avatarInfoP: Parser<AvatarInfo> = object({
+  name: str, kind: str, size: array(num), expressions: array(str), layers: array(avatarLayerInfoP),
+});
+export const rigFrameP: Parser<RigFrame> = object({
+  params: record(num), gaze: array(num), blink: num,
+  arkit: record(num), live2d: record(num), vrm: record(num),
+});
