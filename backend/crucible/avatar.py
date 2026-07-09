@@ -17,9 +17,13 @@ from pathlib import Path
 from typing import Optional
 
 # canonical part slots, back-to-front z-order for sprite compositing
-PARTS = ("background", "body", "clothes_back", "skin", "face", "blush", "brows", "eyes",
+PARTS = ("background", "body", "clothes_back", "skin", "face", "blush", "brows", "eyes", "pupils",
          "mouth", "hair", "clothes_front", "accessory")
 MODEL_KINDS = ("sprites", "vrm", "live2d")
+
+# Parts that follow the GAZE axis (a small geometric pupil/eye offset). Pupils move if a dedicated pupils
+# layer exists; otherwise the whole eyes layer shifts. Both eyes shift the SAME direction → stay in sync.
+GAZE_PARTS = ("pupils", "eyes")
 
 
 class ProtectedLayerError(Exception):
@@ -142,16 +146,34 @@ class Avatar:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 
+def _gaze_offset(avatar: Avatar, gaze: Optional[tuple]) -> tuple:
+    """Convert a gaze axis in [-1,1]×[-1,1] (look-direction: +x right, +y down) into a small PIXEL offset,
+    scaled to the avatar size so it reads at any resolution. Vertical travel is smaller than horizontal
+    (eyes rove side-to-side more than up/down)."""
+    if not gaze:
+        return (0, 0)
+    gx = max(-1.0, min(1.0, float(gaze[0])))
+    gy = max(-1.0, min(1.0, float(gaze[1])))
+    return (round(gx * avatar.size[0] * 0.06), round(gy * avatar.size[1] * 0.04))
+
+
 def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
-                   box: Optional[tuple] = None):
+                   box: Optional[tuple] = None, gaze: Optional[tuple] = None):
     """Composite a sprite-kind avatar's visible layers (RGBA PNGs, alpha-blended back-to-front) into one
     image, resized to fit `box` (defaults to the avatar's native size) while KEEPING KEY FEATURES
-    recognizable (nearest-neighbour so pixel art stays crisp when shrunk). Returns a PIL image."""
+    recognizable (nearest-neighbour so pixel art stays crisp when shrunk). Returns a PIL image.
+
+    `gaze` = (dx, dy) in [-1,1] shifts the look-direction — a dedicated `pupils` layer if present, else the
+    whole `eyes` layer — by a few pixels, so the companion can glance around INDEPENDENTLY of its
+    expression (mixable: a happy face looking left). Both eyes move the same way, staying in sync."""
     from PIL import Image
 
     w, h = box or avatar.size
     canvas = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
     from PIL import ImageOps
+    gdx, gdy = _gaze_offset(avatar, gaze)
+    # Gaze moves ONE layer: prefer a dedicated pupils part, else fall back to shifting the eyes part.
+    gaze_part = "pupils" if avatar.part_layer("pupils") else "eyes"
     for item in avatar.compose(expression, overrides):
         val = item["value"]
         if not val:
@@ -161,47 +183,49 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
         except (FileNotFoundError, OSError):
             continue
         layer = avatar.layer(item["id"])
+        ox, oy = (gdx, gdy) if (layer and layer.part == gaze_part) else (0, 0)   # gaze shift
         if layer and layer.mirror:
             # a symmetric PAIR (eyes/ears): place the sprite left of centre and its mirror right of it,
             # separated by `spacing` — the eye-distance knob that keeps the pair in sync.
             cx = avatar.size[0] // 2
-            y = int(layer.pos[1])
-            canvas.alpha_composite(sprite, (cx - layer.spacing // 2 - sprite.width, y))
-            canvas.alpha_composite(ImageOps.mirror(sprite), (cx + layer.spacing // 2, y))
+            y = int(layer.pos[1]) + oy
+            canvas.alpha_composite(sprite, (cx - layer.spacing // 2 - sprite.width + ox, y))
+            canvas.alpha_composite(ImageOps.mirror(sprite), (cx + layer.spacing // 2 + ox, y))
         elif layer and tuple(layer.pos) != (0, 0):
-            canvas.alpha_composite(sprite, (int(layer.pos[0]), int(layer.pos[1])))   # placed part sprite
+            canvas.alpha_composite(sprite, (int(layer.pos[0]) + ox, int(layer.pos[1]) + oy))  # placed part
         else:
             if sprite.size != avatar.size:                    # a full-canvas part sprite (drawn in place)
                 sprite = sprite.resize(avatar.size, Image.NEAREST)
-            canvas.alpha_composite(sprite)
+            canvas.alpha_composite(sprite, (ox, oy))
     if (w, h) != avatar.size:
         canvas = canvas.resize((w, h), Image.NEAREST)     # crisp downscale for the small TUI box
     return canvas
 
 
 def blend_expressions(avatar: Avatar, weights: dict, overrides: Optional[dict] = None,
-                      box: Optional[tuple] = None):
+                      box: Optional[tuple] = None, gaze: Optional[tuple] = None):
     """Blendshape-style mixing: render several named expressions and combine them by WEIGHT into one
     face, instead of hard-switching between presets. e.g. {"happy": 0.6, "surprised": 0.4} → a face that's
     mostly happy with a surprised undertone; {"neutral": 0.5, "smug": 0.5} → a faint smirk. This is the
     sprite analog of ARKit blendshapes / Live2D parameters: continuous, layered emotion rather than 8
     fixed moods. Weights are normalized; a single-entry dict is just that expression. `overrides` (blink/
-    talk frames) apply to every layer of the mix so animation still reads through the blend. Returns a PIL
-    image (RGBA). Micro-expressions = small weights on an accent mood over a dominant one."""
+    talk frames) apply to every layer of the mix so animation still reads through the blend. `gaze` is an
+    INDEPENDENT look-direction axis layered on top of the emotion mix. Returns a PIL image (RGBA).
+    Micro-expressions = small weights on an accent mood over a dominant one."""
     from PIL import Image
 
     items = [(name, float(w)) for name, w in (weights or {}).items() if w and w > 0]
     if not items:
-        return render_sprites(avatar, "neutral", overrides, box)
+        return render_sprites(avatar, "neutral", overrides, box, gaze)
     if len(items) == 1:
-        return render_sprites(avatar, items[0][0], overrides, box)
+        return render_sprites(avatar, items[0][0], overrides, box, gaze)
     total = sum(w for _, w in items)
 
     acc = None                                          # running weighted composite (float RGBA)
     used = 0.0
     for name, w in items:
         frac = w / total
-        layer_img = render_sprites(avatar, name, overrides, box).convert("RGBA")
+        layer_img = render_sprites(avatar, name, overrides, box, gaze).convert("RGBA")
         if acc is None:
             acc = layer_img
             used = frac
@@ -216,19 +240,19 @@ def blend_expressions(avatar: Avatar, weights: dict, overrides: Optional[dict] =
 
 def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
                cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
-               blocks: str = "quad") -> list[str]:
+               blocks: str = "quad", gaze: Optional[tuple] = None) -> list[str]:
     """Compose a sprite avatar's expression and render it to ANSI pixel blocks for the TUI face box.
     Defaults to `quad` blocks — 2×2 pixels per character, DOUBLE the resolution in the same box width so
     key features stay recognizable. (VRM/Live2D kinds are driven by the web engines, not rasterized here.)"""
     from crucible.pixelface import render_image
-    img = render_sprites(avatar, expression, overrides)
+    img = render_sprites(avatar, expression, overrides, gaze=gaze)
     return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)
 
 
 def render_tui_blend(avatar: Avatar, weights: dict, overrides: Optional[dict] = None,
                      cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
-                     blocks: str = "quad") -> list[str]:
+                     blocks: str = "quad", gaze: Optional[tuple] = None) -> list[str]:
     """Like `render_tui` but for a WEIGHTED BLEND of expressions (blendshape-style) — mix moods live."""
     from crucible.pixelface import render_image
-    img = blend_expressions(avatar, weights, overrides)
+    img = blend_expressions(avatar, weights, overrides, gaze=gaze)
     return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)

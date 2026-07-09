@@ -51,6 +51,7 @@ def _hair(p: Palette):
 
 
 def _eyes(p: Palette, state: str):
+    """The eye WHITES / lids only — the pupils are a separate layer so gaze can move them independently."""
     def d(dr):
         for cx in (18, 30):
             if state == "closed":
@@ -58,7 +59,17 @@ def _eyes(p: Palette, state: str):
             else:
                 pad = 5 if state == "wide" else 4
                 dr.ellipse([cx - pad, 22 - (pad - 4), cx + pad, 26 + (pad - 4)], fill=(255, 255, 255, 255), outline=p.line)
-                dr.ellipse([cx - 2, 22, cx + 2, 26], fill=p.eye)          # iris/pupil
+    return _draw(d)
+
+
+def _pupils(p: Palette, state: str):
+    """The irises/pupils on their OWN transparent layer — the gaze axis shifts this layer a few px so the
+    eyes glance around while the whites stay put. `off` = hidden (for closed-eye expressions/blinks)."""
+    def d(dr):
+        if state == "off":
+            return
+        for cx in (18, 30):
+            dr.ellipse([cx - 2, 22, cx + 2, 26], fill=p.eye)
     return _draw(d)
 
 
@@ -82,7 +93,7 @@ def _blush(p: Palette):
     return _draw(d)
 
 
-# expression -> (eyes state, mouth state, blush?)
+# expression -> (eyes state, mouth state, blush?). Pupils follow the eyes: hidden when the eyes are closed.
 _EXPR = {
     "neutral":   ("open", "closed", False),
     "happy":     ("open", "smile", True),
@@ -111,6 +122,8 @@ def generate_avatar(name: str, out_dir: str, palette: Palette | None = None) -> 
     a.add_layer(Layer(id="blush", part="blush", states={"on": save(_blush(p), "blush.png")}, default_state=""))
     a.add_layer(Layer(id="eyes", part="eyes", default_state="open", states={
         s: save(_eyes(p, s), f"eyes_{s}.png") for s in ("open", "closed", "wide")}))
+    a.add_layer(Layer(id="pupils", part="pupils", default_state="on", states={
+        s: save(_pupils(p, s), f"pupils_{s}.png") for s in ("on", "off")}))
     a.add_layer(Layer(id="mouth", part="mouth", default_state="closed", states={
         s: save(_mouth(p, s), f"mouth_{s}.png") for s in ("closed", "smile", "open", "frown")}))
     a.add_layer(Layer(id="hair", part="hair", states={"base": save(_hair(p), "hair.png")}, default_state="base"))
@@ -118,6 +131,7 @@ def generate_avatar(name: str, out_dir: str, palette: Palette | None = None) -> 
     for expr, (eyes, mouth, blush) in _EXPR.items():
         mapping = {"eyes": eyes, "mouth": mouth}
         mapping["blush"] = "on" if blush else ""
+        mapping["pupils"] = "off" if eyes == "closed" else "on"      # hide pupils when the eyes shut
         a.set_expression(expr, mapping)
     a.save(os.path.join(out_dir, "avatar.json"))
     return a

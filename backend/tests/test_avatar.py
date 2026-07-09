@@ -206,3 +206,75 @@ def test_blend_overrides_apply_through_the_mix(tmp_path):
                                            overrides={"eyes": "closed"}).convert("RGBA"))
     # a blink override applies to every layer of the blend, so closing the eyes changes the composite
     assert not np.array_equal(with_eyes, blinked)
+
+
+def _gaze_avatar(tmp_path):
+    """A rig with a full-canvas eyes layer (red) and a separate pupils layer (blue dot) so we can watch
+    the gaze axis move the PUPILS while the eyes stay put."""
+    from PIL import Image
+    skin = Image.new("RGBA", (48, 60), (200, 180, 160, 255))
+    skin.save(tmp_path / "skin.png")
+    eyes = Image.new("RGBA", (48, 60), (0, 0, 0, 0))
+    for x in range(16, 20):                                    # a red eye-white marker (static)
+        for y in range(22, 26):
+            eyes.putpixel((x, y), (255, 0, 0, 255))
+    eyes.save(tmp_path / "eyes.png")
+    pupils = Image.new("RGBA", (48, 60), (0, 0, 0, 0))
+    for x in range(22, 26):                                    # a blue pupil dot (moves with gaze)
+        for y in range(22, 26):
+            pupils.putpixel((x, y), (0, 0, 255, 255))
+    pupils.save(tmp_path / "pupils.png")
+    a = Avatar(name="g", size=(48, 60))
+    a.add_layer(Layer(id="skin", part="skin", states={"base": str(tmp_path / "skin.png")}, default_state="base"))
+    a.add_layer(Layer(id="eyes", part="eyes", states={"open": str(tmp_path / "eyes.png")}, default_state="open"))
+    a.add_layer(Layer(id="pupils", part="pupils", states={"on": str(tmp_path / "pupils.png")}, default_state="on"))
+    a.set_expression("neutral", {"eyes": "open", "pupils": "on"})
+    return a
+
+
+def _centroid_x(arr, chan):
+    import numpy as np
+    # x-centroid of pixels where the given color channel dominates (red=0, blue=2)
+    other = [c for c in (0, 1, 2) if c != chan]
+    mask = (arr[..., chan] > 150) & (arr[..., other[0]] < 120) & (arr[..., other[1]] < 120) & (arr[..., 3] > 0)
+    xs = np.where(mask.any(axis=0))[0]
+    return xs.mean() if len(xs) else None
+
+
+def test_gaze_shifts_pupils_not_the_eye_whites(tmp_path):
+    import numpy as np
+    from crucible.avatar import render_sprites
+    a = _gaze_avatar(tmp_path)
+    center = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    right = np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.0)).convert("RGBA"))
+    left = np.asarray(render_sprites(a, "neutral", gaze=(-1.0, 0.0)).convert("RGBA"))
+    # the blue PUPIL moves with gaze…
+    assert _centroid_x(right, 2) > _centroid_x(center, 2) > _centroid_x(left, 2)
+    # …but the red eye-white marker does NOT (gaze only drives the pupils layer)
+    assert abs(_centroid_x(right, 0) - _centroid_x(center, 0)) < 1e-6
+
+
+def test_gaze_none_is_identity_and_mixes_with_expression(tmp_path):
+    import numpy as np
+    from crucible.avatar import render_sprites, blend_expressions
+    a = _gaze_avatar(tmp_path)
+    a.set_expression("happy", {"eyes": "open", "pupils": "on"})
+    assert np.array_equal(np.asarray(render_sprites(a, "neutral")),
+                          np.asarray(render_sprites(a, "neutral", gaze=(0.0, 0.0))))   # zero gaze = no-op
+    # gaze layers on top of a blendshape mix (look-direction is independent of emotion)
+    straight = np.asarray(blend_expressions(a, {"neutral": 0.5, "happy": 0.5}).convert("RGBA"))
+    glancing = np.asarray(blend_expressions(a, {"neutral": 0.5, "happy": 0.5}, gaze=(1.0, 0.0)).convert("RGBA"))
+    assert not np.array_equal(straight, glancing)
+
+
+def test_procedural_avatar_has_pupils_and_gaze_moves_them(tmp_path):
+    import numpy as np
+    from crucible.avatar_gen import generate_avatar
+    from crucible.avatar import render_sprites
+    a = generate_avatar("kiri", str(tmp_path / "av"))
+    assert a.part_layer("pupils") is not None                 # eyes split into whites + movable pupils
+    straight = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    glancing = np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.2)).convert("RGBA"))
+    assert not np.array_equal(straight, glancing)             # the real default avatar can glance around
+    # a closed-eye expression hides the pupils (they don't float over shut lids)
+    assert a.expressions["laughing"]["pupils"] == "off"

@@ -206,21 +206,26 @@ class AvatarRender:
     parameters = {"type": "object", "properties": {
         "expression": {"type": "string"},
         "blend": {"type": "object", "description": "expression name → weight (mixed & normalized)"},
+        "gaze": {"type": "array", "items": {"type": "number"},
+                 "description": "look-direction [dx,dy] in [-1,1] (+x right, +y down) — shifts pupils/eyes"},
         "out": {"type": "string"}}, "required": []}
 
     def __init__(self, root=None):
         self.root = str(root) if root else "."
 
-    def run(self, expression="neutral", blend=None, out="") -> ToolResult:
+    def run(self, expression="neutral", blend=None, gaze=None, out="") -> ToolResult:
         from crucible.avatar import render_sprites, blend_expressions
         a, _ = _active()
+        g = tuple(float(v) for v in gaze[:2]) if isinstance(gaze, (list, tuple)) and len(gaze) >= 2 else None
         if isinstance(blend, dict) and blend:
             weights = {str(k): float(v) for k, v in blend.items()}
-            img = blend_expressions(a, weights)
+            img = blend_expressions(a, weights, gaze=g)
             label = "blend " + "+".join(f"{k}:{v:g}" for k, v in weights.items())
         else:
-            img = render_sprites(a, expression)
+            img = render_sprites(a, expression, gaze=g)
             label = f"'{expression}'"
+        if g:
+            label += f" gaze={g[0]:g},{g[1]:g}"
         path = out if out else os.path.join(self.root, "avatar_preview.png")
         if not os.path.isabs(path):
             path = os.path.join(self.root, path)

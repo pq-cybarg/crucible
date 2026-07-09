@@ -97,13 +97,26 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       (`avatar.blend_expressions` — mix happy+surprised+… by normalized weight, order-independent, not
       just presets), wired into the live TUI face (`FaceWidget.set_blend`, so `_emote` can drive
       `{"curious":0.7,"neutral":0.3}` layered moods with crossfade) and exposed agentically
-      (`avatar_render` `blend={...}`). Covered by tests. TODO: drive the params continuously and map them
-      to real VRM blendshapes / Live2D params; micro-expressions; saccades; per-part param blends rather
-      than whole-face image blends.
-- [ ] **Continuous layered axes**: mix independent axes at once — gaze/look-direction + brow + eye-open +
-      mouth + blush — driven by the blendshape params above, in real time.
-- [ ] **Gaze / look-direction axis**: separate eye/pupil offset layer, mixable with any expression in
-      real time (look around while smiling).
+      (`avatar_render` `blend={...}`). Continuous PARAM-level blend added too — `expression.blend_params`
+      (weighted, order-independent average of preset params + an `extra` overlay for gaze/micro/breath
+      deltas) — the analog a VRM/Live2D/VTube-Studio driver consumes. Micro-expressions + saccades now
+      layer live (see below). The param→engine mapping is DONE at the data layer (`crucible.rigmap`:
+      `to_arkit` ARKit/VRM blendshapes, `to_live2d` Cubism params, `to_vrm_expressions` VRM-1.0 presets,
+      `to_vtube_studio` InjectParameterData payload, and `rig_frame` bundling all four) and served over
+      HTTP (`GET /api/avatar`, `POST /api/avatar/rig-frame`, `GET /api/avatar/reaction/{word}`) — one
+      engine-agnostic face state feeds the TUI pixel face AND any web/VTS rig. Covered by tests. TODO:
+      the actual web VRM/Live2D engine + a live VTube-Studio websocket bridge that CONSUMES these frames;
+      per-part param blends.
+- [x] **Continuous layered axes**: gaze/look-direction + blink + micro-expression flicker layer live on
+      top of the driven emotion blend — `crucible.animation.IdleAnimator` (seeded/deterministic saccades,
+      irregular blink cadence, faint brief accents) drives `FaceWidget` each tick; the mood blend,
+      micro-overlay, and gaze compose independently in `render_sprites(gaze=…)`. `blend_params` mixes the
+      continuous face params the same way for rig drivers.
+- [x] **Gaze / look-direction axis**: a `pupils` part (split out from `eyes` in the procedural avatar)
+      shifted a few px by a `gaze` (dx,dy)∈[-1,1] axis in `avatar.render_sprites`/`blend_expressions`,
+      MIXABLE with any expression/blend (look around while smiling); both eyes move in sync; pupils hide
+      behind shut lids; exposed via `avatar_render` `gaze=[dx,dy]`. Whole-face (single-sprite) rigs skip
+      it (no geometric eyes to move) — that's what the part-based rig below is for.
 - [ ] **Crisper detail**: part-based rig for the generated art (slice eyes/mouth/hair) and/or a larger
       face box, so fine features survive; per-part inbetweening.
 

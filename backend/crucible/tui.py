@@ -168,6 +168,11 @@ class FaceWidget(Static):
         self._weights = {"neutral": 1.0}
         self._tween_from = None     # crossfade (inbetween) source weights
         self._tween = 1.0           # 0→1 progress of the blend
+        # Idle LIFE layered on top: saccades (gaze), an irregular blink, and faint micro-expressions.
+        from crucible.animation import IdleAnimator
+        self._idle = IdleAnimator(seed=7)
+        self._gaze = (0.0, 0.0)
+        self._micro: dict = {}
 
     def on_mount(self) -> None:
         self.redraw()
@@ -175,7 +180,10 @@ class FaceWidget(Static):
 
     def _tick(self) -> None:
         self._t += 1
-        self._blink = (self._t % 20 == 0)      # a quick blink roughly every ~5s
+        idle = self._idle.step()               # saccadic gaze + natural blink + micro-expression flicker
+        self._gaze = idle.gaze
+        self._blink = idle.blink
+        self._micro = idle.micro
         if self._tween < 1.0:                  # advance an in-progress expression crossfade
             self._tween = min(1.0, self._tween + 0.25)
         self.redraw()
@@ -187,6 +195,8 @@ class FaceWidget(Static):
         if self._blink:                        # part-based eyes, or a whole-face 'blink' state
             if a.part_layer("eyes"):
                 ov["eyes"] = "closed"
+                if a.part_layer("pupils"):
+                    ov["pupils"] = "off"       # hide the irises behind the shut lids
             elif face and "blink" in face.states:
                 ov["face"] = "blink"
         if self.talking:                       # flap open/closed while replying
@@ -197,6 +207,15 @@ class FaceWidget(Static):
                 ov["face"] = "talk"
         return ov or None
 
+    def _mixed(self) -> dict:
+        """Current expression blend with the faint idle micro-expression overlaid (accents that aren't
+        already part of the mood, at low weight) — subtle, continuous life on top of the driven emotion."""
+        w = dict(self._weights)
+        for name, mw in self._micro.items():
+            if name not in w:
+                w[name] = mw
+        return w
+
     def redraw(self) -> None:
         from rich.text import Text
         from crucible.avatar import blend_expressions
@@ -204,10 +223,11 @@ class FaceWidget(Static):
         try:
             a = self.avatar
             ov = self._overrides()
-            img = blend_expressions(a, self._weights, ov)
+            g = self._gaze
+            img = blend_expressions(a, self._mixed(), ov, gaze=g)
             if self._tween < 1.0 and self._tween_from:   # crossfade inbetween from the previous mix
                 from PIL import Image
-                prev = blend_expressions(a, self._tween_from, ov)
+                prev = blend_expressions(a, self._tween_from, ov, gaze=g)
                 img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
             lines = render_image(img, cols=self.cols, duotone="terminal-sepia", palette_size=6, blocks="quad")
             self.update(Text.from_ansi("\n".join(lines)))

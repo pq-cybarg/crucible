@@ -62,6 +62,27 @@ def expression_for(reaction: str) -> Expression:
     return EXPRESSIONS.get(REACTION_TO_EXPRESSION.get(reaction.lower(), reaction.lower()), EXPRESSIONS["neutral"])
 
 
+def blend_params(weights: dict, extra: dict | None = None) -> dict:
+    """Continuous, parameter-level blend of expression presets — the analog of `avatar.blend_expressions`
+    but at the PARAM layer (what a VRM/Live2D/VTube-Studio driver consumes). Mix e.g.
+    {"happy": 0.6, "surprised": 0.4} → a single {brow, eye_open, smile, …} param dict that's the weighted
+    average of those presets. Weights are normalized and order-independent. `extra` overlays param deltas
+    (added then clamped) — this is where GAZE / micro-expression jitter / breath layer on top of emotion.
+    Unknown expression names are ignored. An empty/zero mix → neutral."""
+    items = [(EXPRESSIONS[n], float(w)) for n, w in (weights or {}).items()
+             if w and w > 0 and n in EXPRESSIONS]
+    if not items:
+        params = dict(EXPRESSIONS["neutral"].params())
+    else:
+        total = sum(w for _, w in items)
+        params = {k: sum(e.params()[k] * w for e, w in items) / total for k in PARAM_NAMES}
+    if extra:
+        for k, dv in extra.items():
+            if k in params:
+                params[k] = max(-1.0, min(1.0, params[k] + float(dv)))
+    return params
+
+
 # --- TUI face: two-color, outline-only, low-res ------------------------------------------------------
 def _eyes(e: Expression, blink: bool) -> str:
     if blink or e.eye_open < 0.15:

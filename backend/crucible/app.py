@@ -121,6 +121,15 @@ class ApproveRequest(BaseModel):
     approved: bool
 
 
+class RigFrameRequest(BaseModel):
+    # A blend of expression names → weights (blendshape-style), plus the independent look/blink axes. The
+    # server maps them onto ARKit/VRM blendshapes, Live2D params, and a VTube Studio payload.
+    weights: dict[str, float] = Field(default_factory=lambda: {"neutral": 1.0})
+    gaze: list[float] | None = None                 # [dx, dy] in [-1,1]
+    extra: dict[str, float] | None = None           # param overlay (micro-expression/breath deltas)
+    blink: float = 0.0
+
+
 class ConnectRequest(BaseModel):
     """Register a detected OpenAI-compatible service as a first-class registry model."""
     id: str
@@ -2776,6 +2785,39 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         not just the client stream."""
         _cancels.add(req.run_id)
         return {"cancelled": req.run_id}
+
+    # --- avatar / companion rig -------------------------------------------------------------------
+    @app.get("/api/avatar")
+    def avatar_info() -> dict:
+        """The active companion avatar's rig: parts, states, positioning, and the expression map — what a
+        web VRM/Live2D window (or the TUI face) drives. Auto-creates a default the first time."""
+        from crucible.avatar_gen import ensure_default_avatar
+        a = ensure_default_avatar(str(settings.data_dir))
+        return {"name": a.name, "kind": a.kind, "size": list(a.size),
+                "expressions": sorted(a.expressions),
+                "layers": [{"id": l.id, "part": l.part, "protected": l.protected,
+                            "states": sorted(l.states), "default_state": l.default_state,
+                            "pos": list(l.pos), "mirror": l.mirror, "spacing": l.spacing}
+                           for l in a.layers]}
+
+    @app.post("/api/avatar/rig-frame")
+    def avatar_rig_frame(req: RigFrameRequest) -> dict:
+        """Map an expression BLEND (+ gaze/blink) onto every rig engine at once: continuous face params,
+        ARKit/VRM blendshapes, Live2D Cubism params, VRM expression presets, and a VTube Studio
+        InjectParameterData payload. A web rig or an external VTube Studio bridge picks its engine's dict.
+        This is the same engine-agnostic face state that drives the TUI pixel face — one source of truth."""
+        from crucible.rigmap import rig_frame
+        gaze = tuple(req.gaze[:2]) if req.gaze and len(req.gaze) >= 2 else None
+        return rig_frame(req.weights or {"neutral": 1.0}, gaze=gaze, extra=req.extra, blink=req.blink)
+
+    @app.get("/api/avatar/reaction/{reaction}")
+    def avatar_reaction_frame(reaction: str) -> dict:
+        """Convenience: a reaction word (the co-watch/chat reaction vocabulary) → its expression → a full
+        rig frame, so the reaction stream can drive a web rig directly."""
+        from crucible.expression import expression_for
+        from crucible.rigmap import rig_frame
+        expr = expression_for(reaction)
+        return {"reaction": reaction, "expression": expr.name, **rig_frame({expr.name: 1.0})}
 
     import os as _os
     _static = _os.environ.get("CRUCIBLE_STATIC")
