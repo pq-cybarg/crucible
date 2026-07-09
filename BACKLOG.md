@@ -84,8 +84,14 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
 - [ ] **Web avatar window**: render Live2D (pixi-live2d-display) or VRM (three-vrm), driven by the same
       param stream; user replaces/adds components.
-- [ ] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
-      API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar.
+- [~] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
+      API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar. DONE (VTS):
+      `crucible.vtsbridge.VTSBridge` — auth-token request + cache (with stale-token re-request),
+      session authentication, one-time custom-parameter creation, and streaming InjectParameterData
+      frames over the VTS public websocket API; pure request builders + a thin async loop over a
+      duck-typed socket (fake-socket tested). `idle_frames(get_weights, …)` layers saccades/held-blink/
+      micro-expression onto the live mood → ready rig frames. Covered by tests. TODO: VMC/OSC transport;
+      wire a live control loop to the co-watch reaction stream + TTS lip-sync.
 - [x] **Generated cute-anime companion** end-to-end: build_anime_companion generates a FLAT-style base
       (legible at low res) + consistent expression variants via img2img (neutral/happy/laughing/surprised/
       sad/angry/curious/love/smug/teasing/shy + blink/talk), assembled as a face-part rig; the TUI shows it.
