@@ -241,7 +241,8 @@ class FaceWidget(Static):
                 from PIL import Image
                 prev = blend_expressions(a, self._tween_from, ov, gaze=g)
                 img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
-            lines = render_image(img, cols=self._fit_cols(), duotone="terminal-sepia", palette_size=6, blocks="quad")
+            lines = render_image(img, cols=self._fit_cols(), duotone="terminal-sepia", palette_size=6,
+                                 blocks="quad", dither=False)   # flat cel art: no dither (no checker/shimmer)
             self.update(Text.from_ansi("\n".join(lines)))
         except Exception as e:
             self.update(f"[face error: {e}]")

@@ -73,17 +73,31 @@ def render_file(path: str, cols: int = 44, rows: Optional[int] = None, palette_s
     return _to_ansi(img)
 
 
+# 4×4 Bayer matrix (centred to [-0.5, 0.5)) for ORDERED dithering — a fixed, position-deterministic
+# pattern, unlike Floyd–Steinberg error-diffusion whose result depends on the whole image.
+import numpy as _np
+_BAYER4 = _np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]],
+                    dtype=_np.float32) / 16.0 - 0.5
+
+
 def _apply_duotone(img, ramp, levels: int, dither: bool):
     from PIL import Image
     import numpy as np
 
-    lum = img.convert("L")
-    if levels >= 2:                                     # posterize luminance (with dither) for the halftone look
-        lum = lum.quantize(colors=levels, dither=Image.FLOYDSTEINBERG if dither else Image.NONE).convert("L")
-    g = (np.asarray(lum, dtype=np.float32) / 255.0)[..., None]
+    g = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
+    if levels >= 2:
+        n = levels - 1
+        # FIXED-threshold posterization (a given luminance ALWAYS maps to the same level) + an ORDERED
+        # dither. Both are frame-INDEPENDENT, so animating one part (a blink, a glance) can never re-bucket
+        # another part's shade — the old adaptive quantize + error-diffusion made the hair flicker on blink.
+        if dither:
+            h, w = g.shape
+            tile = np.tile(_BAYER4, (h // 4 + 1, w // 4 + 1))[:h, :w]
+            g = g + tile / n
+        g = np.clip(np.round(g * n) / n, 0.0, 1.0)
     lo = np.array(ramp[0], dtype=np.float32)
     hi = np.array(ramp[1], dtype=np.float32)
-    out = (lo + (hi - lo) * g).astype("uint8")
+    out = (lo + (hi - lo) * g[..., None]).astype("uint8")
     return Image.fromarray(out, "RGB")
 
 

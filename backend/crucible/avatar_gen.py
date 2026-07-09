@@ -13,36 +13,35 @@ from crucible.avatar import Avatar, Layer
 # to mud) as a cute-anime face. The KEY feature — the eyes — is hand-authored as a pixel grid (crisp,
 # intentional, sparkly) rather than crude vector circles; the rest are bold flat shapes at native res.
 # Diffusion is NOT in this path: it only authors part sprites offline (once); realtime = compositing these.
-W, H = 64, 76
-EYE_Y = 28                          # top of the eye sprites on the canvas
+W, H = 64, 78
+EYE_Y = 31                          # top of the eye sprites on the canvas
 EYE_W = 12                          # eye-white sprite width (for the mirror-pair spacing maths)
-IRIS_W = 8
+IRIS_W = 9
 
 
 @dataclass
 class Palette:
-    skin: tuple = (252, 228, 210, 255)
-    hair: tuple = (58, 40, 44, 255)
-    hair_hi: tuple = (100, 74, 82, 255)
-    iris: tuple = (58, 130, 200, 255)              # bright anime iris (mid)
-    iris_hi: tuple = (128, 200, 240, 255)          # iris light rim
-    pupil: tuple = (26, 44, 78, 255)               # dark pupil (reads dark in sepia)
-    line: tuple = (44, 30, 34, 255)                # stark dark outline
-    cloth: tuple = (70, 96, 150, 255)
-    blush: tuple = (244, 152, 152, 210)
-    mouth: tuple = (168, 78, 82, 255)
+    skin: tuple = (253, 229, 214, 255)
+    hair: tuple = (78, 52, 62, 255)
+    hair_hi: tuple = (128, 94, 108, 255)
+    iris: tuple = (74, 150, 214, 255)              # bright anime iris (mid)
+    iris_hi: tuple = (164, 214, 247, 255)          # iris light rim
+    line: tuple = (58, 40, 44, 255)                # stark dark outline (also the pupil core)
+    cloth: tuple = (74, 100, 156, 255)
+    blush: tuple = (247, 162, 162, 235)
+    mouth: tuple = (182, 90, 94, 255)
 
 
 # ART-STYLE presets (palette swaps) — pick the whole look; user/agent can tune further. Tunable proof.
 PALETTES: dict[str, Palette] = {
     "sky":  Palette(),
-    "rose": Palette(hair=(150, 70, 96, 255), hair_hi=(196, 118, 142, 255), iris=(200, 84, 124, 255),
-                    iris_hi=(244, 158, 186, 255), pupil=(96, 30, 56, 255), cloth=(150, 84, 112, 255)),
-    "mint": Palette(hair=(66, 108, 92, 255), hair_hi=(120, 162, 142, 255), iris=(70, 172, 150, 255),
-                    iris_hi=(160, 224, 206, 255), pupil=(24, 70, 58, 255), cloth=(92, 132, 112, 255)),
-    "noir": Palette(skin=(238, 228, 224, 255), hair=(40, 38, 46, 255), hair_hi=(92, 90, 104, 255),
-                    iris=(150, 150, 168, 255), iris_hi=(210, 210, 224, 255), pupil=(20, 20, 28, 255),
-                    cloth=(60, 60, 72, 255), blush=(230, 170, 170, 200)),
+    "rose": Palette(hair=(150, 70, 96, 255), hair_hi=(196, 118, 142, 255), iris=(206, 92, 132, 255),
+                    iris_hi=(246, 168, 194, 255), cloth=(150, 84, 112, 255)),
+    "mint": Palette(hair=(66, 108, 92, 255), hair_hi=(120, 162, 142, 255), iris=(74, 178, 154, 255),
+                    iris_hi=(168, 228, 210, 255), cloth=(92, 132, 112, 255)),
+    "noir": Palette(skin=(240, 230, 226, 255), hair=(46, 42, 52, 255), hair_hi=(100, 96, 110, 255),
+                    iris=(150, 152, 172, 255), iris_hi=(212, 214, 228, 255),
+                    cloth=(64, 64, 76, 255), blush=(232, 172, 172, 220)),
 }
 HAIRSTYLES = ("bangs", "short", "long")
 
@@ -74,54 +73,59 @@ def _grid(rows: list[str], pal: dict):
     return img
 
 
-# Hand-authored pixel anime eye WHITE (sclera + thick upper lash), one eye — mirrored into a pair so the
-# eye-DISTANCE is the `spacing` knob. '#' lash/outline, '.' sclera, 'w' soft lower lid.
+def _dark(c: tuple, f: float = 0.68) -> tuple:
+    return (int(c[0] * f), int(c[1] * f), int(c[2] * f), 255)
+
+
+# Hand-authored pixel anime eye WHITE (big, round, thick rounded lash) — one eye, mirrored into a PAIR so
+# the eye-DISTANCE is the `spacing` knob. 'K' lash/outline, '.' sclera, 'l' soft top-lid shade.
 _EYE_OPEN = [
-    "   ######   ",
-    "  ########  ",
-    " ########## ",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    " #........# ",
-    "  wwwwwwww  ",
+    "   KKKKKK   ",
+    "  KKKKKKKK  ",
+    " KKKKKKKKKK ",
+    "KKl......lKK",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    " K........K ",
+    "  K......K  ",
 ]
 _EYE_WIDE = [
-    "   ######   ",
-    "  ########  ",
-    " ########## ",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    " #........# ",
-    "  wwwwwwww  ",
+    "   KKKKKK   ",
+    "  KKKKKKKK  ",
+    " KKKKKKKKKK ",
+    "KKl......lKK",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    " K........K ",
+    "  K......K  ",
 ]
-# the sparkly iris (its own layer → gaze moves it): 'a' rim, 'b' mid, 'p' pupil, '*' highlight
+# the BIG sparkly iris (its own layer → gaze moves it): 'a' light rim, 'b' iris, 'p' iris-dark, 'K' pupil
+# core, '*' highlight. A large iris + a big shine is what makes anime eyes read as cute.
 _IRIS = [
-    " aaaaaa ",
-    "abbppbba",
-    "abp**pba",
-    "abppppba",
-    "abbppbba",
-    " abbbba ",
-    "  aaaa  ",
+    "  aaaaa  ",
+    " aabbbaa ",
+    "abbpppbba",
+    "abpK*Kpba",
+    "abpp**ppa",
+    "abpppppba",
+    " abbbba  ",
+    "  aaaaa  ",
 ]
 
 
 def _eye_pal(p: Palette) -> dict:
-    return {"#": p.line, ".": (255, 252, 248, 255), "w": (198, 156, 156, 255),
-            "a": p.iris_hi, "b": p.iris, "p": p.pupil, "*": (255, 255, 255, 255)}
+    return {"K": p.line, ".": (255, 253, 250, 255), "l": (236, 222, 224, 255),
+            "a": p.iris_hi, "b": p.iris, "p": _dark(p.iris), "*": (255, 255, 255, 255)}
 
 
 def _eye_sprite(p: Palette, state: str):
     if state == "closed":                                   # a gentle downward lash (happy closed eye)
-        return _draw(lambda dr: dr.arc([0, 0, EYE_W - 1, 11], 200, 340, fill=p.line, width=2))
+        return _draw(lambda dr: dr.arc([0, 0, EYE_W - 1, 12], 198, 342, fill=p.line, width=3))
     return _grid(_EYE_WIDE if state == "wide" else _EYE_OPEN, _eye_pal(p))
 
 
@@ -131,49 +135,50 @@ def _iris_sprite(p: Palette):
 
 def _skin(p: Palette):
     def d(dr):
-        dr.polygon([(18, 76), (24, 64), (40, 64), (46, 76)], fill=p.cloth, outline=p.line)  # shoulders
-        dr.rectangle([27, 58, 37, 66], fill=p.skin, outline=p.line)          # neck
-        dr.ellipse([10, 6, 54, 62], fill=p.skin, outline=p.line, width=2)    # head
-        dr.line([(30, 44), (32, 47)], fill=(196, 150, 132, 255), width=1)    # tiny nose
-        dr.line([(32, 47), (34, 44)], fill=(196, 150, 132, 255), width=1)
+        dr.polygon([(18, 78), (24, 66), (40, 66), (46, 78)], fill=p.cloth, outline=p.line)  # shoulders
+        dr.rectangle([27, 60, 37, 68], fill=p.skin, outline=p.line)          # neck
+        dr.ellipse([9, 6, 55, 64], fill=p.skin, outline=p.line, width=2)     # round chibi head
+        dr.line([(30, 47), (32, 50)], fill=(200, 154, 136, 255))             # tiny nose
+        dr.line([(32, 50), (34, 47)], fill=(200, 154, 136, 255))
     return _draw(d)
 
 
 def _mouth(p: Palette, state: str):
     def d(dr):
         if state == "open":
-            dr.ellipse([28, 50, 36, 59], fill=p.mouth, outline=p.line)
-            dr.chord([29, 55, 35, 60], 0, 180, fill=(214, 128, 128, 255))
+            dr.ellipse([29, 54, 35, 61], fill=p.mouth, outline=p.line)
+            dr.chord([30, 58, 34, 61], 0, 180, fill=(214, 128, 128, 255))
         elif state == "smile":
-            dr.chord([26, 48, 38, 58], 20, 160, fill=p.mouth, outline=p.line)
+            dr.chord([27, 52, 37, 60], 20, 160, fill=p.mouth, outline=p.line)
         elif state == "frown":
-            dr.arc([26, 54, 38, 64], 194, 346, fill=p.line, width=2)
+            dr.arc([27, 57, 37, 66], 194, 346, fill=p.line, width=2)
         else:
-            dr.line([28, 53, 36, 53], fill=p.line, width=2)
+            dr.line([29, 55, 35, 55], fill=p.line, width=2)
     return _draw(d)
 
 
 def _blush(p: Palette):
     def d(dr):
-        dr.ellipse([16, 40, 25, 45], fill=p.blush)
-        dr.ellipse([39, 40, 48, 45], fill=p.blush)
+        dr.ellipse([14, 44, 23, 49], fill=p.blush)
+        dr.ellipse([41, 44, 50, 49], fill=p.blush)
     return _draw(d)
 
 
 def _hair(p: Palette, style: str):
+    # a rounded scalp + a SMOOTH fill-only fringe (no dark outline notches) that clears the eyes, framed by
+    # side locks. `style` swaps the silhouette (short crop / long side locks).
     def d(dr):
-        dr.pieslice([8, 2, 56, 52], 180, 360, fill=p.hair, outline=p.line, width=1)   # scalp dome
+        dr.pieslice([7, 3, 57, 53], 180, 360, fill=p.hair, outline=p.line, width=1)   # scalp dome
         if style == "short":
-            dr.polygon([(12, 28), (22, 22), (32, 26), (42, 22), (52, 28), (52, 14), (12, 14)],
-                       fill=p.hair, outline=p.line)
-        else:                                               # bangs + (optionally long) side locks
-            dr.polygon([(12, 30), (20, 24), (26, 34), (32, 24), (38, 34), (44, 24), (52, 30),
-                        (52, 16), (12, 16)], fill=p.hair, outline=p.line)
-            top = 66 if style == "long" else 52
-            dr.polygon([(10, 26), (7, top), (18, top - 6), (16, 30)], fill=p.hair, outline=p.line)
-            dr.polygon([(54, 26), (57, top), (46, top - 6), (48, 30)], fill=p.hair, outline=p.line)
-        dr.line([(28, 18), (24, 30)], fill=p.hair_hi, width=2)              # shine strands
-        dr.line([(36, 18), (40, 30)], fill=p.hair_hi, width=2)
+            dr.polygon([(11, 15), (11, 27), (22, 23), (32, 27), (42, 23), (53, 27), (53, 15)], fill=p.hair)
+        else:                                                # soft bangs (fill only → notches show forehead)
+            dr.polygon([(11, 15), (11, 29), (20, 25), (26, 30), (32, 24), (38, 30), (44, 25), (53, 29),
+                        (53, 15)], fill=p.hair)
+            top = 70 if style == "long" else 58
+            dr.polygon([(9, 24), (7, top), (19, top - 6), (17, 29)], fill=p.hair, outline=p.line)
+            dr.polygon([(55, 24), (57, top), (45, top - 6), (47, 29)], fill=p.hair, outline=p.line)
+        dr.line([(26, 19), (23, 31)], fill=p.hair_hi, width=2)              # shine strands
+        dr.line([(38, 19), (41, 31)], fill=p.hair_hi, width=2)
     return _draw(d)
 
 
@@ -217,7 +222,7 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
     a.add_layer(Layer(id="pupils", part="pupils", default_state="on", mirror=True, spacing=pupil_spacing,
                       pos=(0, EYE_Y + 3), states={
                           "on": save(_iris_sprite(p), "iris.png"),
-                          "off": save(_Img.new("RGBA", (IRIS_W, 7), (0, 0, 0, 0)), "iris_off.png")}))
+                          "off": save(_Img.new("RGBA", (IRIS_W, 8), (0, 0, 0, 0)), "iris_off.png")}))
     a.add_layer(Layer(id="mouth", part="mouth", default_state="closed", states={
         s: save(_mouth(p, s), f"mouth_{s}.png") for s in ("closed", "smile", "open", "frown")}))
     # hair: all styles kept as STATES so the user/agent can swap hairstyle by re-picking the default state

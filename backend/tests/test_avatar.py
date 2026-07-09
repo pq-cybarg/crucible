@@ -267,6 +267,18 @@ def test_gaze_none_is_identity_and_mixes_with_expression(tmp_path):
     assert not np.array_equal(straight, glancing)
 
 
+def test_tui_hair_is_stable_when_eyes_animate(tmp_path):
+    from crucible.avatar_gen import generate_avatar
+    from crucible.avatar import render_tui, blink_talk_overrides
+    a = generate_avatar("k", str(tmp_path))
+    op = render_tui(a, "neutral", cols=30)
+    blink = render_tui(a, "neutral", overrides=blink_talk_overrides(a, blink=True), cols=30)
+    wide = render_tui(a, "neutral", overrides={"eyes": "wide", "pupils": "on"}, cols=30)
+    # the hair (top rows) is byte-identical whether the eyes are open, shut, or wide — the earlier
+    # adaptive-quantize + error-diffusion made the hair flicker when the eyes animated
+    assert op[:4] == blink[:4] == wide[:4]
+
+
 def test_generate_avatar_customization(tmp_path):
     import numpy as np
     from crucible.avatar_gen import generate_avatar, HAIRSTYLES, PALETTES

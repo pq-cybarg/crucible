@@ -52,6 +52,22 @@ def test_quad_blocks_add_horizontal_detail_without_distorting(tmp_path):
     assert any(ch in "".join(quad) for ch in "▘▝▖▗▚▞▛▜▙▟▌▐")   # quadrant glyphs = finer horizontal detail
 
 
+def test_duotone_posterize_is_frame_stable(tmp_path):
+    # a given luminance must ALWAYS map to the same duotone shade, independent of the rest of the image —
+    # otherwise animating one region (a blink) re-buckets another (the hair flickers colour).
+    import numpy as np
+    from PIL import Image
+    from crucible.pixelface import _apply_duotone, DUOTONES
+    flat = Image.new("RGB", (24, 12), (110, 110, 110))
+    withpatch = flat.copy()
+    for x in range(4):                                       # a bright patch, like eyes opening
+        for y in range(4):
+            withpatch.putpixel((x, y), (255, 255, 255))
+    a = np.asarray(_apply_duotone(flat, DUOTONES["terminal-sepia"], 5, False))
+    b = np.asarray(_apply_duotone(withpatch, DUOTONES["terminal-sepia"], 5, False))
+    assert np.array_equal(a[6:, 8:], b[6:, 8:])             # the far region is untouched by the patch
+
+
 def test_two_color_palette(tmp_path):
     import re
     from crucible.pixelface import render_file

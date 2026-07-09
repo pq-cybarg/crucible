@@ -267,7 +267,9 @@ def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[
     key features stay recognizable. (VRM/Live2D kinds are driven by the web engines, not rasterized here.)"""
     from crucible.pixelface import render_image
     img = render_sprites(avatar, expression, overrides, gaze=gaze)
-    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)
+    # dither OFF: the face is flat cel-shaded pixel art — error/ordered dither only adds a checker pattern
+    # on the flat areas and shimmer as it animates; fixed posterization keeps colours frame-stable.
+    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks, dither=False)
 
 
 def render_tui_blend(avatar: Avatar, weights: dict, overrides: Optional[dict] = None,
@@ -276,4 +278,4 @@ def render_tui_blend(avatar: Avatar, weights: dict, overrides: Optional[dict] = 
     """Like `render_tui` but for a WEIGHTED BLEND of expressions (blendshape-style) — mix moods live."""
     from crucible.pixelface import render_image
     img = blend_expressions(avatar, weights, overrides, gaze=gaze)
-    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks)
+    return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks, dither=False)
