@@ -9,17 +9,27 @@ from dataclasses import dataclass
 
 from crucible.avatar import Avatar, Layer
 
-W, H = 48, 60
+# A larger native canvas (more px to spend on the KEY anime features) that still shrinks crisply into the
+# tiny TUI box. The face is drawn CHIBI + BOLD: an oversized head, huge sparkly eyes with thick lashes, a
+# tiny nose/mouth, and framing bangs — high-contrast shapes chosen so they survive the low-res render.
+W, H = 96, 120
+EYE_CY = 66
+EYE_CX = (34, 62)                                  # left, right eye centres
 
 
 @dataclass
 class Palette:
-    skin: tuple = (236, 206, 180, 255)
-    hair: tuple = (60, 46, 40, 255)
-    eye: tuple = (70, 50, 120, 255)
-    line: tuple = (40, 30, 28, 255)
-    cloth: tuple = (44, 40, 52, 255)
-    blush: tuple = (232, 150, 150, 180)
+    # High LUMINANCE contrast so features survive the low-res sepia render: a LIGHT face vs DARK hair /
+    # outlines / mouth (in a two-tone ramp, only luminance differences read — colour alone vanishes).
+    skin: tuple = (252, 228, 210, 255)
+    hair: tuple = (58, 40, 38, 255)                # dark — a strong mass against the light face
+    hair_hi: tuple = (96, 68, 60, 255)
+    eye: tuple = (74, 140, 200, 255)               # bright anime iris (blue)
+    eye_dk: tuple = (28, 34, 52, 255)              # near-black pupil (reads dark in sepia)
+    line: tuple = (36, 26, 26, 255)                # stark dark outline (bold, high-contrast)
+    cloth: tuple = (70, 92, 138, 255)
+    blush: tuple = (240, 150, 150, 210)
+    mouth: tuple = (150, 60, 62, 255)
 
 
 def _canvas():
@@ -36,60 +46,78 @@ def _draw(fn) -> "object":
 
 def _skin(p: Palette):
     def d(dr):
-        dr.ellipse([10, 6, 38, 40], fill=p.skin, outline=p.line)          # head
-        dr.rectangle([20, 38, 28, 44], fill=p.skin)                       # neck
-        dr.polygon([(8, 60), (14, 46), (34, 46), (40, 60)], fill=p.cloth, outline=p.line)  # shoulders/cloth
+        dr.polygon([(30, 118), (36, 96), (60, 96), (66, 118)], fill=p.cloth, outline=p.line)  # shoulders
+        dr.rectangle([42, 86, 54, 100], fill=p.skin, outline=p.line)      # neck
+        dr.ellipse([14, 14, 82, 96], fill=p.skin, outline=p.line, width=3)  # big chibi head, bold outline
+        # a small but DEFINITE nose mark (a soft chevron) so a feature reads between eyes and mouth
+        dr.line([(46, 76), (49, 79)], fill=(188, 138, 120, 255), width=2)
+        dr.line([(49, 79), (52, 76)], fill=(188, 138, 120, 255), width=2)
     return _draw(d)
 
 
 def _hair(p: Palette):
     def d(dr):
-        dr.pieslice([8, 2, 40, 36], 180, 360, fill=p.hair)               # top hair
-        dr.rectangle([8, 16, 13, 34], fill=p.hair)                       # side bangs
-        dr.rectangle([35, 16, 40, 34], fill=p.hair)
+        # side locks framing the cheeks
+        dr.polygon([(12, 40), (9, 86), (24, 80), (22, 46)], fill=p.hair, outline=p.line)
+        dr.polygon([(84, 40), (87, 86), (72, 80), (74, 46)], fill=p.hair, outline=p.line)
+        # top dome / scalp
+        dr.pieslice([10, 2, 86, 78], 180, 360, fill=p.hair, outline=p.line, width=3)
+        # bangs: a soft fringe with points, dipping over the forehead but clearing the eyes
+        dr.polygon([(20, 44), (30, 40), (38, 56), (48, 42), (58, 56), (66, 40), (76, 44),
+                    (74, 30), (22, 30)], fill=p.hair, outline=p.line, width=2)
+        dr.line([(40, 24), (34, 40)], fill=p.hair_hi, width=3)            # a couple of shine strands
+        dr.line([(56, 24), (60, 40)], fill=p.hair_hi, width=3)
     return _draw(d)
 
 
 def _eyes(p: Palette, state: str):
-    """The eye WHITES / lids only — the pupils are a separate layer so gaze can move them independently."""
+    """The eye WHITES + bold upper LASHES only — the irises/pupils are a separate layer so gaze can move
+    them independently. Big and bold so they read as anime eyes even in the tiny terminal box."""
     def d(dr):
-        for cx in (18, 30):
-            if state == "closed":
-                dr.line([cx - 4, 24, cx + 4, 24], fill=p.line, width=1)
-            else:
-                pad = 5 if state == "wide" else 4
-                dr.ellipse([cx - pad, 22 - (pad - 4), cx + pad, 26 + (pad - 4)], fill=(255, 255, 255, 255), outline=p.line)
+        for cx in EYE_CX:
+            if state == "closed":                                        # happy closed eyes (upward arc)
+                dr.arc([cx - 11, EYE_CY - 2, cx + 11, EYE_CY + 16], 200, 340, fill=p.line, width=3)
+                continue
+            grow = 3 if state == "wide" else 0
+            box = [cx - 11 - grow, EYE_CY - 13 - grow, cx + 11 + grow, EYE_CY + 11]
+            dr.ellipse(box, fill=(255, 255, 255, 255), outline=p.line, width=2)   # eye white
+            dr.arc([box[0] - 1, box[1] - 2, box[2] + 1, box[1] + 18], 198, 342, fill=p.line, width=4)  # lash
     return _draw(d)
 
 
 def _pupils(p: Palette, state: str):
-    """The irises/pupils on their OWN transparent layer — the gaze axis shifts this layer a few px so the
-    eyes glance around while the whites stay put. `off` = hidden (for closed-eye expressions/blinks)."""
+    """The big sparkly irises on their OWN transparent layer — the gaze axis shifts this layer a few px so
+    the eyes glance around while the whites stay put. `off` = hidden (closed-eye expressions / blinks)."""
     def d(dr):
         if state == "off":
             return
-        for cx in (18, 30):
-            dr.ellipse([cx - 2, 22, cx + 2, 26], fill=p.eye)
+        for cx in EYE_CX:
+            dr.ellipse([cx - 8, EYE_CY - 9, cx + 8, EYE_CY + 7], fill=p.eye, outline=p.line, width=1)  # iris
+            dr.ellipse([cx - 4, EYE_CY - 3, cx + 4, EYE_CY + 5], fill=p.eye_dk)                         # pupil
+            dr.ellipse([cx - 6, EYE_CY - 8, cx - 1, EYE_CY - 3], fill=(255, 255, 255, 255))             # sparkle
+            dr.ellipse([cx + 2, EYE_CY + 1, cx + 5, EYE_CY + 4], fill=(255, 255, 255, 220))             # 2nd shine
     return _draw(d)
 
 
 def _mouth(p: Palette, state: str):
+    # bold + DARK so the mouth reads at low res (a thin/reddish mouth washes out in the sepia ramp)
     def d(dr):
         if state == "open":
-            dr.ellipse([22, 32, 26, 37], fill=(120, 40, 40, 255), outline=p.line)
+            dr.ellipse([40, 82, 56, 98], fill=p.mouth, outline=p.line, width=3)      # open/talking
+            dr.chord([43, 90, 53, 97], 0, 180, fill=(210, 120, 120, 255))           # tongue hint
         elif state == "smile":
-            dr.arc([20, 30, 28, 38], 20, 160, fill=p.line, width=2)
+            dr.chord([38, 78, 58, 94], 20, 160, fill=p.mouth, outline=p.line, width=2)   # filled smile (reads)
         elif state == "frown":
-            dr.arc([20, 34, 28, 42], 200, 340, fill=p.line, width=2)
-        else:  # closed
-            dr.line([22, 34, 26, 34], fill=p.line, width=1)
+            dr.arc([38, 88, 58, 106], 192, 348, fill=p.line, width=4)                # downward frown
+        else:  # closed — a short bold dark bar so a mouth is still visible
+            dr.line([42, 85, 54, 85], fill=p.line, width=3)
     return _draw(d)
 
 
 def _blush(p: Palette):
     def d(dr):
-        dr.ellipse([13, 28, 18, 31], fill=p.blush)
-        dr.ellipse([30, 28, 35, 31], fill=p.blush)
+        dr.ellipse([22, 74, 36, 83], fill=p.blush)
+        dr.ellipse([60, 74, 74, 83], fill=p.blush)
     return _draw(d)
 
 

@@ -78,18 +78,26 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       — tunable procedurally, agentically, and by the user.
 - [ ] **Bundled example sprite avatar** (a real, non-reference asset set — the sample images are
       REFERENCE ONLY, never shipped as avatar parts).
-- [ ] Wire the reaction stream (co-watch / chat semantic reactions) → `FaceWidget.set_expression` so the
-      companion reacts live while you work; add talk-animation from TTS.
-- [ ] **Real-time drive loop**: emotional state → param interpolation (layered, smoothed) at N fps,
-      independent of the reply cycle; lip-sync mouth from TTS audio; procedural blink/breath idle.
+- [x] **Real-time drive loop** (`crucible.companion.CompanionDriver`): the AI's emotional STATE → a
+      smoothed, layered param stream, decoupled from the reply cycle. Reactions/emotions set a TARGET mood
+      from any thread (`react`/`set_mood`); the loop EASES the current mood toward it each tick (crossfade,
+      not a jump-cut), layers idle gaze/blink/micro-expressions + a subtle breath, and lip-sync (auto flap
+      or `set_speech_level` from live TTS amplitude), emitting a `rig_frame` every consumer speaks.
+      Deterministic (tick-based) + thread-safe. Served live over SSE `GET /api/avatar/stream` with
+      `POST /api/avatar/mood|react|talk` controls. Tested.
+- [~] Wire the reaction stream (co-watch / chat) → the companion: the drive loop + `/api/avatar/react`
+      accept the reaction vocabulary now; TODO: have the co-watch handler push reactions to the driver
+      automatically, and drive `set_speech_level` from the real TTS output stream.
 - [~] **Web avatar window**: a live SVG companion face in the GUI (`companion` tab / `AvatarPanel`),
       driven by the SAME engine-agnostic param stream — fetches a mood BLEND → Live2D params from
       `POST /api/avatar/rig-frame` and overlays saccadic gaze + blink + talk locally (pure geometry in
       `src/avatar/face.ts`, seeded client idle in `src/avatar/idle.ts`, validated at the fetch boundary).
       Pick a mood, MIX several by weight (real-time blendshape sliders), toggle talk, manual/auto gaze,
       and reaction chips map the co-watch vocabulary onto the face. Works offline/demo via `demoRig.ts`.
-      Frontend tests cover the geometry/idle/demo-rig. TODO: swap the SVG renderer for a real Live2D
-      (pixi-live2d-display) / VRM (three-vrm) model fed the same params; user replaces/adds components.
+      Frontend tests cover the geometry/idle/demo-rig. LIVE mode now shows the REAL avatar art —
+      server-rendered PNG (`GET /api/avatar/render.png`, the same cute-anime sprite the TUI shows) per
+      frame with gaze/blink/talk; the SVG is the offline/demo fallback. TODO: swap the PNG for a real
+      Live2D (pixi-live2d-display) / VRM (three-vrm) model fed the same params; user replaces components.
 - [~] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
       API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar. DONE (VTS):
       `crucible.vtsbridge.VTSBridge` — auth-token request + cache (with stale-token re-request),

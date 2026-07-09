@@ -155,7 +155,7 @@ class FaceWidget(Static):
     """The avatar face box: a low-res, low-fps pixel-art face in the sidebar that blinks and shifts
     expression in real time — so you see the companion react while you code, decoupled from replies."""
 
-    def __init__(self, avatar, cols: int = 22):
+    def __init__(self, avatar, cols: int = 30):
         super().__init__(id="face")
         self.avatar = avatar
         self.cols = cols
@@ -177,6 +177,18 @@ class FaceWidget(Static):
     def on_mount(self) -> None:
         self.redraw()
         self.set_interval(0.25, self._tick)    # low frame rate; fast enough for a talk flap
+
+    def on_resize(self) -> None:
+        self.redraw()                          # re-fit the face when the sidebar is resized
+
+    def _fit_cols(self) -> int:
+        """Render at MOST as many character-columns as the widget is wide, so no ANSI line ever exceeds
+        the box and wraps onto the next line (which would tear the picture apart). Falls back to the
+        target width before the first layout pass has sized the widget."""
+        avail = self.content_size.width
+        if avail and avail > 0:
+            return max(8, min(self.cols, avail))
+        return self.cols
 
     def _tick(self) -> None:
         self._t += 1
@@ -229,7 +241,7 @@ class FaceWidget(Static):
                 from PIL import Image
                 prev = blend_expressions(a, self._tween_from, ov, gaze=g)
                 img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
-            lines = render_image(img, cols=self.cols, duotone="terminal-sepia", palette_size=6, blocks="quad")
+            lines = render_image(img, cols=self._fit_cols(), duotone="terminal-sepia", palette_size=6, blocks="quad")
             self.update(Text.from_ansi("\n".join(lines)))
         except Exception as e:
             self.update(f"[face error: {e}]")
@@ -278,7 +290,13 @@ class CrucibleTUI(App):
         Binding("l", "load_selected", "Load from browser"),
         Binding("r", "refresh", "Refresh"),
         Binding("q", "quit", "Quit"),
+        # resizable sidebars: [ ] adjust the LEFT rail, { } the RIGHT (companion) rail
+        Binding("[", "shrink_left", "Left −", show=False),
+        Binding("]", "grow_left", "Left +", show=False),
+        Binding("{", "shrink_right", "Right −", show=False),
+        Binding("}", "grow_right", "Right +", show=False),
     ]
+    SIDEBAR_MIN, SIDEBAR_MAX = 20, 72
 
     def __init__(self, control: str = "http://127.0.0.1:8400", cwd: str = "."):
         super().__init__()
@@ -321,7 +339,25 @@ class CrucibleTUI(App):
     def on_mount(self) -> None:
         self.title = "crucible — agent workbench"
         self.sub_title = self.control
+        self._left_w = 32
+        self._right_w = 32
         self.refresh_all()
+
+    # --- resizable sidebars -----------------------------------------------------------------------
+    def _resize_sidebar(self, which: str, delta: int) -> None:
+        attr = "_left_w" if which == "#left" else "_right_w"
+        cur = getattr(self, attr, 32)
+        new = max(self.SIDEBAR_MIN, min(self.SIDEBAR_MAX, cur + delta))
+        setattr(self, attr, new)
+        try:
+            self.query_one(which).styles.width = new    # the FaceWidget re-fits via its on_resize
+        except Exception:
+            pass
+
+    def action_grow_left(self) -> None: self._resize_sidebar("#left", 3)
+    def action_shrink_left(self) -> None: self._resize_sidebar("#left", -3)
+    def action_grow_right(self) -> None: self._resize_sidebar("#right", 3)
+    def action_shrink_right(self) -> None: self._resize_sidebar("#right", -3)
 
     # --- data loading (threaded) ------------------------------------------------------------------
     @work(thread=True, exclusive=True)

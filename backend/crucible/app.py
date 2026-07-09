@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -128,6 +128,19 @@ class RigFrameRequest(BaseModel):
     gaze: list[float] | None = None                 # [dx, dy] in [-1,1]
     extra: dict[str, float] | None = None           # param overlay (micro-expression/breath deltas)
     blink: float = 0.0
+
+
+class MoodRequest(BaseModel):
+    weights: dict[str, float] = Field(default_factory=lambda: {"neutral": 1.0})
+
+
+class ReactRequest(BaseModel):
+    reaction: str
+
+
+class TalkRequest(BaseModel):
+    talking: bool | None = None
+    level: float | None = None                       # explicit lip-sync amplitude 0..1 (live TTS/audio)
 
 
 class ConnectRequest(BaseModel):
@@ -459,6 +472,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     gr_engine = guardrails or GuardrailsEngine(preset_resolver=preset_store.system_prompt)
     gr_store = GuardrailStore(settings.data_dir / "guardrails.json")
     recipe_store = RecipeStore(settings.data_dir / "recipes.json")
+    from crucible.companion import CompanionDriver
+    companion = CompanionDriver()          # the live companion drive loop (mood → smoothed face frames)
     from crucible.memory import MemoryStore
     memory = MemoryStore(settings.data_dir / "memory")
     from crucible.hierarchy import ProfileStore
@@ -2818,6 +2833,89 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         from crucible.rigmap import rig_frame
         expr = expression_for(reaction)
         return {"reaction": reaction, "expression": expr.name, **rig_frame({expr.name: 1.0})}
+
+    def _parse_blend(blend: str | None, expression: str) -> dict:
+        if blend:
+            out: dict[str, float] = {}
+            for part in blend.split(","):
+                if ":" in part:
+                    name, _, w = part.partition(":")
+                    try:
+                        out[name.strip()] = float(w)
+                    except ValueError:
+                        continue
+                elif part.strip():
+                    out[part.strip()] = 1.0
+            if out:
+                return out
+        return {expression: 1.0}
+
+    @app.get("/api/avatar/render.png")
+    def avatar_render_png(expression: str = "neutral", blend: str | None = None,
+                          gx: float = 0.0, gy: float = 0.0, blink: float = 0.0, talk: float = 0.0,
+                          scale: int = 240):
+        """Render the ACTUAL active avatar (the cute-anime sprite composite / generated companion) to a PNG
+        — the same image the TUI face shows — for a mood BLEND with gaze, blink and talk. The web window
+        displays this so the browser shows the real avatar art, not a stand-in. `blend`='happy:0.6,
+        surprised:0.4'; `gx,gy`∈[-1,1]; `blink`/`talk`≥0.5 apply those frames; `scale` = output width px."""
+        import io
+        from PIL import Image
+        from crucible.avatar import blend_expressions, blink_talk_overrides
+        from crucible.avatar_gen import ensure_default_avatar
+        a = ensure_default_avatar(str(settings.data_dir))
+        weights = _parse_blend(blend, expression)
+        overrides = blink_talk_overrides(a, blink=blink >= 0.5, talk=talk >= 0.5)
+        gaze = (max(-1.0, min(1.0, gx)), max(-1.0, min(1.0, gy)))
+        img = blend_expressions(a, weights, overrides=overrides, gaze=gaze).convert("RGBA")
+        w = max(32, min(1024, int(scale)))
+        h = max(1, round(w * a.size[1] / a.size[0]))
+        img = img.resize((w, h), Image.NEAREST)              # crisp pixel-art upscale
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+    # --- live companion drive loop (shared) -------------------------------------------------------
+    @app.post("/api/avatar/mood")
+    def avatar_set_mood(req: MoodRequest) -> dict:
+        """Set the live companion's TARGET mood (expression blend). The drive loop crossfades to it."""
+        companion.set_mood(req.weights or {"neutral": 1.0})
+        return {"mood": companion.mood()}
+
+    @app.post("/api/avatar/react")
+    def avatar_react(req: ReactRequest) -> dict:
+        """Push a reaction word (co-watch/chat vocabulary) at the live companion — it emotes accordingly."""
+        from crucible.expression import expression_for
+        companion.react(req.reaction)
+        return {"reaction": req.reaction, "expression": expression_for(req.reaction).name}
+
+    @app.post("/api/avatar/talk")
+    def avatar_talk(req: TalkRequest) -> dict:
+        """Drive lip-sync: `talking` toggles an auto mouth-flap; `level` (0..1) sets a live TTS amplitude."""
+        if req.level is not None:
+            companion.set_speech_level(req.level)
+        if req.talking is not None:
+            companion.set_talking(req.talking)
+        return {"ok": True}
+
+    @app.get("/api/avatar/stream")
+    def avatar_stream(fps: int = 18):
+        """Server-Sent Events: the live drive loop pushes smoothed engine-agnostic face frames — the mood
+        eased toward its target with idle gaze/blink + lip-sync layered on — so a web rig animates in real
+        time, decoupled from the reply cycle. Update the mood via /api/avatar/mood|react|talk."""
+        import asyncio
+        rate = max(1, min(60, fps))
+
+        async def gen():
+            try:
+                while True:
+                    frame = companion.step()
+                    yield f"data: {json.dumps(frame)}\n\n"
+                    await asyncio.sleep(1.0 / rate)
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     import os as _os
     _static = _os.environ.get("CRUCIBLE_STATIC")

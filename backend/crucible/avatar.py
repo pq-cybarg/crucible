@@ -157,6 +157,27 @@ def _gaze_offset(avatar: Avatar, gaze: Optional[tuple]) -> tuple:
     return (round(gx * avatar.size[0] * 0.06), round(gy * avatar.size[1] * 0.04))
 
 
+def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False) -> dict:
+    """The part→state overrides for a blink and/or an open (talking) mouth, adapting to the rig kind:
+    part-based eyes/pupils/mouth if present, else a whole-face 'blink'/'talk' state. Shared by the TUI
+    face and the web render so both animate a blink/lip-sync the same way."""
+    ov: dict = {}
+    face = avatar.part_layer("face")
+    if blink:
+        if avatar.part_layer("eyes"):
+            ov["eyes"] = "closed"
+            if avatar.part_layer("pupils"):
+                ov["pupils"] = "off"
+        elif face and "blink" in face.states:
+            ov["face"] = "blink"
+    if talk:
+        if avatar.part_layer("mouth"):
+            ov["mouth"] = "open"
+        elif face and "talk" in face.states:
+            ov["face"] = "talk"
+    return ov
+
+
 def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
                    box: Optional[tuple] = None, gaze: Optional[tuple] = None):
     """Composite a sprite-kind avatar's visible layers (RGBA PNGs, alpha-blended back-to-front) into one

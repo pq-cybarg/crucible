@@ -1638,6 +1638,7 @@ export interface RigFrame {
 export async function getAvatarInfo(): Promise<AvatarInfo> {
   if (isDemo()) return DEMO_AVATAR;
   const r = await cfetch(API_BASE + "/api/avatar");
+  if (r.status === 404) throw new Error("stale-backend");   // endpoints not loaded — restart the backend
   if (!r.ok) throw new Error(`GET /api/avatar -> ${r.status}`);
   return avatarInfoP(await r.json());
 }
@@ -1659,4 +1660,30 @@ export async function getReactionFrame(reaction: string): Promise<RigFrame> {
   const r = await cfetch(API_BASE + "/api/avatar/reaction/" + encodeURIComponent(reaction));
   if (!r.ok) throw new Error(`GET /api/avatar/reaction -> ${r.status}`);
   return rigFrameP(await r.json());
+}
+
+// A server-rendered PNG of the ACTUAL avatar (the cute-anime sprite composite) for a mood blend + gaze/
+// blink/talk — the web window shows this so the browser displays the real avatar art, not a stand-in.
+export interface AvatarRenderParams {
+  readonly blend?: string;        // "happy:0.6,surprised:0.4"
+  readonly expression?: string;
+  readonly gx?: number; readonly gy?: number;
+  readonly blink?: number; readonly talk?: number;
+  readonly scale?: number;
+}
+export function avatarRenderUrl(p: AvatarRenderParams): string {
+  const q = new URLSearchParams();
+  if (p.blend) q.set("blend", p.blend);
+  if (p.expression) q.set("expression", p.expression);
+  if (p.gx !== undefined) q.set("gx", p.gx.toFixed(3));
+  if (p.gy !== undefined) q.set("gy", p.gy.toFixed(3));
+  if (p.blink !== undefined) q.set("blink", String(p.blink));
+  if (p.talk !== undefined) q.set("talk", String(p.talk));
+  if (p.scale !== undefined) q.set("scale", String(Math.round(p.scale)));
+  return API_BASE + "/api/avatar/render.png?" + q.toString();
+}
+export async function fetchAvatarRender(p: AvatarRenderParams): Promise<Blob> {
+  const r = await cfetch(avatarRenderUrl(p));
+  if (!r.ok) throw new Error(`GET /api/avatar/render.png -> ${r.status}`);
+  return r.blob();
 }

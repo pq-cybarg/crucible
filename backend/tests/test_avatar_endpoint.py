@@ -44,3 +44,33 @@ def test_reaction_frame_resolves_expression(tmp_path, monkeypatch):
     assert f["expression"] == "laughing" and f["arkit"]["mouthSmileLeft"] > 0
     # an unknown reaction word falls back to neutral, not an error
     assert c.get("/api/avatar/reaction/zzz").json()["expression"] == "neutral"
+
+
+def test_render_png_returns_the_actual_avatar_image(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/api/avatar/render.png", params={"expression": "happy", "scale": 200})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    from PIL import Image
+    import io
+    img = Image.open(io.BytesIO(r.content))
+    assert img.width == 200 and img.height > 0                 # a real rendered image at the asked width
+    # gaze/blink/talk params render distinct frames (the pupils move, the lids shut)
+    a = c.get("/api/avatar/render.png", params={"gx": 1.0}).content
+    b = c.get("/api/avatar/render.png", params={"gx": -1.0}).content
+    blinked = c.get("/api/avatar/render.png", params={"blink": 1.0}).content
+    assert a != b and blinked != a
+
+
+def test_render_png_accepts_a_blend(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/api/avatar/render.png", params={"blend": "happy:0.6,surprised:0.4"})
+    assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_live_driver_mood_react_talk(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    assert c.post("/api/avatar/mood", json={"weights": {"happy": 1.0}}).status_code == 200
+    rj = c.post("/api/avatar/react", json={"reaction": "funny"}).json()
+    assert rj["expression"] == "laughing"
+    assert c.post("/api/avatar/talk", json={"talking": True}).json()["ok"] is True
+    assert c.post("/api/avatar/talk", json={"level": 0.8}).status_code == 200
