@@ -62,9 +62,14 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       (`import_portrait`, copies + owns the image, agentic-immutable).
 - [x] **Part placement + eye distance**: `Layer.pos` (independent placement), `mirror` + `spacing` for
       symmetric PAIRS (eyes/ears) — the eye-distance/sync knob.
-- [ ] **Part-by-part agentic design** (the middle ground: NOT whole-character generation): give the model
-      tools to CREATE/EDIT individual part sprites (transparent PNGs) per state, place + size them on the
-      rig, and keep pairs (eyes) in sync — each part is a small focused task, composed in unison.
+- [x] **Part-by-part agentic design tools** (`tools/avatar_tools.py`, registered): avatar_inspect,
+      avatar_set_part (add/replace a part sprite per state, place with pos, mirror+spacing for pairs —
+      copies+owns the PNG), avatar_tune (eye-distance/pos/mirror/variant), avatar_set_expression, and
+      avatar_render (→ PNG the agent can see_image to check + iterate). All refuse PROTECTED imports. The
+      agent designs the companion one part at a time, composed in unison. Tested + live.
+- [ ] **Drive part art**: wire an anime image model / diffusion backend (or trained per-part models) so
+      the agent GENERATES cute-anime part sprites, not just places supplied ones — closing the loop to a
+      real cute-anime companion.
 - [ ] **Specialized per-part models**: use small models specialized to a part (an "eyes" model, a "mouth"
       model, …) — and let Crucible CREATE/TRAIN them itself (ties into the training pipeline). Divide the
       generation/animation workload across part-experts.
