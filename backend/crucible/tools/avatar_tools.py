@@ -146,6 +146,57 @@ class AvatarSetExpression:
         return ToolResult(ok=True, output=f"expression '{name}' = {a.expressions[name]}")
 
 
+class AvatarGeneratePart:
+    name = "avatar_generate_part"
+    description = ("GENERATE a part sprite from a text prompt (local anime image model), auto-remove its "
+                  "background for transparency, and place it on the rig as part.state. Optional negative "
+                  "prompt, pos [x,y], mirror+spacing (eyes), size. This is how you draw cute-anime parts "
+                  "one at a time. Refuses protected parts.")
+    parameters = {"type": "object", "properties": {
+        "part": {"type": "string"}, "state": {"type": "string"}, "prompt": {"type": "string"},
+        "negative": {"type": "string"}, "size": {"type": "string"},
+        "pos": {"type": "array", "items": {"type": "number"}},
+        "mirror": {"type": "boolean"}, "spacing": {"type": "number"}},
+        "required": ["part", "state", "prompt"]}
+
+    def __init__(self, root=None):
+        self.root = str(root) if root else "."
+
+    def run(self, part="", state="", prompt="", negative="", size="384x384",
+            pos=None, mirror=None, spacing=None) -> ToolResult:
+        from crucible.avatar import PARTS
+        if part not in PARTS:
+            return ToolResult(ok=False, output="", error=f"part must be one of: {', '.join(PARTS)}")
+        a, adir = _active()
+        g = _guard(a.part_layer(part))
+        if g:
+            return ToolResult(ok=False, output="", error=g)
+        try:
+            from crucible import imagegen
+        except Exception:
+            return ToolResult(ok=False, output="", error="image generation not available (diffusers/torch)")
+        if not imagegen.available():
+            return ToolResult(ok=False, output="", error="no local image model available")
+        try:
+            w, h = (int(x) for x in size.lower().split("x"))
+        except Exception:
+            w, h = 384, 384
+        neg = negative or "blurry, extra limbs, text, watermark, multiple, background clutter"
+        try:
+            from crucible.bgremove import remove_background
+            img = imagegen.generate(prompt + ", single, centered, plain flat background",
+                                    negative=neg, size=(w, h))
+            img = remove_background(img)                  # knock out the flat bg → transparent part
+        except Exception as e:
+            return ToolResult(ok=False, output="", error=f"generation failed: {e}")
+        finally:
+            imagegen.unload()                            # free the model right after (memory safety)
+        tmp = os.path.join(self.root, f"_gen_{part}_{state}.png")
+        img.save(tmp)
+        return AvatarSetPart(self.root).run(part=part, state=state, image=tmp,
+                                            pos=pos, mirror=mirror, spacing=spacing)
+
+
 class AvatarRender:
     name = "avatar_render"
     description = "Render the companion avatar (an expression) to a PNG file and return its path — then " \

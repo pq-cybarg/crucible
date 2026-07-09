@@ -21,6 +21,9 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
 torch = ["torch>=2.2", "transformers>=4.40"]
 # The retraining pipeline (LoRA SFT) additionally needs peft.
 train = ["torch>=2.2", "transformers>=4.40", "peft>=0.11"]
+# Avatar part generation: local anime image gen (diffusers on MPS/CUDA) + background removal.
+avatar = ["torch>=2.2", "diffusers>=0.30", "transformers>=4.40", "accelerate>=0.30",
+          "safetensors>=0.4", "rembg>=2.0"]
 
 [project.scripts]
 crucible = "crucible.cli:main"
