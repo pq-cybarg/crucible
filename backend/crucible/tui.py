@@ -160,30 +160,39 @@ class FaceWidget(Static):
         self.avatar = avatar
         self.cols = cols
         self.expression = "neutral"
+        self.talking = False
         self._t = 0
         self._blink = False
 
     def on_mount(self) -> None:
         self.redraw()
-        self.set_interval(0.4, self._tick)     # low frame rate on purpose
+        self.set_interval(0.25, self._tick)    # low frame rate; fast enough for a talk flap
 
     def _tick(self) -> None:
         self._t += 1
-        self._blink = (self._t % 12 == 0)      # a quick blink roughly every ~5s
+        self._blink = (self._t % 20 == 0)      # a quick blink roughly every ~5s
         self.redraw()
 
     def redraw(self) -> None:
         from rich.text import Text
         from crucible.avatar import render_tui
         try:
-            ov = {"eyes": "closed"} if self._blink else None
-            lines = render_tui(self.avatar, self.expression, overrides=ov, cols=self.cols)
+            ov = {}
+            if self._blink:
+                ov["eyes"] = "closed"
+            if self.talking:                   # flap the mouth open/closed while replying
+                ov["mouth"] = "open" if self._t % 2 == 0 else "closed"
+            lines = render_tui(self.avatar, self.expression, overrides=ov or None, cols=self.cols)
             self.update(Text.from_ansi("\n".join(lines)))
         except Exception as e:
             self.update(f"[face error: {e}]")
 
     def set_expression(self, expression: str) -> None:
         self.expression = expression
+        self.redraw()
+
+    def set_talking(self, talking: bool) -> None:
+        self.talking = talking
         self.redraw()
 
 
@@ -494,17 +503,30 @@ class CrucibleTUI(App):
                 pass
         self.refresh_all()
 
+    def _emote(self, expression: Optional[str] = None, talking: Optional[bool] = None) -> None:
+        """Drive the companion face — safe no-op if there's no face widget (no avatar)."""
+        try:
+            fw = self.query_one("#face", FaceWidget)
+        except Exception:
+            return
+        if expression is not None:
+            fw.set_expression(expression)
+        if talking is not None:
+            fw.set_talking(talking)
+
     @work(thread=True)
     def _run(self, sid: str, message: str) -> None:
         import time
         log = self.query_one("#context", RichLog)
         run_id = f"{sid}-{int(time.monotonic() * 1000)}"
         acc = ""
+        self.call_from_thread(self._emote, "curious", False)      # thinking…
         try:
             with httpx.stream("POST", f"{self.control}/api/agent-sessions/{sid}/run",
                               json={"message": message, "run_id": run_id}, timeout=600) as r:
                 if r.status_code >= 400:
-                    self.call_from_thread(log.write, f"[red]run error {r.status_code}[/red]"); return
+                    self.call_from_thread(log.write, f"[red]run error {r.status_code}[/red]")
+                    self.call_from_thread(self._emote, "sad", False); return
                 for line in r.iter_lines():
                     line = (line or "").strip()
                     if not line.startswith("data:"):
@@ -516,21 +538,29 @@ class CrucibleTUI(App):
                     t = ev["type"]
                     if t == "assistant_delta":
                         acc += str(ev["data"].get("delta", ""))
+                        self.call_from_thread(self._emote, "happy", True)     # talking (mouth flaps)
                     elif t in ("assistant", "done") and ev["data"].get("content"):
                         acc = str(ev["data"]["content"])
                     elif t == "tool_call":
+                        self.call_from_thread(self._emote, "surprised", False)
                         self.call_from_thread(log.write, f"[yellow]→ {ev['data'].get('name')}[/yellow] {json.dumps(ev['data'].get('args'))[:80]}")
                     elif t == "tool_result":
-                        self.call_from_thread(log.write, f"  {'✓' if ev['data'].get('ok') else '✗'} {str(ev['data'].get('output') or ev['data'].get('error') or '')[:120]}")
+                        ok = bool(ev["data"].get("ok"))
+                        self.call_from_thread(self._emote, "curious" if ok else "sad", False)
+                        self.call_from_thread(log.write, f"  {'✓' if ok else '✗'} {str(ev['data'].get('output') or ev['data'].get('error') or '')[:120]}")
                     elif t == "permission_request":
+                        self.call_from_thread(self._emote, "curious", False)
                         self.call_from_thread(self._ask_approval, run_id, str(ev["data"]["id"]),
                                               str(ev["data"]["name"]), ev["data"].get("args", {}))
                     elif t == "error":
+                        self.call_from_thread(self._emote, "sad", False)
                         self.call_from_thread(log.write, f"[red]{ev['data'].get('reason')}[/red]")
         except httpx.HTTPError as e:
+            self.call_from_thread(self._emote, "sad", False)
             self.call_from_thread(log.write, f"[red]{e}[/red]")
         if acc:
             self.call_from_thread(log.write, f"[green]assistant[/green] {acc}")
+        self.call_from_thread(self._emote, "happy", False)        # done — settle to a pleased idle
         self.refresh_all()
 
     def _ask_approval(self, run_id: str, call_id: str, name: str, args: dict) -> None:
