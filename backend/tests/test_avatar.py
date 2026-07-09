@@ -267,6 +267,30 @@ def test_gaze_none_is_identity_and_mixes_with_expression(tmp_path):
     assert not np.array_equal(straight, glancing)
 
 
+def test_generate_avatar_customization(tmp_path):
+    import numpy as np
+    from crucible.avatar_gen import generate_avatar, HAIRSTYLES, PALETTES
+    from crucible.avatar import render_sprites
+    # ART STYLE: different palettes → visibly different pixels
+    sky = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "sky"), style="sky"), "neutral").convert("RGB"))
+    rose = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "rose"), style="rose"), "neutral").convert("RGB"))
+    assert not np.array_equal(sky, rose) and set(PALETTES) >= {"sky", "rose", "mint"}
+    # HAIRSTYLE: kept as states, default follows the param — swappable
+    a = generate_avatar("a", str(tmp_path / "hair"), hairstyle="long")
+    hair = a.part_layer("hair")
+    assert hair.default_state == "long" and set(hair.states) == set(HAIRSTYLES)
+    # EYE DISTANCE: the eyes are a mirror pair; a bigger `spacing` pushes them apart
+    close = generate_avatar("a", str(tmp_path / "close"), spacing=1)
+    wide = generate_avatar("a", str(tmp_path / "wide"), spacing=16)
+    assert close.part_layer("eyes").mirror and wide.part_layer("eyes").spacing == 16
+    # different eye distance → the eyes land in different places → a different composite
+    ci = np.asarray(render_sprites(close, "neutral").convert("RGBA"))
+    wi = np.asarray(render_sprites(wide, "neutral").convert("RGBA"))
+    assert not np.array_equal(ci, wi)
+    # the iris (pupils) pair tracks the eye distance so it stays centred in the whites
+    assert wide.part_layer("pupils").spacing > close.part_layer("pupils").spacing
+
+
 def test_procedural_avatar_has_pupils_and_gaze_moves_them(tmp_path):
     import numpy as np
     from crucible.avatar_gen import generate_avatar
