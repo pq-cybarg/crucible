@@ -2867,9 +2867,11 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         overrides = blink_talk_overrides(a, blink=blink >= 0.5, talk=talk >= 0.5)
         gaze = (max(-1.0, min(1.0, gx)), max(-1.0, min(1.0, gy)))
         img = blend_expressions(a, weights, overrides=overrides, gaze=gaze).convert("RGBA")
-        w = max(32, min(1024, int(scale)))
-        h = max(1, round(w * a.size[1] / a.size[0]))
-        img = img.resize((w, h), Image.NEAREST)              # crisp pixel-art upscale
+        # Upscale by an INTEGER factor only (NEAREST) so every source pixel stays a uniform square — a
+        # non-integer factor makes some pixels 2 wide and others 3, which reads as a distorted picture.
+        target = max(32, min(1024, int(scale)))
+        factor = max(1, round(target / a.size[0]))
+        img = img.resize((a.size[0] * factor, a.size[1] * factor), Image.NEAREST)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png",

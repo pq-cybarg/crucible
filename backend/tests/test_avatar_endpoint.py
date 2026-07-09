@@ -53,7 +53,11 @@ def test_render_png_returns_the_actual_avatar_image(tmp_path, monkeypatch):
     from PIL import Image
     import io
     img = Image.open(io.BytesIO(r.content))
-    assert img.width == 200 and img.height > 0                 # a real rendered image at the asked width
+    # upscaled by an INTEGER factor (crisp uniform pixels, no distortion) → a multiple of the native width,
+    # near the requested size
+    info = c.get("/api/avatar").json()
+    native_w = info["size"][0]
+    assert img.width % native_w == 0 and 0 < abs(img.width - 200) < native_w and img.height > 0
     # gaze/blink/talk params render distinct frames (the pupils move, the lids shut)
     a = c.get("/api/avatar/render.png", params={"gx": 1.0}).content
     b = c.get("/api/avatar/render.png", params={"gx": -1.0}).content

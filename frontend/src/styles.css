@@ -1102,7 +1102,7 @@ label.pipe-comp input { margin-right: 4px; }
 /* --- companion avatar window ------------------------------------------------- */
 .avatar-stage { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
 .avatar-face {
-  width: 260px; height: 300px; flex: 0 0 auto;
+  width: 260px; aspect-ratio: 4 / 5; height: auto; flex: 0 0 auto;   /* match the avatar's portrait shape */
   border: 1px solid var(--steel-600); border-radius: 14px;
   background: radial-gradient(120% 120% at 50% 30%, #171a1f, var(--void));
   box-shadow: inset 0 0 40px rgba(0,0,0,0.5), var(--glow-amber);

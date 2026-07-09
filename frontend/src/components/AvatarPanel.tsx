@@ -124,7 +124,7 @@ export default function AvatarPanel(): JSX.Element {
         setSvgParams(l);
       } else if (!inFlight) {
         inFlight = true;
-        fetchAvatarRender({ blend: blendString(w), gx: gaze[0], gy: gaze[1], blink, talk, scale: 260 })
+        fetchAvatarRender({ blend: blendString(w), gx: gaze[0], gy: gaze[1], blink, talk, scale: 384 })
           .then((blob) => {
             if (cancelled) return;
             const url = URL.createObjectURL(blob);
@@ -160,7 +160,7 @@ export default function AvatarPanel(): JSX.Element {
           {demo
             ? <FaceSvg live2d={svgParams} />
             : imgUrl
-              ? <img src={imgUrl} alt="companion" style={{ width: "100%", height: "100%", objectFit: "contain", imageRendering: "pixelated" }} />
+              ? <img src={imgUrl} alt="companion" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
               : <div className="avatar-loading">…</div>}
         </div>
 
