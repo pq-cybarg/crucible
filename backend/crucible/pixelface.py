@@ -39,8 +39,11 @@ def render_image(img, cols: int = 44, rows: Optional[int] = None, palette_size: 
         img = img.convert("RGB")
     w, h = img.size
     sx = 2 if blocks == "quad" else 1                  # quad packs 2 subpixels per cell horizontally
+    # A character cell is ~1 wide : 2 tall. So (with a cell holding 2 rows of subpixels) the row count
+    # that keeps the image UNDISTORTED is cols·(h/w)·0.5 — independent of horizontal subpixels. Using
+    # sx here (the old bug) doubled the rows for quad and squished the picture horizontally.
     if rows is None:
-        rows = max(1, round(cols * (h / w) * 0.5 * sx))
+        rows = max(1, round(cols * (h / w) * 0.5))
     img = img.resize((cols * sx, rows * 2), Image.NEAREST)
     if duotone and duotone in DUOTONES:
         img = _apply_duotone(img, DUOTONES[duotone], palette_size if palette_size >= 2 else 0, dither)

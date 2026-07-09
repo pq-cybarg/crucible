@@ -155,7 +155,7 @@ class FaceWidget(Static):
     """The avatar face box: a low-res, low-fps pixel-art face in the sidebar that blinks and shifts
     expression in real time — so you see the companion react while you code, decoupled from replies."""
 
-    def __init__(self, avatar, cols: int = 18):
+    def __init__(self, avatar, cols: int = 22):
         super().__init__(id="face")
         self.avatar = avatar
         self.cols = cols
@@ -163,6 +163,8 @@ class FaceWidget(Static):
         self.talking = False
         self._t = 0
         self._blink = False
+        self._tween_from = ""       # crossfade (inbetween) source expression
+        self._tween = 1.0           # 0→1 progress of the blend
 
     def on_mount(self) -> None:
         self.redraw()
@@ -171,23 +173,48 @@ class FaceWidget(Static):
     def _tick(self) -> None:
         self._t += 1
         self._blink = (self._t % 20 == 0)      # a quick blink roughly every ~5s
+        if self._tween < 1.0:                  # advance an in-progress expression crossfade
+            self._tween = min(1.0, self._tween + 0.25)
         self.redraw()
+
+    def _overrides(self):
+        a = self.avatar
+        face = a.part_layer("face")
+        ov = {}
+        if self._blink:                        # part-based eyes, or a whole-face 'blink' state
+            if a.part_layer("eyes"):
+                ov["eyes"] = "closed"
+            elif face and "blink" in face.states:
+                ov["face"] = "blink"
+        if self.talking:                       # flap open/closed while replying
+            open_frame = self._t % 2 == 0
+            if a.part_layer("mouth"):
+                ov["mouth"] = "open" if open_frame else "closed"
+            elif face and "talk" in face.states and open_frame:
+                ov["face"] = "talk"
+        return ov or None
 
     def redraw(self) -> None:
         from rich.text import Text
-        from crucible.avatar import render_tui
+        from crucible.avatar import render_sprites
+        from crucible.pixelface import render_image
         try:
-            ov = {}
-            if self._blink:
-                ov["eyes"] = "closed"
-            if self.talking:                   # flap the mouth open/closed while replying
-                ov["mouth"] = "open" if self._t % 2 == 0 else "closed"
-            lines = render_tui(self.avatar, self.expression, overrides=ov or None, cols=self.cols)
+            a = self.avatar
+            ov = self._overrides()
+            img = render_sprites(a, self.expression, ov)
+            if self._tween < 1.0 and self._tween_from:   # crossfade inbetween from the previous expression
+                from PIL import Image
+                prev = render_sprites(a, self._tween_from, ov)
+                img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
+            lines = render_image(img, cols=self.cols, duotone="terminal-sepia", palette_size=6, blocks="quad")
             self.update(Text.from_ansi("\n".join(lines)))
         except Exception as e:
             self.update(f"[face error: {e}]")
 
     def set_expression(self, expression: str) -> None:
+        if expression != self.expression:
+            self._tween_from = self.expression   # start a smooth crossfade to the new expression
+            self._tween = 0.0
         self.expression = expression
         self.redraw()
 

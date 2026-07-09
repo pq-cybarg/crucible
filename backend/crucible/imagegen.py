@@ -74,10 +74,32 @@ def generate(prompt: str, negative: str = "", size: tuple = (384, 384), steps: i
                 num_inference_steps=int(steps), guidance_scale=float(guidance), generator=gen).images[0]
 
 
+_I2I = None
+
+
+def img2img(image, prompt: str, negative: str = "", strength: float = 0.45, steps: int = 24,
+            guidance: float = 7.0, seed: Optional[int] = None):
+    """Regenerate `image` toward `prompt` at `strength` (0=keep, 1=ignore) — used to make CONSISTENT
+    expression variants of the SAME character (blink / smile / open mouth) from a base face."""
+    global _I2I
+    import torch
+    from diffusers import StableDiffusionImg2ImgPipeline
+
+    pipe = load_pipe()
+    if _I2I is None or getattr(_I2I, "_src", None) is not pipe:
+        _I2I = StableDiffusionImg2ImgPipeline(**pipe.components)      # reuse the loaded weights
+        _I2I.set_progress_bar_config(disable=True)
+        _I2I._src = pipe
+    gen = torch.Generator(device="cpu").manual_seed(int(seed)) if seed is not None else None
+    return _I2I(prompt=prompt, negative_prompt=(negative or None), image=image.convert("RGB"),
+                strength=float(strength), num_inference_steps=int(steps),
+                guidance_scale=float(guidance), generator=gen).images[0]
+
+
 def unload() -> None:
     """Drop the pipeline and free memory (called after generating so the model doesn't linger)."""
-    global _PIPE, _MODEL
-    _PIPE, _MODEL = None, None
+    global _PIPE, _MODEL, _I2I
+    _PIPE, _MODEL, _I2I = None, None, None
     import gc
     import torch
     gc.collect()

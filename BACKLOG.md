@@ -86,8 +86,18 @@ emotional STATE → parameters, in REAL TIME (decoupled from the slow STT→LLM�
       param stream; user replaces/adds components.
 - [ ] **External-rig bridge**: drive the user's real VTube Studio / VSeeFace model via the VTS WebSocket
       API (InjectParameterData) or VMC/OSC — so Crucible animates their existing avatar.
-- [ ] **Nuanced expression**: many blendshape-like params + blends (not just presets) for subtle,
-      layered emotion; micro-expressions; gaze/saccades.
+- [x] **Generated cute-anime companion** end-to-end: build_anime_companion generates a FLAT-style base
+      (legible at low res) + consistent expression variants via img2img (neutral/happy/laughing/surprised/
+      sad/angry/curious/love/smug/teasing/shy + blink/talk), assembled as a face-part rig; the TUI shows it.
+- [x] **Crossfade inbetweening**: FaceWidget tweens (alpha-blends) between expressions over a few frames.
+- [x] **Render fixes**: fixed the quad aspect (horizontal-squish) bug; flat art for low-res legibility.
+- [ ] **Continuous layered blending** (nuance): drive the rig by continuous PARAMETERS and mix independent
+      axes at once — gaze/look-direction + brow + eye-open + mouth + blush — not just discrete-state
+      crossfades. Micro-expressions, saccades, weighted blends of two emotions.
+- [ ] **Gaze / look-direction axis**: separate eye/pupil offset layer, mixable with any expression in
+      real time (look around while smiling).
+- [ ] **Crisper detail**: part-based rig for the generated art (slice eyes/mouth/hair) and/or a larger
+      face box, so fine features survive; per-part inbetweening.
 
 ## Non-LLM subagents / tools (requested)
 - [ ] **ML-algorithm tools**: expose classic ML (classifiers/clustering/regression via numpy/scikit) as agent tools the model can RUN on data (incl. video features) — non-LLM subagents.

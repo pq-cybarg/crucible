@@ -123,6 +123,71 @@ def generate_avatar(name: str, out_dir: str, palette: Palette | None = None) -> 
     return a
 
 
+# The intended art style: cute anime girl — but FLAT and BOLD so it stays legible at the low resolution
+# of the terminal face box (soft/detailed shading turns to mud when shrunk). Flat colours, clean thick
+# lineart, big eyes, high contrast, minimal shading.
+STYLE = ("cute anime girl, portrait, big expressive eyes, flat color, cel shading, bold clean thick "
+         "lineart, simple, high contrast, minimal shading, plain background, upper body")
+NEG = ("blurry, lowres, soft shading, gradient, noise, realistic, detailed background, bad anatomy, "
+       "deformed, extra limbs, text, watermark, signature, multiple people")
+
+# expression -> (prompt tweak, img2img strength). Same base + seed → the SAME character, just emoting.
+# Richer than jumpscares: a range of moods incl. smug/teasing/wink. blink/talk are animation frames.
+_COMPANION_EXPR = {
+    "neutral":   ("neutral calm expression, eyes open, mouth closed", 0.0),
+    "happy":     ("happy smiling, eyes open, gentle smile, blushing", 0.4),
+    "laughing":  ("laughing, closed happy eyes, open mouth smile, blush", 0.5),
+    "surprised": ("surprised, wide open eyes, open mouth, raised eyebrows", 0.5),
+    "sad":       ("sad, teary downcast eyes, frown", 0.45),
+    "angry":     ("angry, furrowed brows, pout, glaring", 0.45),
+    "curious":   ("curious, head slightly tilted, looking, one eyebrow raised", 0.4),
+    "love":      ("loving, half-closed eyes, soft smile, heavy blush, hearts", 0.45),
+    "smug":      ("smug smirk, half-lidded confident eyes, one eyebrow raised", 0.45),
+    "teasing":   ("teasing playful wink, tongue out, closed one eye, grin", 0.5),
+    "shy":       ("shy embarrassed, looking away, heavy blush, small frown", 0.45),
+    "blink":     ("eyes closed, relaxed, mouth closed", 0.32),   # for blinking
+    "talk":      ("mouth open speaking, eyes open", 0.32),        # for talk animation
+}
+
+
+def build_anime_companion(name: str, out_dir: str, seed: int = 7, size: int = 384,
+                          extra_style: str = "") -> Avatar:
+    """Generate a REAL cute-anime companion in the intended style: a base face (txt2img) plus consistent
+    expression variants (img2img from the base, same seed → same character). Assembled as a single 'face'
+    part with those states + the expression map. Requires the local image model. Keeps the model loaded
+    across the batch, then unloads (memory safety)."""
+    import os
+
+    from crucible import imagegen
+    if not imagegen.available():
+        raise RuntimeError("local image model not available (install the [avatar] extra)")
+    os.makedirs(out_dir, exist_ok=True)
+    style = STYLE + (", " + extra_style if extra_style else "")
+    try:
+        base = imagegen.generate(f"{style}, neutral calm expression", negative=NEG,
+                                 size=(size, size), steps=26, seed=seed)
+        a = Avatar(name=name, kind="sprites", size=base.size, meta={"generated": True, "style": style})
+        states: dict[str, str] = {}
+        for expr, (tweak, strength) in _COMPANION_EXPR.items():
+            if strength <= 0.0:
+                img = base
+            else:
+                img = imagegen.img2img(base, f"{style}, {tweak}", negative=NEG,
+                                       strength=strength, steps=24, seed=seed)
+            path = os.path.join(out_dir, f"face_{expr}.png")
+            img.convert("RGBA").save(path)
+            states[expr] = path
+        a.add_layer(Layer(id="face", part="face", states=states, default_state="neutral"))
+        # expressions + blink/talk map onto the single face part's states
+        for expr in _COMPANION_EXPR:
+            if expr not in ("blink", "talk"):
+                a.set_expression(expr, {"face": expr})
+        a.save(os.path.join(out_dir, "avatar.json"))
+        return a
+    finally:
+        imagegen.unload()
+
+
 def ensure_default_avatar(data_dir: str) -> Avatar:
     """Load the active avatar from <data_dir>/avatars/active, generating a default procedural one the
     first time so the TUI face box always has something to show."""
