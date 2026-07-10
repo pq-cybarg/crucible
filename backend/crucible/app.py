@@ -2548,6 +2548,17 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         runner = react_run if react else hybrid_run
         events = runner(model, tools, convo, policy, audit, approver=approver)
 
+        def _visible_reply(content) -> bool:
+            # a weak model often emits a raw tool-call (JSON / 'Action:') as its text — that's NOT a chat
+            # reply and must not be saved/shown as the assistant's answer (the tool_call event covers it).
+            c = (content or "").strip()
+            if not c:
+                return False
+            if c.startswith("{") and '"name"' in c and '"arguments"' in c:
+                return False
+            low = c.lower()
+            return not (low.startswith("action:") or low.startswith("action input") or low.startswith("thought:"))
+
         def stream():
             assistant = ""
             try:
@@ -2555,7 +2566,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     if run_id in _cancels:
                         yield f"data: {json.dumps({'type': 'error', 'data': {'reason': 'cancelled'}})}\n\n"
                         break
-                    if event.type in ("assistant", "done") and event.data.get("content"):
+                    if event.type in ("assistant", "done") and _visible_reply(event.data.get("content")):
                         assistant = event.data["content"]
                     yield f"data: {json.dumps({'type': event.type, 'data': event.data})}\n\n"
             finally:

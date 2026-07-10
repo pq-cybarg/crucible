@@ -317,8 +317,8 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
             continue
         step = parse_react(text)
         if step["kind"] == "action":                     # --- text ReAct path ---
-            if streamed:                                 # finalize the streamed scaffolding turn
-                yield AgentEvent("assistant", {"content": text, "streamed": True})
+            if streamed:                                 # clear the streamed scaffold — a tool-call is NOT a
+                yield AgentEvent("assistant", {"content": "", "streamed": True})  # chat reply (no raw JSON)
             rid += 1
             cid = f"react-{rid}"
             name, args = step["tool"], step["input"]

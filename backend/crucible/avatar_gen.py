@@ -611,9 +611,9 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
         im = Image.new("RGBA", (native, nh), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         x, y = mcx, mcy
-        if state in ("neutral", "closed"):                  # subtle closed lips + a hint of lower lip
-            d.line([(x - mw, y), (x + mw, y)], fill=DK, width=1)
-            d.line([(x - mw + 1, y + 1), (x + mw - 1, y + 1)], fill=(*LO[:3], 150), width=1)
+        if state in ("neutral", "closed"):                  # a small BOLD closed mouth (a thin 1px line
+            d.rectangle([x - mw + 1, y, x + mw - 1, y + 1], fill=DK)   # vanishes when shrunk to the TUI box)
+            d.line([(x - mw + 2, y + 2), (x + mw - 2, y + 2)], fill=(*LO[:3], 170), width=1)
         elif state == "talk":                               # small open — the lip-flap frame
             d.ellipse([x - mw + 1, y - 1, x + mw - 1, y + mw], fill=INN, outline=DK)
             d.chord([x - mw + 2, y + 1, x + mw - 2, y + mw], 0, 180, fill=LO)

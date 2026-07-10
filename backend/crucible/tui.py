@@ -157,6 +157,18 @@ _MEMORY_VERB = {"recall_memory": "recalled", "crystallize_memory": "crystallized
                 "link_memory": "linked", "prioritize_memory": "prioritized"}
 
 
+def _visible_reply(content) -> bool:
+    """A weak model often emits a raw tool-call (JSON / 'Action:') as its text — that's not a chat reply
+    and shouldn't be echoed into the conversation."""
+    c = (content or "").strip()
+    if not c:
+        return False
+    if c.startswith("{") and '"name"' in c and '"arguments"' in c:
+        return False
+    low = c.lower()
+    return not (low.startswith("action:") or low.startswith("action input") or low.startswith("thought:"))
+
+
 def _memory_summary(counts: dict) -> str:
     """Turn a {tool: count} tally of memory upkeep into one high-level phrase, e.g. 'recalled 3 ·
     consolidated 2 · crystallized 1' — so the user sees WHAT happened, not 25 individual notifications."""
@@ -315,8 +327,25 @@ class CrucibleTUI(App):
         Binding("]", "grow_left", "Left +", show=False),
         Binding("{", "shrink_right", "Right −", show=False),
         Binding("}", "grow_right", "Right +", show=False),
+        # drag to highlight any text, then copy the selection to the system clipboard
+        Binding("ctrl+c", "copy_selection", "Copy", priority=True),
+        Binding("ctrl+shift+c", "copy_selection", "Copy", show=False, priority=True),
     ]
+    ALLOW_SELECT = True                         # click-drag to select text anywhere in the UI
     SIDEBAR_MIN, SIDEBAR_MAX = 20, 72
+
+    def action_copy_selection(self) -> None:
+        """Copy the drag-highlighted text to the system clipboard (works across the chat / any panel)."""
+        text = ""
+        try:
+            text = self.screen.get_selected_text() or ""
+        except Exception:
+            text = ""
+        if text:
+            self.copy_to_clipboard(text)
+            self._toast(f"copied {len(text)} chars")
+        else:
+            self._toast("select text first (drag to highlight), then Ctrl+C")
 
     def __init__(self, control: str = "http://127.0.0.1:8400", cwd: str = "."):
         super().__init__()
@@ -688,7 +717,7 @@ class CrucibleTUI(App):
             self.call_from_thread(log.write, f"[red]{e}[/red]")
         if mem:                                                   # one high-level summary of memory upkeep
             self.call_from_thread(log.write, f"[dim]🧠 memory · {_memory_summary(mem)}[/dim]")
-        if acc:
+        if _visible_reply(acc):                                   # don't echo raw tool-call JSON as a reply
             self.call_from_thread(log.write, f"[green]assistant[/green] {acc}")
         self.call_from_thread(self._emote, "happy", False)        # done — settle to a pleased idle
         self.refresh_all()
