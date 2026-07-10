@@ -10,6 +10,13 @@ from crucible.tools.base import ToolRegistry
 EventType = Literal["assistant", "assistant_delta", "tool_call", "tool_result", "done", "error"]
 Model = Callable[[list[dict], list[dict]], dict]
 
+# Housekeeping tools whose per-call chatter should be AGGREGATED by the UI (one high-level summary), not
+# streamed as an individual notification each. They're also loop-guarded so a weak model can't spin on them
+# forever: an identical repeat is skipped, and there's a per-run budget after which they're short-circuited.
+MEMORY_TOOLS = frozenset({"recall_memory", "crystallize_memory", "recrystallize_memory",
+                          "consolidate_memory", "link_memory", "prioritize_memory"})
+MEMORY_BUDGET = 6                      # max memory-tool RUNS per turn before we tell the model to move on
+
 
 @dataclass
 class AgentEvent:
@@ -33,6 +40,8 @@ class Agent:
         convo = list(messages)
         streamer = getattr(self.model, "stream", None)
         use_stream = bool(self.stream) and callable(streamer)
+        mem_seen: dict[str, int] = {}      # (name+args) → times seen, to kill duplicate memory loops
+        mem_runs = 0                        # memory-tool calls actually executed this turn (budget)
         for _ in range(self.max_iters):
             try:
                 if use_stream:
@@ -57,16 +66,32 @@ class Agent:
             for call in calls:
                 name = call["function"]["name"]
                 args = json.loads(call["function"]["arguments"] or "{}")
+                quiet = name in MEMORY_TOOLS       # UI aggregates these instead of notifying per-call
                 self.audit.record("tool_call", {"name": name, "args": args})
-                yield AgentEvent("tool_call", {"id": call["id"], "name": name, "args": args})
-                decision = self.permissions.check(name, args)
-                if not decision.allowed:
-                    result = {"ok": False, "output": "", "error": decision.reason}
+                yield AgentEvent("tool_call", {"id": call["id"], "name": name, "args": args, "quiet": quiet})
+                # Loop guard for housekeeping tools: skip exact repeats and cap the per-turn budget so a
+                # weak model can't spin on recall/consolidate forever — short-circuit with a nudge instead.
+                guard = None
+                if quiet:
+                    sig = name + "|" + json.dumps(args, sort_keys=True)
+                    mem_seen[sig] = mem_seen.get(sig, 0) + 1
+                    if mem_seen[sig] > 1:
+                        guard = "already performed this exact memory operation — do not repeat it; continue."
+                    elif mem_runs >= MEMORY_BUDGET:
+                        guard = "memory-maintenance budget reached for this turn — stop organizing memory and answer the user."
+                if guard is not None:
+                    result = {"ok": True, "output": guard}
                 else:
-                    res = self.tools.get(name).run(**args)
-                    result = res.model_dump()
+                    decision = self.permissions.check(name, args)
+                    if not decision.allowed:
+                        result = {"ok": False, "output": "", "error": decision.reason}
+                    else:
+                        res = self.tools.get(name).run(**args)
+                        result = res.model_dump()
+                    if quiet:
+                        mem_runs += 1
                 self.audit.record("tool_result", {"name": name, **result})
-                yield AgentEvent("tool_result", {"id": call["id"], "name": name, **result})
+                yield AgentEvent("tool_result", {"id": call["id"], "name": name, "quiet": quiet, **result})
                 convo.append({"role": "tool", "tool_call_id": call["id"],
                               "content": result["output"] or result.get("error", "")})
         yield AgentEvent("error", {"reason": "max_iters exceeded"})

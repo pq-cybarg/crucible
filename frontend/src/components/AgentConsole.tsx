@@ -32,9 +32,19 @@ export type Turn =
       readonly args: Readonly<Record<string, unknown>>;
       readonly status: "running" | "ok" | "fail";
       readonly output: string;
-    };
+    }
+  // housekeeping (memory) ops collapsed into ONE rolling summary chip, not one turn per call
+  | { readonly id: string; readonly kind: "memory"; readonly counts: Readonly<Record<string, number>> };
 
 const PERMS: readonly PermissionMode[] = ["allow", "ask", "deny"];
+const MEMORY_VERB: Readonly<Record<string, string>> = {
+  recall_memory: "recalled", crystallize_memory: "crystallized", recrystallize_memory: "recrystallized",
+  consolidate_memory: "consolidated", link_memory: "linked", prioritize_memory: "prioritized",
+};
+function memorySummary(counts: Readonly<Record<string, number>>): string {
+  const parts = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${MEMORY_VERB[k] ?? k} ${n}`);
+  return parts.length > 0 ? parts.join(" · ") : "no changes";
+}
 
 export function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => string): readonly Turn[] {
   switch (event.type) {
@@ -65,12 +75,25 @@ export function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => 
         ...turns,
         { id: event.data.id, kind: "permission", name: event.data.name, args: event.data.args },
       ];
-    case "tool_call":
+    case "tool_call": {
+      if (event.data.quiet === true) {          // memory upkeep → fold into a single rolling summary turn
+        const name = event.data.name;
+        const last = turns[turns.length - 1];
+        if (last !== undefined && last.kind === "memory") {
+          return turns.map((t) =>
+            t.id === last.id && t.kind === "memory"
+              ? { ...t, counts: { ...t.counts, [name]: (t.counts[name] ?? 0) + 1 } }
+              : t);
+        }
+        return [...turns, { id: nextId(), kind: "memory", counts: { [name]: 1 } }];
+      }
       return [
         ...turns,
         { id: event.data.id, kind: "tool", name: event.data.name, args: event.data.args, status: "running", output: "" },
       ];
+    }
     case "tool_result":
+      if (event.data.quiet === true) return turns;   // already tallied on the tool_call
       return turns.map((turn) =>
         turn.kind === "tool" && turn.id === event.data.id
           ? {
@@ -379,7 +402,7 @@ export default function AgentConsole(): JSX.Element {
               transition={{ duration: 0.22 }}
               className={
                 turn.kind === "tool" ? "toolcard" : turn.kind === "permission" ? "permcard"
-                  : turn.kind === "notice" ? "notice" : `msg ${turn.kind}`
+                  : turn.kind === "notice" ? "notice" : turn.kind === "memory" ? "memcard" : `msg ${turn.kind}`
               }
             >
               {turn.kind === "permission" ? (
@@ -410,6 +433,8 @@ export default function AgentConsole(): JSX.Element {
                 </>
               ) : turn.kind === "notice" ? (
                 turn.text
+              ) : turn.kind === "memory" ? (
+                <span className="mem-summary">🧠 memory · {memorySummary(turn.counts)}</span>
               ) : (
                 <>
                   <div className="who">{turn.kind === "user" ? "operator" : "model"}</div>

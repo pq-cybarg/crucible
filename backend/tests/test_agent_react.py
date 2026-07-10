@@ -11,6 +11,49 @@ def reg(tmp_path):
     return r
 
 
+class _FakeRecall:
+    name = "recall_memory"
+    description = "fake memory tool"
+    parameters = {"type": "object", "properties": {"query": {"type": "string"}}, "required": []}
+    calls = 0
+
+    def __init__(self, root=None):
+        pass
+
+    def run(self, query: str = ""):
+        from crucible.tools.base import ToolResult
+        _FakeRecall.calls += 1
+        return ToolResult(ok=True, output="recalled")
+
+
+def reg_mem(tmp_path):
+    r = reg(tmp_path)
+    _FakeRecall.calls = 0
+    r.register(_FakeRecall())
+    return r
+
+
+def test_memory_tools_are_quiet_and_deduped(tmp_path):
+    # a model stuck repeating the SAME memory op forever: it's tagged quiet (UI aggregates) and only
+    # RUNS once — the duplicate is loop-guarded so it can't spin, and the model gets a nudge to move on.
+    model = scripted(['Action: recall_memory\nAction Input: {"query": "x"}'] * 8)
+    events = list(react_run(model, reg_mem(tmp_path), [{"role": "user", "content": "hi"}],
+                            PermissionPolicy(default="allow"), AuditLog(tmp_path / "a.jsonl")))
+    tool_calls = [e for e in events if e.type == "tool_call"]
+    assert tool_calls and all(e.data.get("quiet") is True for e in tool_calls)   # aggregatable
+    assert _FakeRecall.calls == 1                                               # duplicate never re-ran
+    assert any("already performed" in (e.data.get("output") or "")
+               for e in events if e.type == "tool_result")
+
+
+def test_memory_budget_caps_runaway_upkeep(tmp_path):
+    from crucible.agent import MEMORY_BUDGET
+    model = scripted([f'Action: recall_memory\nAction Input: {{"query": "q{i}"}}' for i in range(8)])
+    list(react_run(model, reg_mem(tmp_path), [{"role": "user", "content": "hi"}],
+                   PermissionPolicy(default="allow"), AuditLog(tmp_path / "a.jsonl")))
+    assert _FakeRecall.calls == MEMORY_BUDGET       # stops organizing memory after the per-turn budget
+
+
 def test_preamble_lists_tools(tmp_path):
     p = react_preamble(reg(tmp_path).schemas())
     assert "Action:" in p and "Final Answer:" in p

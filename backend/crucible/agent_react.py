@@ -9,7 +9,7 @@ import json
 import re
 from typing import Iterator
 
-from crucible.agent import AgentEvent
+from crucible.agent import AgentEvent, MEMORY_BUDGET, MEMORY_TOOLS
 from crucible.audit import AuditLog
 from crucible.permissions import PermissionPolicy
 from crucible.tools.base import ToolRegistry
@@ -218,9 +218,30 @@ def _execute(tools: ToolRegistry, audit: AuditLog, name: str, args: dict) -> dic
     return res
 
 
-def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
+def _memory_guard(name: str, args: dict, state: dict) -> tuple[bool, str | None]:
+    """For housekeeping (memory) tools: flag them `quiet` (UI aggregates them) and loop-guard them — skip
+    an exact repeat, and cap the per-turn budget — so a weak model can't spin on recall/consolidate
+    forever. Returns (quiet, guard_message_or_None). `state` carries {runs, seen} across the turn."""
+    if name not in MEMORY_TOOLS:
+        return False, None
+    sig = name + "|" + json.dumps(args, sort_keys=True)
+    state["seen"][sig] = state["seen"].get(sig, 0) + 1
+    if state["seen"][sig] > 1:
+        return True, "already performed this exact memory operation — do not repeat it; continue the task."
+    if state["runs"] >= MEMORY_BUDGET:
+        return True, "memory-maintenance budget reached for this turn — stop organizing memory and answer the user."
+    state["runs"] += 1
+    return True, None
+
+
+def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args, quiet=False, guard=None):
     """Authorize + run a tool, yielding a permission_request (when mode='ask' and an approver
-    exists) then the tool_result. Returns the observation string (via generator return)."""
+    exists) then the tool_result. Returns the observation string (via generator return). `quiet` tags
+    housekeeping tools so the UI aggregates them; `guard` short-circuits a loop-guarded memory call."""
+    if guard is not None:                             # loop guard: don't run, nudge the model onward
+        yield AgentEvent("tool_result", {"id": call_id, "name": name, "quiet": quiet,
+                                         "ok": True, "output": guard})
+        return truncate_observation(guard)
     valid = [t.name for t in tools.all()]
     name = coerce_tool_name(name, valid)              # snap hallucinated names to the nearest real one
     if name not in valid:
@@ -228,7 +249,8 @@ def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
         # something that can't run — feed a helpful observation so the model self-corrects.
         obs = (f"no such tool '{name}'. Available tools: {', '.join(valid)}. If you don't need a "
                "tool, reply with 'Final Answer: <your reply>'.")
-        yield AgentEvent("tool_result", {"id": call_id, "name": name, "ok": False, "output": "", "error": obs})
+        yield AgentEvent("tool_result", {"id": call_id, "name": name, "quiet": quiet,
+                                         "ok": False, "output": "", "error": obs})
         return obs
     mode = permissions.mode_for(name)
     if mode == "deny":
@@ -244,7 +266,7 @@ def _dispatch_tool(tools, permissions, audit, approver, call_id, name, args):
                 result = {"ok": False, "output": "", "error": "rejected by operator"}
     else:  # allow
         result = _execute(tools, audit, name, args)
-    yield AgentEvent("tool_result", {"id": call_id, "name": name, **result})
+    yield AgentEvent("tool_result", {"id": call_id, "name": name, "quiet": quiet, **result})
     # truncate before it re-enters the conversation so a huge output can't overflow the context
     return truncate_observation(result.get("output") or result.get("error", ""))
 
@@ -261,6 +283,7 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
     streamer = getattr(model, "stream", None)
     use_stream = callable(streamer)
     rid = 0
+    mem = {"runs": 0, "seen": {}}                     # loop-guard state for housekeeping (memory) tools
     for _ in range(max_iters):
         streamed = False
         try:
@@ -286,9 +309,10 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
             for call in calls:
                 name = call["function"]["name"]
                 args = json.loads(call["function"].get("arguments") or "{}")
-                yield AgentEvent("tool_call", {"id": call["id"], "name": name, "args": args})
+                quiet, guard = _memory_guard(name, args, mem)
+                yield AgentEvent("tool_call", {"id": call["id"], "name": name, "args": args, "quiet": quiet})
                 obs = yield from _dispatch_tool(tools, permissions, audit, approver,
-                                                call["id"], name, args)
+                                                call["id"], name, args, quiet, guard)
                 convo.append({"role": "tool", "tool_call_id": call["id"], "content": obs})
             continue
         step = parse_react(text)
@@ -298,8 +322,9 @@ def hybrid_run(model, tools: ToolRegistry, messages: list[dict],
             rid += 1
             cid = f"react-{rid}"
             name, args = step["tool"], step["input"]
-            yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args})
-            obs = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args)
+            quiet, guard = _memory_guard(name, args, mem)
+            yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args, "quiet": quiet})
+            obs = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args, quiet, guard)
             convo.append({"role": "user", "content": f"Observation: {obs}"})
             continue
         if streamed or text:                             # --- final (clean text replaces raw) ---
@@ -347,6 +372,7 @@ def react_run(model, tools: ToolRegistry, messages: list[dict],
     """Run a ReAct tool loop against a plain chat model (no native function-calling)."""
     convo = [{"role": "system", "content": react_preamble(tools.schemas())}, *messages]
     step_id = 0
+    mem = {"runs": 0, "seen": {}}                     # loop-guard state for housekeeping (memory) tools
     for _ in range(max_iters):
         try:
             msg = model(convo, [])               # plain chat, no tools param
@@ -363,8 +389,9 @@ def react_run(model, tools: ToolRegistry, messages: list[dict],
         step_id += 1
         cid = f"react-{step_id}"
         name, args = step["tool"], step["input"]
-        yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args})
-        observation = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args)
+        quiet, guard = _memory_guard(name, args, mem)
+        yield AgentEvent("tool_call", {"id": cid, "name": name, "args": args, "quiet": quiet})
+        observation = yield from _dispatch_tool(tools, permissions, audit, approver, cid, name, args, quiet, guard)
         convo.append({"role": "assistant", "content": text})
         convo.append({"role": "user", "content": f"Observation: {observation}"})
     yield AgentEvent("error", {"reason": "max_iters exceeded"})

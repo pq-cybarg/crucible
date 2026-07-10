@@ -128,8 +128,8 @@ export type AgentEvent =
   | { readonly type: "assistant"; readonly data: { readonly content: string; readonly streamed?: boolean } }
   | { readonly type: "assistant_delta"; readonly data: { readonly delta: string } }
   | { readonly type: "permission_request"; readonly data: { readonly id: string; readonly name: string; readonly args: Readonly<Record<string, unknown>> } }
-  | { readonly type: "tool_call"; readonly data: { readonly id: string; readonly name: string; readonly args: Readonly<Record<string, unknown>> } }
-  | { readonly type: "tool_result"; readonly data: { readonly id: string; readonly name: string; readonly ok: boolean; readonly output: string; readonly error: string | null } }
+  | { readonly type: "tool_call"; readonly data: { readonly id: string; readonly name: string; readonly args: Readonly<Record<string, unknown>>; readonly quiet?: boolean } }
+  | { readonly type: "tool_result"; readonly data: { readonly id: string; readonly name: string; readonly ok: boolean; readonly output: string; readonly error: string | null; readonly quiet?: boolean } }
   | { readonly type: "done"; readonly data: { readonly content: string } }
   | { readonly type: "error"; readonly data: { readonly reason: string } };
 
