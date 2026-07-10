@@ -16,9 +16,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
-# canonical part slots, back-to-front z-order for sprite compositing
+# canonical part slots, back-to-front z-order for sprite compositing. `eyelash` sits ABOVE `pupils` so the
+# lid/lash OCCLUDES the iris (which is itself clipped to the `eyes` sclera) — a glance can't spill over it.
 PARTS = ("background", "body", "clothes_back", "skin", "face", "blush", "brows", "eyes", "pupils",
-         "mouth", "hair", "clothes_front", "accessory")
+         "eyelash", "mouth", "hair", "clothes_front", "accessory")
 MODEL_KINDS = ("sprites", "vrm", "live2d")
 
 # Parts that follow the GAZE axis (a small geometric pupil/eye offset). Pupils move if a dedicated pupils
@@ -42,6 +43,8 @@ class Layer:
     pos: tuple = (0, 0)                         # top-left placement of a (small) part sprite on the canvas
     mirror: bool = False                        # also draw the mirror image — for symmetric PAIRS (eyes/ears)
     spacing: int = 0                            # gap between the mirrored pair — the eye-distance / sync knob
+    clip: str = ""                              # OCCLUSION: mask this layer to another PART's shape (e.g. the
+    #                                             iris clipped to the eyes' sclera so a glance can't spill out)
 
     def order(self) -> int:
         return self.z if self.z else (PARTS.index(self.part) if self.part in PARTS else 50)
@@ -168,6 +171,8 @@ def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False
             ov["eyes"] = "closed"
             if avatar.part_layer("pupils"):
                 ov["pupils"] = "off"
+            if avatar.part_layer("eyelash"):
+                ov["eyelash"] = "closed"      # the lid comes down on a blink
         elif face and "blink" in face.states:
             ov["face"] = "blink"
     if talk:
@@ -187,37 +192,58 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
     `gaze` = (dx, dy) in [-1,1] shifts the look-direction — a dedicated `pupils` layer if present, else the
     whole `eyes` layer — by a few pixels, so the companion can glance around INDEPENDENTLY of its
     expression (mixable: a happy face looking left). Both eyes move the same way, staying in sync."""
-    from PIL import Image
+    from PIL import Image, ImageChops, ImageOps
 
     w, h = box or avatar.size
     canvas = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
-    from PIL import ImageOps
     gdx, gdy = _gaze_offset(avatar, gaze)
     # Gaze moves ONE layer: prefer a dedicated pupils part, else fall back to shifting the eyes part.
     gaze_part = "pupils" if avatar.part_layer("pupils") else "eyes"
-    for item in avatar.compose(expression, overrides):
+    items = avatar.compose(expression, overrides)
+
+    def paint(item):
+        """Render one item's sprite(s) onto a FRESH full-canvas layer, honouring mirror pairs / placement /
+        gaze — so it can be individually masked (clipped) before it merges down."""
         val = item["value"]
         if not val:
-            continue
+            return None
         try:
             sprite = Image.open(val).convert("RGBA")
         except (FileNotFoundError, OSError):
-            continue
+            return None
         layer = avatar.layer(item["id"])
-        ox, oy = (gdx, gdy) if (layer and layer.part == gaze_part) else (0, 0)   # gaze shift
+        ox, oy = (gdx, gdy) if (layer and layer.part == gaze_part) else (0, 0)
+        lc = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
         if layer and layer.mirror:
-            # a symmetric PAIR (eyes/ears): place the sprite left of centre and its mirror right of it,
-            # separated by `spacing` — the eye-distance knob that keeps the pair in sync.
             cx = avatar.size[0] // 2
             y = int(layer.pos[1]) + oy
-            canvas.alpha_composite(sprite, (cx - layer.spacing // 2 - sprite.width + ox, y))
-            canvas.alpha_composite(ImageOps.mirror(sprite), (cx + layer.spacing // 2 + ox, y))
+            lc.alpha_composite(sprite, (cx - layer.spacing // 2 - sprite.width + ox, y))
+            lc.alpha_composite(ImageOps.mirror(sprite), (cx + layer.spacing // 2 + ox, y))
         elif layer and tuple(layer.pos) != (0, 0):
-            canvas.alpha_composite(sprite, (int(layer.pos[0]) + ox, int(layer.pos[1]) + oy))  # placed part
+            lc.alpha_composite(sprite, (int(layer.pos[0]) + ox, int(layer.pos[1]) + oy))
         else:
-            if sprite.size != avatar.size:                    # a full-canvas part sprite (drawn in place)
+            if sprite.size != avatar.size:
                 sprite = sprite.resize(avatar.size, Image.NEAREST)
-            canvas.alpha_composite(sprite, (ox, oy))
+            lc.alpha_composite(sprite, (ox, oy))
+        return lc
+
+    painted = {item["id"]: paint(item) for item in items}
+    # clip masks: any part referenced as a clip target → its painted alpha (the shape to mask against)
+    clip_parts = {avatar.layer(it["id"]).clip for it in items
+                  if avatar.layer(it["id"]) and avatar.layer(it["id"]).clip}
+    masks = {avatar.layer(it["id"]).part: painted[it["id"]].split()[-1]
+             for it in items
+             if avatar.layer(it["id"]) and avatar.layer(it["id"]).part in clip_parts and painted[it["id"]]}
+
+    for item in items:
+        lc = painted[item["id"]]
+        if lc is None:
+            continue
+        layer = avatar.layer(item["id"])
+        clip = layer.clip if layer else ""
+        if clip and clip in masks:                        # OCCLUDE: keep this layer only where the target is
+            lc.putalpha(ImageChops.multiply(lc.split()[-1], masks[clip]))
+        canvas.alpha_composite(lc)
     if (w, h) != avatar.size:
         canvas = canvas.resize((w, h), Image.NEAREST)     # crisp downscale for the small TUI box
     return canvas

@@ -77,35 +77,40 @@ def _dark(c: tuple, f: float = 0.68) -> tuple:
     return (int(c[0] * f), int(c[1] * f), int(c[2] * f), 255)
 
 
-# Hand-authored pixel anime eye WHITE (big, round, thick rounded lash) — one eye, mirrored into a PAIR so
-# the eye-DISTANCE is the `spacing` knob. 'K' lash/outline, '.' sclera, 'l' soft top-lid shade.
-_EYE_OPEN = [
+# The eye is authored as THREE layers so the iris can be OCCLUDED correctly (a glance can't spill over the
+# lash or outside the white):
+#   • SCLERA (part 'eyes')  — the white + a thin round outline. It's the clip mask for the iris.
+#   • IRIS   (part 'pupils')— the big sparkly iris; clip='eyes' keeps it inside the white; gaze moves it.
+#   • LASH   (part 'eyelash')— the thick upper lid, drawn ABOVE the iris so it covers the top of it.
+# 'K' outline, '.' white; iris: 'a' light rim, 'b' iris, 'p' iris-dark, 'K' pupil core, '*' highlight.
+_SCLERA_OPEN = [
     "   KKKKKK   ",
-    "  KKKKKKKK  ",
-    " KKKKKKKKKK ",
-    "KKl......lKK",
+    "  K......K  ",
+    " K........K ",
+    "K..........K",
+    "K..........K",
+    "K..........K",
+    " K........K ",
+    "  K......K  ",
+    "   KKKKKK   ",
+]
+_SCLERA_WIDE = [
+    "   KKKKKK   ",
+    "  K......K  ",
+    " K........K ",
     "K..........K",
     "K..........K",
     "K..........K",
     "K..........K",
     " K........K ",
     "  K......K  ",
+    "   KKKKKK   ",
 ]
-_EYE_WIDE = [
+_LASH_OPEN = [
     "   KKKKKK   ",
     "  KKKKKKKK  ",
     " KKKKKKKKKK ",
-    "KKl......lKK",
-    "K..........K",
-    "K..........K",
-    "K..........K",
-    "K..........K",
-    "K..........K",
-    " K........K ",
-    "  K......K  ",
 ]
-# the BIG sparkly iris (its own layer → gaze moves it): 'a' light rim, 'b' iris, 'p' iris-dark, 'K' pupil
-# core, '*' highlight. A large iris + a big shine is what makes anime eyes read as cute.
 _IRIS = [
     "  aaaaa  ",
     " aabbbaa ",
@@ -119,14 +124,21 @@ _IRIS = [
 
 
 def _eye_pal(p: Palette) -> dict:
-    return {"K": p.line, ".": (255, 253, 250, 255), "l": (236, 222, 224, 255),
+    return {"K": p.line, ".": (255, 253, 250, 255),
             "a": p.iris_hi, "b": p.iris, "p": _dark(p.iris), "*": (255, 255, 255, 255)}
 
 
-def _eye_sprite(p: Palette, state: str):
-    if state == "closed":                                   # a gentle downward lash (happy closed eye)
+def _sclera_sprite(p: Palette, state: str):
+    from PIL import Image
+    if state == "closed":                                   # shut → no white (the lash draws the closed line)
+        return Image.new("RGBA", (EYE_W, 2), (0, 0, 0, 0))
+    return _grid(_SCLERA_WIDE if state == "wide" else _SCLERA_OPEN, _eye_pal(p))
+
+
+def _lash_sprite(p: Palette, state: str):
+    if state == "closed":                                   # a gentle downward lash — the happy closed eye
         return _draw(lambda dr: dr.arc([0, 0, EYE_W - 1, 12], 198, 342, fill=p.line, width=3))
-    return _grid(_EYE_WIDE if state == "wide" else _EYE_OPEN, _eye_pal(p))
+    return _grid(_LASH_OPEN, _eye_pal(p))
 
 
 def _iris_sprite(p: Palette):
@@ -134,12 +146,13 @@ def _iris_sprite(p: Palette):
 
 
 def _skin(p: Palette):
+    # Drawn back-to-front so the round chin overlaps the neck (no hard seam): collar, neck, then head.
     def d(dr):
-        dr.polygon([(18, 78), (24, 66), (40, 66), (46, 78)], fill=p.cloth, outline=p.line)  # shoulders
-        dr.rectangle([27, 60, 37, 68], fill=p.skin, outline=p.line)          # neck
-        dr.ellipse([9, 6, 55, 64], fill=p.skin, outline=p.line, width=2)     # round chibi head
-        dr.line([(30, 47), (32, 50)], fill=(200, 154, 136, 255))             # tiny nose
-        dr.line([(32, 50), (34, 47)], fill=(200, 154, 136, 255))
+        nose = (232, 186, 168, 255)                                          # soft, barely-there nose tint
+        dr.polygon([(14, 78), (22, 69), (42, 69), (50, 78)], fill=p.cloth, outline=p.line)  # soft collar
+        dr.rectangle([29, 57, 35, 70], fill=p.skin)                          # slim neck, no hard outline
+        dr.ellipse([9, 8, 55, 66], fill=p.skin, outline=p.line, width=2)     # round chibi head + soft chin
+        dr.ellipse([31, 48, 33, 50], fill=nose)                              # tiny cute button nose (a dot)
     return _draw(d)
 
 
@@ -212,17 +225,23 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
     a = Avatar(name=name, kind="sprites", size=(W, H), meta={"style": style, "hairstyle": hairstyle})
     a.add_layer(Layer(id="skin", part="skin", states={"base": save(_skin(p), "skin.png")}, default_state="base"))
     a.add_layer(Layer(id="blush", part="blush", states={"on": save(_blush(p), "blush.png")}, default_state=""))
-    # eyes: a mirror PAIR separated by `spacing` (the eye-distance knob), placed at EYE_Y
+    # eyes = the SCLERA (white): a mirror PAIR separated by `spacing` (the eye-distance knob). Doubles as
+    # the clip mask for the iris.
     a.add_layer(Layer(id="eyes", part="eyes", default_state="open", mirror=True, spacing=spacing,
                       pos=(0, EYE_Y), states={
-                          s: save(_eye_sprite(p, s), f"eyes_{s}.png") for s in ("open", "closed", "wide")}))
-    # iris: its own mirror pair, spaced to sit centred inside each eye; gaze shifts this layer
+                          s: save(_sclera_sprite(p, s), f"eyes_{s}.png") for s in ("open", "closed", "wide")}))
+    # pupils = the iris: its own mirror pair, CLIPPED to the eyes' sclera so a glance can't spill out; gaze
+    # shifts this layer.
     pupil_spacing = spacing + (EYE_W - IRIS_W)
     from PIL import Image as _Img
     a.add_layer(Layer(id="pupils", part="pupils", default_state="on", mirror=True, spacing=pupil_spacing,
-                      pos=(0, EYE_Y + 3), states={
+                      pos=(0, EYE_Y + 1), clip="eyes", states={
                           "on": save(_iris_sprite(p), "iris.png"),
                           "off": save(_Img.new("RGBA", (IRIS_W, 8), (0, 0, 0, 0)), "iris_off.png")}))
+    # eyelash = the upper lid, drawn ABOVE the iris so it OCCLUDES the top of it (proper lidded look)
+    a.add_layer(Layer(id="eyelash", part="eyelash", default_state="open", mirror=True, spacing=spacing,
+                      pos=(0, EYE_Y), states={
+                          s: save(_lash_sprite(p, s), f"lash_{s}.png") for s in ("open", "closed")}))
     a.add_layer(Layer(id="mouth", part="mouth", default_state="closed", states={
         s: save(_mouth(p, s), f"mouth_{s}.png") for s in ("closed", "smile", "open", "frown")}))
     # hair: all styles kept as STATES so the user/agent can swap hairstyle by re-picking the default state
@@ -230,8 +249,9 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
         h: save(_hair(p, h), f"hair_{h}.png") for h in HAIRSTYLES}))
 
     for expr, (eyes, mouth, blush) in _EXPR.items():
+        shut = eyes == "closed"
         mapping = {"eyes": eyes, "mouth": mouth, "blush": "on" if blush else "",
-                   "pupils": "off" if eyes == "closed" else "on"}
+                   "pupils": "off" if shut else "on", "eyelash": "closed" if shut else "open"}
         a.set_expression(expr, mapping)
     a.save(os.path.join(out_dir, "avatar.json"))
     return a

@@ -151,6 +151,19 @@ class Client:
         httpx.patch(f"{self.base}/api/agent-sessions/{sid}", json={"messages": messages}, timeout=10)
 
 
+# memory tool name → past-tense verb, for the single aggregated upkeep summary line
+_MEMORY_VERB = {"recall_memory": "recalled", "crystallize_memory": "crystallized",
+                "recrystallize_memory": "recrystallized", "consolidate_memory": "consolidated",
+                "link_memory": "linked", "prioritize_memory": "prioritized"}
+
+
+def _memory_summary(counts: dict) -> str:
+    """Turn a {tool: count} tally of memory upkeep into one high-level phrase, e.g. 'recalled 3 ·
+    consolidated 2 · crystallized 1' — so the user sees WHAT happened, not 25 individual notifications."""
+    parts = [f"{_MEMORY_VERB.get(name, name)} {n}" for name, n in counts.items() if n]
+    return " · ".join(parts) if parts else "no changes"
+
+
 class FaceWidget(Static):
     """The avatar face box: a low-res, low-fps pixel-art face in the sidebar that blinks and shifts
     expression in real time — so you see the companion react while you code, decoupled from replies."""
@@ -209,6 +222,8 @@ class FaceWidget(Static):
                 ov["eyes"] = "closed"
                 if a.part_layer("pupils"):
                     ov["pupils"] = "off"       # hide the irises behind the shut lids
+                if a.part_layer("eyelash"):
+                    ov["eyelash"] = "closed"
             elif face and "blink" in face.states:
                 ov["face"] = "blink"
         if self.talking:                       # flap open/closed while replying
@@ -623,6 +638,7 @@ class CrucibleTUI(App):
         log = self.query_one("#context", RichLog)
         run_id = f"{sid}-{int(time.monotonic() * 1000)}"
         acc = ""
+        mem: dict[str, int] = {}      # memory (housekeeping) ops → aggregated into ONE summary line
         self.call_from_thread(self._emote, {"curious": 0.7, "neutral": 0.3}, False)   # thinking… (a hint of focus)
         try:
             with httpx.stream("POST", f"{self.control}/api/agent-sessions/{sid}/run",
@@ -645,9 +661,14 @@ class CrucibleTUI(App):
                     elif t in ("assistant", "done") and ev["data"].get("content"):
                         acc = str(ev["data"]["content"])
                     elif t == "tool_call":
-                        self.call_from_thread(self._emote, "surprised", False)
-                        self.call_from_thread(log.write, f"[yellow]→ {ev['data'].get('name')}[/yellow] {json.dumps(ev['data'].get('args'))[:80]}")
+                        if ev["data"].get("quiet"):        # memory housekeeping — tally, don't flood the log
+                            mem[str(ev["data"].get("name"))] = mem.get(str(ev["data"].get("name")), 0) + 1
+                        else:
+                            self.call_from_thread(self._emote, "surprised", False)
+                            self.call_from_thread(log.write, f"[yellow]→ {ev['data'].get('name')}[/yellow] {json.dumps(ev['data'].get('args'))[:80]}")
                     elif t == "tool_result":
+                        if ev["data"].get("quiet"):        # aggregated below — no per-op line/emote
+                            continue
                         ok = bool(ev["data"].get("ok"))
                         self.call_from_thread(self._emote, "curious" if ok else "sad", False)
                         self.call_from_thread(log.write, f"  {'✓' if ok else '✗'} {str(ev['data'].get('output') or ev['data'].get('error') or '')[:120]}")
@@ -661,6 +682,8 @@ class CrucibleTUI(App):
         except httpx.HTTPError as e:
             self.call_from_thread(self._emote, "sad", False)
             self.call_from_thread(log.write, f"[red]{e}[/red]")
+        if mem:                                                   # one high-level summary of memory upkeep
+            self.call_from_thread(log.write, f"[dim]🧠 memory · {_memory_summary(mem)}[/dim]")
         if acc:
             self.call_from_thread(log.write, f"[green]assistant[/green] {acc}")
         self.call_from_thread(self._emote, "happy", False)        # done — settle to a pleased idle

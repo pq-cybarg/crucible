@@ -279,6 +279,30 @@ def test_tui_hair_is_stable_when_eyes_animate(tmp_path):
     assert op[:4] == blink[:4] == wide[:4]
 
 
+def test_iris_is_occluded_within_the_eye(tmp_path):
+    import numpy as np
+    from crucible.avatar_gen import generate_avatar
+    from crucible.avatar import render_sprites
+
+    a = generate_avatar("k", str(tmp_path))
+    assert a.part_layer("pupils").clip == "eyes"          # iris is masked to the sclera
+    assert a.part_layer("eyelash") is not None            # lid layer sits above the iris
+
+    def iris_cols_rows(av, gaze):
+        arr = np.asarray(render_sprites(av, "neutral", gaze=gaze).convert("RGBA"))
+        # the iris blue: blue channel dominant, opaque
+        m = (arr[..., 2] > 120) & (arr[..., 2] > arr[..., 0] + 30) & (arr[..., 3] > 0)
+        ys = np.where(m.any(axis=1))[0]
+        return (ys.min(), ys.max()) if len(ys) else (None, None)
+
+    top_center, _ = iris_cols_rows(a, (0.0, 0.0))
+    top_up, _ = iris_cols_rows(a, (0.0, -1.0))             # look UP as hard as possible (the reported bug)
+    # looking up may raise the iris a little, but it stays CLIPPED — it can't climb far above its resting
+    # top (which would put it over the lash/eyebrow); the clip+lid hold it inside the eye.
+    assert top_up is not None and top_center is not None
+    assert top_center - top_up <= 2                        # bounded — no runaway over the lash
+
+
 def test_generate_avatar_customization(tmp_path):
     import numpy as np
     from crucible.avatar_gen import generate_avatar, HAIRSTYLES, PALETTES

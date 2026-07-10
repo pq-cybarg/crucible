@@ -1124,3 +1124,5 @@ label.pipe-comp input { margin-right: 4px; }
 .avatar-slider em { color: var(--amber); font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
 .avatar-slider input, .avatar-gaze input { accent-color: var(--amber); }
 .avatar-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ash); font-size: 28px; }
+.memcard { align-self: flex-start; background: rgba(255,255,255,0.03); border: 1px solid var(--steel-700); border-radius: 8px; padding: 5px 12px; }
+.mem-summary { color: var(--ash); font-size: 12px; }
