@@ -227,10 +227,12 @@ class FaceWidget(Static):
                 ov["eyelash"] = "closed"       # lid comes down (also for imported-portrait rigs)
             elif not a.part_layer("eyes") and face and "blink" in face.states:
                 ov["face"] = "blink"
-        if self.talking:                       # flap open/closed while replying
+        if self.talking:                       # flap the lips while replying (subtle: talk↔closed)
             open_frame = self._t % 2 == 0
-            if a.part_layer("mouth"):
-                ov["mouth"] = "open" if open_frame else "closed"
+            m = a.part_layer("mouth")
+            if m:
+                flap = "talk" if "talk" in m.states else "open"
+                ov["mouth"] = flap if open_frame else ("closed" if "closed" in m.states else "neutral")
             elif face and "talk" in face.states and open_frame:
                 ov["face"] = "talk"
         return ov or None

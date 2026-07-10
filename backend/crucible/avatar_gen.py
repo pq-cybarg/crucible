@@ -598,22 +598,32 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
                         ecp[x, y] = (*skin, 255)
         ImageDraw.Draw(eyes_closed).arc([cx - rr, cy, cx + rr, cy + rr + 3], 204, 336, fill=dark, width=1)
 
-    # mouth: neutral = the supplied mouth part; the others are drawn (small shapes) at the same spot
+    # mouth: the supplied 'mouth' part is only a COLOUR swatch (a brown block) → use it for POSITION only,
+    # and DRAW proper lips. A dedicated moderate 'talk' state makes the lip-flap subtle (closed↔talk),
+    # not the awful closed↔brown-rectangle it was.
     ma = np.asarray(mouth.split()[-1])
     mys, mxs = np.where(ma > 60)
     mcx, mcy = (int(mxs.mean()), int(mys.mean())) if len(mxs) else (native // 2, nh * 72 // 100)
+    mw = max(4, native // 30)
+    DK, INN, LO = (74, 40, 36, 255), (96, 52, 48, 255), (190, 122, 110, 255)
 
     def mouth_sprite(state):
-        if state == "neutral":
-            return mouth
         im = Image.new("RGBA", (native, nh), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        if state == "smile":
-            d.arc([mcx - 6, mcy - 3, mcx + 6, mcy + 4], 25, 155, fill=dark, width=2)
-        elif state == "open":
-            d.ellipse([mcx - 4, mcy - 3, mcx + 4, mcy + 5], fill=(120, 72, 70, 255), outline=dark)
+        x, y = mcx, mcy
+        if state in ("neutral", "closed"):                  # subtle closed lips + a hint of lower lip
+            d.line([(x - mw, y), (x + mw, y)], fill=DK, width=1)
+            d.line([(x - mw + 1, y + 1), (x + mw - 1, y + 1)], fill=(*LO[:3], 150), width=1)
+        elif state == "talk":                               # small open — the lip-flap frame
+            d.ellipse([x - mw + 1, y - 1, x + mw - 1, y + mw], fill=INN, outline=DK)
+            d.chord([x - mw + 2, y + 1, x + mw - 2, y + mw], 0, 180, fill=LO)
+        elif state == "open":                               # wider open (surprised)
+            d.ellipse([x - mw, y - 2, x + mw, y + mw + 2], fill=INN, outline=DK)
+            d.chord([x - mw + 1, y + 2, x + mw - 1, y + mw + 2], 0, 180, fill=LO)
+        elif state == "smile":
+            d.arc([x - mw - 1, y - mw + 1, x + mw + 1, y + 3], 20, 160, fill=DK, width=2)
         elif state == "frown":
-            d.arc([mcx - 6, mcy + 2, mcx + 6, mcy + 9], 205, 335, fill=dark, width=2)
+            d.arc([x - mw - 1, y + 2, x + mw + 1, y + mw + 3], 200, 340, fill=DK, width=2)
         return im
 
     fb = [max(0, lens[0][0] - native // 4), max(0, min(l[1] for l in lens) - nh // 4),
@@ -626,8 +636,8 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
                       states={"open": save(eyes, "eyes_open.png"), "closed": save(eyes_closed, "eyes_closed.png")}))
     a.add_layer(Layer(id="bangs", part="hair", protected=True, z=6,
                       states={"base": save(bangs, "bangs.png")}, default_state="base"))
-    a.add_layer(Layer(id="mouth", part="mouth", z=7, default_state="neutral",
-                      states={s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "smile", "open", "frown")}))
+    a.add_layer(Layer(id="mouth", part="mouth", z=7, default_state="neutral", states={
+        s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "closed", "talk", "smile", "open", "frown")}))
     a.add_layer(Layer(id="body", part="clothes_front", protected=True, z=9,
                       states={"base": save(body, "body.png")}, default_state="base"))
     if headphones is not None:                                       # over the hair, at the ears

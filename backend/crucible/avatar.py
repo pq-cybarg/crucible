@@ -177,8 +177,9 @@ def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False
         elif not avatar.part_layer("eyes") and face and "blink" in face.states:
             ov["face"] = "blink"
     if talk:
-        if avatar.part_layer("mouth"):
-            ov["mouth"] = "open"
+        m = avatar.part_layer("mouth")
+        if m:
+            ov["mouth"] = "talk" if "talk" in m.states else "open"
         elif face and "talk" in face.states:
             ov["face"] = "talk"
     return ov
