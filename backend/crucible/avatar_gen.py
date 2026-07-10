@@ -21,27 +21,30 @@ IRIS_W = 9
 
 @dataclass
 class Palette:
-    skin: tuple = (253, 229, 214, 255)
-    hair: tuple = (78, 52, 62, 255)
-    hair_hi: tuple = (128, 94, 108, 255)
-    iris: tuple = (74, 150, 214, 255)              # bright anime iris (mid)
-    iris_hi: tuple = (164, 214, 247, 255)          # iris light rim
-    line: tuple = (58, 40, 44, 255)                # stark dark outline (also the pupil core)
-    cloth: tuple = (74, 100, 156, 255)
-    blush: tuple = (247, 162, 162, 235)
-    mouth: tuple = (182, 90, 94, 255)
+    # Default = the reference look: warm tan skin, a near-black BOB, brown eyes behind ROUND GLASSES,
+    # a black ribbed sweater, thin brows, calm expression.
+    skin: tuple = (236, 206, 174, 255)
+    hair: tuple = (42, 34, 38, 255)                # near-black bob
+    hair_hi: tuple = (84, 70, 76, 255)
+    iris: tuple = (126, 90, 64, 255)               # warm brown iris
+    iris_hi: tuple = (182, 140, 104, 255)
+    line: tuple = (36, 28, 30, 255)                # near-black outline / pupil core
+    cloth: tuple = (34, 32, 40, 255)               # black sweater
+    blush: tuple = (228, 172, 156, 90)             # very subtle
+    mouth: tuple = (176, 118, 108, 255)
+    glass: tuple = (28, 22, 24, 255)               # round-glasses frame
+    brow: tuple = (54, 44, 46, 255)
 
 
 # ART-STYLE presets (palette swaps) — pick the whole look; user/agent can tune further. Tunable proof.
 PALETTES: dict[str, Palette] = {
-    "sky":  Palette(),
-    "rose": Palette(hair=(150, 70, 96, 255), hair_hi=(196, 118, 142, 255), iris=(206, 92, 132, 255),
-                    iris_hi=(246, 168, 194, 255), cloth=(150, 84, 112, 255)),
-    "mint": Palette(hair=(66, 108, 92, 255), hair_hi=(120, 162, 142, 255), iris=(74, 178, 154, 255),
-                    iris_hi=(168, 228, 210, 255), cloth=(92, 132, 112, 255)),
-    "noir": Palette(skin=(240, 230, 226, 255), hair=(46, 42, 52, 255), hair_hi=(100, 96, 110, 255),
-                    iris=(150, 152, 172, 255), iris_hi=(212, 214, 228, 255),
-                    cloth=(64, 64, 76, 255), blush=(232, 172, 172, 220)),
+    "ink":   Palette(),                            # the reference (dark hair, brown eyes)
+    "ash":   Palette(hair=(70, 64, 74, 255), hair_hi=(120, 114, 126, 255),
+                     iris=(96, 132, 150, 255), iris_hi=(168, 200, 214, 255)),
+    "cocoa": Palette(hair=(74, 52, 44, 255), hair_hi=(126, 96, 80, 255),
+                     iris=(150, 96, 60, 255), iris_hi=(206, 156, 110, 255)),
+    "plum":  Palette(hair=(58, 44, 62, 255), hair_hi=(110, 88, 118, 255),
+                     iris=(140, 92, 140, 255), iris_hi=(200, 156, 200, 255)),
 }
 HAIRSTYLES = ("bangs", "short", "long")
 
@@ -145,53 +148,82 @@ def _iris_sprite(p: Palette):
     return _grid(_IRIS, _eye_pal(p))
 
 
+def _eye_centres(spacing: int) -> tuple:
+    """Where the two eyes (and thus the glasses lenses) sit, derived from the mirror-pair spacing."""
+    cx = W // 2
+    return (cx - spacing // 2 - EYE_W // 2, cx + spacing // 2 + EYE_W // 2, EYE_Y + 4)
+
+
 def _skin(p: Palette):
-    # Drawn back-to-front so the round chin overlaps the neck (no hard seam): collar, neck, then head.
+    # Back-to-front so the round chin overlaps the neck (no seam): sweater + ribbed collar, neck, then head.
     def d(dr):
-        nose = (232, 186, 168, 255)                                          # soft, barely-there nose tint
-        dr.polygon([(14, 78), (22, 69), (42, 69), (50, 78)], fill=p.cloth, outline=p.line)  # soft collar
-        dr.rectangle([29, 57, 35, 70], fill=p.skin)                          # slim neck, no hard outline
-        dr.ellipse([9, 8, 55, 66], fill=p.skin, outline=p.line, width=2)     # round chibi head + soft chin
-        dr.ellipse([31, 48, 33, 50], fill=nose)                              # tiny cute button nose (a dot)
+        nose = (216, 176, 150, 255)
+        dr.polygon([(10, 78), (18, 68), (46, 68), (54, 78)], fill=p.cloth, outline=p.line)  # black sweater
+        for x in range(20, 45, 3):                                           # ribbed collar
+            dr.line([(x, 70), (x, 77)], fill=(54, 52, 62, 255))
+        dr.rectangle([29, 58, 35, 70], fill=p.skin)                          # slim neck
+        dr.ellipse([9, 8, 55, 66], fill=p.skin, outline=p.line, width=2)     # warm tan head
+        dr.ellipse([31, 49, 33, 51], fill=nose)                              # tiny nose dot
+    return _draw(d)
+
+
+def _brows(p: Palette):
+    def d(dr):
+        dr.line([(20, 27), (28, 26)], fill=p.brow, width=2)
+        dr.line([(36, 26), (44, 27)], fill=p.brow, width=2)
+    return _draw(d)
+
+
+def _glasses(p: Palette, spacing: int):
+    # ROUND glasses (the reference's signature): a thin frame ring on each eye, a bridge, and short temples.
+    lcx, rcx, cy = _eye_centres(spacing)
+    r = 8
+
+    def d(dr):
+        for ccx in (lcx, rcx):
+            dr.ellipse([ccx - r, cy - r, ccx + r, cy + r], outline=p.glass, width=2)
+        dr.line([(lcx + r - 1, cy - 2), (rcx - r + 1, cy - 2)], fill=p.glass, width=2)      # bridge
+        dr.line([(lcx - r, cy - 2), (lcx - r - 5, cy - 4)], fill=p.glass, width=2)          # temples
+        dr.line([(rcx + r, cy - 2), (rcx + r + 5, cy - 4)], fill=p.glass, width=2)
     return _draw(d)
 
 
 def _mouth(p: Palette, state: str):
+    # calm/subtle by default (the reference is deadpan); still shifts for the emotive expressions
     def d(dr):
         if state == "open":
-            dr.ellipse([29, 54, 35, 61], fill=p.mouth, outline=p.line)
-            dr.chord([30, 58, 34, 61], 0, 180, fill=(214, 128, 128, 255))
+            dr.ellipse([29, 54, 35, 61], fill=(150, 92, 84, 255), outline=p.line)
         elif state == "smile":
-            dr.chord([27, 52, 37, 60], 20, 160, fill=p.mouth, outline=p.line)
+            dr.arc([28, 52, 36, 59], 20, 160, fill=p.line, width=2)
         elif state == "frown":
-            dr.arc([27, 57, 37, 66], 194, 346, fill=p.line, width=2)
+            dr.arc([28, 57, 36, 64], 200, 340, fill=p.line, width=2)
         else:
-            dr.line([29, 55, 35, 55], fill=p.line, width=2)
+            dr.line([30, 55, 34, 55], fill=p.line, width=2)
     return _draw(d)
 
 
 def _blush(p: Palette):
     def d(dr):
-        dr.ellipse([14, 44, 23, 49], fill=p.blush)
-        dr.ellipse([41, 44, 50, 49], fill=p.blush)
+        dr.ellipse([14, 44, 22, 48], fill=p.blush)
+        dr.ellipse([42, 44, 50, 48], fill=p.blush)
     return _draw(d)
 
 
 def _hair(p: Palette, style: str):
-    # a rounded scalp + a SMOOTH fill-only fringe (no dark outline notches) that clears the eyes, framed by
-    # side locks. `style` swaps the silhouette (short crop / long side locks).
+    # a near-black BOB: a rounded scalp + a straight fringe that stops at BROW level (so the eyes + glasses
+    # show below it) + side locks that frame the cheeks WITHOUT covering the eyes. `style` varies the lock
+    # length (short crop → chin-length → longer).
     def d(dr):
-        dr.pieslice([7, 3, 57, 53], 180, 360, fill=p.hair, outline=p.line, width=1)   # scalp dome
-        if style == "short":
-            dr.polygon([(11, 15), (11, 27), (22, 23), (32, 27), (42, 23), (53, 27), (53, 15)], fill=p.hair)
-        else:                                                # soft bangs (fill only → notches show forehead)
-            dr.polygon([(11, 15), (11, 29), (20, 25), (26, 30), (32, 24), (38, 30), (44, 25), (53, 29),
-                        (53, 15)], fill=p.hair)
-            top = 70 if style == "long" else 58
-            dr.polygon([(9, 24), (7, top), (19, top - 6), (17, 29)], fill=p.hair, outline=p.line)
-            dr.polygon([(55, 24), (57, top), (45, top - 6), (47, 29)], fill=p.hair, outline=p.line)
-        dr.line([(26, 19), (23, 31)], fill=p.hair_hi, width=2)              # shine strands
-        dr.line([(38, 19), (41, 31)], fill=p.hair_hi, width=2)
+        dr.pieslice([6, 3, 58, 48], 180, 360, fill=p.hair)                   # scalp — top half only (to ~y25)
+        # straight fringe with a soft centre part; bottom edge ~y26 = brow level, clearing the eyes at y31
+        dr.polygon([(6, 12), (6, 26), (16, 23), (22, 27), (28, 22), (32, 26), (36, 22), (42, 27),
+                    (48, 23), (58, 26), (58, 12)], fill=p.hair)
+        lock = 46 if style == "short" else (68 if style == "long" else 60)   # chin-length bob by default
+        # side locks: inner edge kept OUTSIDE the eyes (x≈14 / x≈50) so they only frame the cheeks
+        dr.polygon([(6, 18), (3, lock), (16, lock), (15, 30), (10, 22)], fill=p.hair, outline=p.line)
+        dr.polygon([(58, 18), (61, lock), (48, lock), (49, 30), (54, 22)], fill=p.hair, outline=p.line)
+        for sx in (18, 30, 40):                                             # subtle strand highlights
+            dr.line([(sx, 8), (sx - 2, 22)], fill=p.hair_hi, width=1)
     return _draw(d)
 
 
@@ -208,13 +240,13 @@ _EXPR = {
 }
 
 
-def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 6,
+def generate_avatar(name: str, out_dir: str, style: str = "ink", spacing: int = 6,
                     hairstyle: str = "bangs", palette: Palette | None = None) -> Avatar:
     """Author the pixel-art part sprites into out_dir and assemble an editable, MODULAR rig. Customization
     is first-class: `style` picks a colour palette (art style), `spacing` sets the eye distance, `hairstyle`
     picks the default hair — and every part stays swappable/tunable by the agent/user afterwards (the eyes
     are a mirror PAIR so `spacing` moves them apart; the iris is its own layer so gaze moves it)."""
-    p = palette or PALETTES.get(style, PALETTES["sky"])
+    p = palette or PALETTES.get(style, PALETTES["ink"])
     os.makedirs(out_dir, exist_ok=True)
 
     def save(img, fn) -> str:
@@ -225,6 +257,7 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
     a = Avatar(name=name, kind="sprites", size=(W, H), meta={"style": style, "hairstyle": hairstyle})
     a.add_layer(Layer(id="skin", part="skin", states={"base": save(_skin(p), "skin.png")}, default_state="base"))
     a.add_layer(Layer(id="blush", part="blush", states={"on": save(_blush(p), "blush.png")}, default_state=""))
+    a.add_layer(Layer(id="brows", part="brows", states={"base": save(_brows(p), "brows.png")}, default_state="base"))
     # eyes = the SCLERA (white): a mirror PAIR separated by `spacing` (the eye-distance knob). Doubles as
     # the clip mask for the iris.
     a.add_layer(Layer(id="eyes", part="eyes", default_state="open", mirror=True, spacing=spacing,
@@ -242,6 +275,10 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
     a.add_layer(Layer(id="eyelash", part="eyelash", default_state="open", mirror=True, spacing=spacing,
                       pos=(0, EYE_Y), states={
                           s: save(_lash_sprite(p, s), f"lash_{s}.png") for s in ("open", "closed")}))
+    # round glasses (the reference's signature), aligned to the eye spacing, over the eyes but under the hair
+    a.add_layer(Layer(id="glasses", part="glasses",
+                      states={"on": save(_glasses(p, spacing), "glasses.png"), "off": ""},
+                      default_state="on"))
     a.add_layer(Layer(id="mouth", part="mouth", default_state="closed", states={
         s: save(_mouth(p, s), f"mouth_{s}.png") for s in ("closed", "smile", "open", "frown")}))
     # hair: all styles kept as STATES so the user/agent can swap hairstyle by re-picking the default state
@@ -253,6 +290,121 @@ def generate_avatar(name: str, out_dir: str, style: str = "sky", spacing: int = 
         mapping = {"eyes": eyes, "mouth": mouth, "blush": "on" if blush else "",
                    "pupils": "off" if shut else "on", "eyelash": "closed" if shut else "open"}
         a.set_expression(expr, mapping)
+    a.save(os.path.join(out_dir, "avatar.json"))
+    return a
+
+
+# Feature geometry measured for template_face.webp at 128px: the round-glasses BOX (both lenses), the two
+# LENS centres, and the small MOUTH box. Other imports can pass their own.
+TEMPLATE_GLASSES_BOX = (43, 50, 95, 76)
+TEMPLATE_LENS = [(56, 63), (81, 63)]
+TEMPLATE_MOUTH = (60, 82, 68, 87)
+
+
+def rig_portrait(image_path: str, out_dir: str, name: str = "kiri", native: int = 128,
+                 lens: list | None = None, glasses_box: tuple | None = None, mouth_box: tuple | None = None):
+    """DECONSTRUCT a hand-drawn portrait (e.g. template_face.webp) into real, separable part LAYERS and rig
+    them — so it looks EXACTLY like the reference AND animates, with no overlay hacks:
+
+      • face  — the portrait with the MOUTH genuinely removed (its pixels filled with the local skin), so
+                the mouth layer isn't imprinting a patch over an existing mouth. PROTECTED (custom import).
+      • eyes  — the whole glasses region is LIFTED OUT as its own layer. `open` shows the base's eyes; the
+                `closed` state redraws the eye interiors as lids with the FRAME kept on top, so a blink sits
+                BEHIND the glasses, never over them.
+      • mouth — a small drawn mouth shape only (neutral/smile/open/frown); the face already has clean skin
+                where the original mouth was, so there's nothing to imprint.
+
+    A light posterize flattens the busy hair + raises contrast (also helps the TUI). `lens`/`glasses_box`/
+    `mouth_box` locate the features at `native` px (defaults are measured for the bundled template)."""
+    from PIL import Image, ImageDraw, ImageEnhance
+    import statistics
+    os.makedirs(out_dir, exist_ok=True)
+    gx0, gy0, gx1, gy1 = glasses_box or TEMPLATE_GLASSES_BOX
+    mx0, my0, mx1, my1 = mouth_box or TEMPLATE_MOUTH
+    mcx, mcy = (mx0 + mx1) // 2, (my0 + my1) // 2
+
+    base = Image.open(image_path).convert("RGB").resize((native, native), Image.LANCZOS)
+    # STRONG simplify + contrast → a clean, stylised pixel look: the busy hair flattens to a bold mass, the
+    # features pop, and it reads far better shrunk into the TUI box.
+    base = ImageEnhance.Contrast(base).enhance(1.35).quantize(colors=14, dither=Image.NONE).convert("RGBA")
+
+    def save(img, fn) -> str:
+        path = os.path.join(out_dir, fn)
+        img.save(path)
+        return path
+
+    def lum(x, y) -> float:
+        r, g, b = base.getpixel((max(0, min(native - 1, x)), max(0, min(native - 1, y))))[:3]
+        return 0.3 * r + 0.6 * g + 0.1 * b
+
+    # DETECT each eye's centre (centroid of the dark iris/eyeliner inside its lens) so the lids land on the
+    # ACTUAL eyes — per eye, so an uneven hand-drawn pair stays symmetric. Overridable via `lens`.
+    def detect(x0, x1, y0, y1) -> tuple:
+        xs = ys = n = 0
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                if lum(x, y) < 105:
+                    xs += x; ys += y; n += 1
+        return (xs // n, ys // n) if n else ((x0 + x1) // 2, (y0 + y1) // 2)
+    cxm = (gx0 + gx1) // 2
+    lens = lens or [detect(gx0 + 5, cxm - 3, gy0 + 5, gy1 - 4), detect(cxm + 3, gx1 - 5, gy0 + 5, gy1 - 4)]
+
+    # ONE robust skin tone (median rejects shadows/hair) for BOTH eyelids — so the closed eyes are symmetric
+    skin_pts = [(46, 76), (50, 80), (54, 82), (74, 82), (78, 80), (82, 76), (64, 90), (60, 86), (68, 86)]
+    cols = [base.getpixel((max(0, min(native - 1, x)), max(0, min(native - 1, y))))[:3] for x, y in skin_pts]
+    skin = tuple(int(statistics.median(c[i] for c in cols)) for i in range(3))
+    dark = (56, 40, 42, 255)
+
+    # a tiny catchlight so the eyes aren't dead (the posterize can drop the original reflection)
+    bd = ImageDraw.Draw(base)
+    for (cx, cy) in lens:
+        bd.point([(cx - 2, cy - 1)], fill=(250, 248, 244, 255))
+
+    # EYES layer: lift the whole glasses region as a swappable layer. `open` is transparent (the base's own
+    # eyes show). The `closed` state KEEPS the eye MAKEUP (the dark eyeliner) and fills only the light
+    # EYEBALL (white+iris) with skin — so a blink shuts the eye without erasing her look, and the frame
+    # (outside the eye) is untouched, so the lids stay BEHIND the glasses.
+    eyes_closed = Image.new("RGBA", (native, native), (0, 0, 0, 0))
+    eyes_closed.paste(base.crop((gx0, gy0, gx1, gy1)), (gx0, gy0))
+    ecpx = eyes_closed.load()
+    for (cx, cy) in lens:
+        for y in range(cy - 6, cy + 9):
+            for x in range(cx - 9, cx + 10):
+                r, g, b, aa = eyes_closed.getpixel((x, y))
+                if aa and (0.3 * r + 0.6 * g + 0.1 * b) > 82:               # eyeball → skin; eyeliner kept
+                    ecpx[x, y] = (*skin, 255)
+        ImageDraw.Draw(eyes_closed).arc([cx - 7, cy + 1, cx + 7, cy + 8], 204, 336, fill=dark, width=1)  # lower lash
+
+    # MOUTH: genuinely erase the drawn mouth from the FACE (fill the mouth pixels with the chin skin tone).
+    # The mouth layer then supplies just the shape — no patch imprinted over an existing mouth.
+    ImageDraw.Draw(base).rectangle([mx0, my0, mx1, my1], fill=(*skin, 255))
+
+    def mouth_sprite(state: str):
+        im = Image.new("RGBA", (native, native), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)                                              # ONLY the mouth shape, no skin
+        if state == "neutral":
+            d.line([(mcx - 3, mcy), (mcx + 3, mcy)], fill=dark, width=1)
+        elif state == "smile":
+            d.arc([mcx - 4, mcy - 2, mcx + 4, mcy + 3], 25, 155, fill=dark, width=2)
+        elif state == "open":
+            d.ellipse([mcx - 3, mcy - 1, mcx + 3, mcy + 5], fill=(112, 66, 64, 255), outline=dark)
+        elif state == "frown":
+            d.arc([mcx - 4, mcy + 2, mcx + 4, mcy + 8], 205, 335, fill=dark, width=2)
+        return im
+
+    a = Avatar(name=name, kind="sprites", size=(native, native),
+               meta={"imported_from": os.path.basename(image_path), "rigged": True})
+    a.add_layer(Layer(id="face", part="face", protected=True,
+                      states={"base": save(base, "base.png")}, default_state="base"))
+    a.add_layer(Layer(id="eyes", part="eyes", default_state="open",
+                      states={"open": "", "closed": save(eyes_closed, "eyes_closed.png")}))
+    a.add_layer(Layer(id="mouth", part="mouth", default_state="neutral", states={
+        s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "smile", "open", "frown")}))
+    expr = {"neutral": ("open", "neutral"), "happy": ("open", "smile"), "laughing": ("closed", "open"),
+            "surprised": ("open", "open"), "sad": ("open", "frown"), "angry": ("open", "frown"),
+            "love": ("closed", "smile"), "curious": ("open", "neutral")}
+    for e, (ey, m) in expr.items():
+        a.set_expression(e, {"eyes": ey, "mouth": m})
     a.save(os.path.join(out_dir, "avatar.json"))
     return a
 

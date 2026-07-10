@@ -19,7 +19,7 @@ from typing import Optional
 # canonical part slots, back-to-front z-order for sprite compositing. `eyelash` sits ABOVE `pupils` so the
 # lid/lash OCCLUDES the iris (which is itself clipped to the `eyes` sclera) — a glance can't spill over it.
 PARTS = ("background", "body", "clothes_back", "skin", "face", "blush", "brows", "eyes", "pupils",
-         "eyelash", "mouth", "hair", "clothes_front", "accessory")
+         "eyelash", "glasses", "mouth", "hair", "clothes_front", "accessory")
 MODEL_KINDS = ("sprites", "vrm", "live2d")
 
 # Parts that follow the GAZE axis (a small geometric pupil/eye offset). Pupils move if a dedicated pupils
@@ -166,14 +166,15 @@ def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False
     face and the web render so both animate a blink/lip-sync the same way."""
     ov: dict = {}
     face = avatar.part_layer("face")
+    lash = avatar.part_layer("eyelash")
     if blink:
         if avatar.part_layer("eyes"):
             ov["eyes"] = "closed"
             if avatar.part_layer("pupils"):
                 ov["pupils"] = "off"
-            if avatar.part_layer("eyelash"):
-                ov["eyelash"] = "closed"      # the lid comes down on a blink
-        elif face and "blink" in face.states:
+        if lash and "closed" in lash.states:  # a lid layer closes on blink (also for imported-portrait rigs
+            ov["eyelash"] = "closed"          # where the eyes live in the base 'face' image, not an 'eyes' part)
+        elif not avatar.part_layer("eyes") and face and "blink" in face.states:
             ov["face"] = "blink"
     if talk:
         if avatar.part_layer("mouth"):
@@ -197,8 +198,16 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
     w, h = box or avatar.size
     canvas = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
     gdx, gdy = _gaze_offset(avatar, gaze)
-    # Gaze moves ONE layer: prefer a dedicated pupils part, else fall back to shifting the eyes part.
-    gaze_part = "pupils" if avatar.part_layer("pupils") else "eyes"
+    # Gaze moves ONE layer: a dedicated `pupils` part, or a small mirror-PAIR `eyes` part. It must NOT
+    # shift a whole-region eyes layer (e.g. an imported portrait's lifted glasses+eyes crop) — that would
+    # drag the entire rectangle around. So only opt in when the layer is genuinely a movable eye part.
+    gaze_part = None
+    if avatar.part_layer("pupils"):
+        gaze_part = "pupils"
+    else:
+        _el = avatar.part_layer("eyes")
+        if _el is not None and _el.mirror:
+            gaze_part = "eyes"
     items = avatar.compose(expression, overrides)
 
     def paint(item):

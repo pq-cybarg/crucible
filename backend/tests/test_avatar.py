@@ -279,6 +279,34 @@ def test_tui_hair_is_stable_when_eyes_animate(tmp_path):
     assert op[:4] == blink[:4] == wide[:4]
 
 
+def test_rig_portrait_keeps_art_whole_and_animates(tmp_path):
+    import numpy as np
+    from PIL import Image
+    from crucible.avatar_gen import rig_portrait
+    from crucible.avatar import render_sprites, blink_talk_overrides
+
+    # a stand-in "portrait" (any image) → sliced-and-rigged
+    src = tmp_path / "portrait.png"
+    Image.new("RGB", (200, 200), (240, 205, 160)).save(str(src))
+    a = rig_portrait(str(src), str(tmp_path / "av"), native=128)
+
+    # DECONSTRUCTED into real part layers: a PROTECTED face + a swappable eyes layer + a mouth layer
+    assert a.part_layer("face").protected is True
+    assert {l.part for l in a.layers} == {"face", "eyes", "mouth"}
+    assert a.size == (128, 128)
+    assert a.part_layer("eyes").mirror is False               # a lifted region, NOT a small movable pair…
+
+    neutral = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    # …so gaze must NOT drag the eyes rectangle around (that was the "moves weirdly" bug)
+    assert np.array_equal(neutral, np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.5)).convert("RGBA")))
+    blinked = np.asarray(render_sprites(a, "neutral",
+                                        overrides=blink_talk_overrides(a, blink=True)).convert("RGBA"))
+    happy = np.asarray(render_sprites(a, "happy").convert("RGBA"))
+    assert not np.array_equal(neutral, blinked)               # the eyes close (eyes layer → closed)
+    assert not np.array_equal(neutral, happy)                 # the mouth changes
+    assert a.expressions["laughing"] == {"eyes": "closed", "mouth": "open"}
+
+
 def test_iris_is_occluded_within_the_eye(tmp_path):
     import numpy as np
     from crucible.avatar_gen import generate_avatar
@@ -308,9 +336,9 @@ def test_generate_avatar_customization(tmp_path):
     from crucible.avatar_gen import generate_avatar, HAIRSTYLES, PALETTES
     from crucible.avatar import render_sprites
     # ART STYLE: different palettes → visibly different pixels
-    sky = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "sky"), style="sky"), "neutral").convert("RGB"))
-    rose = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "rose"), style="rose"), "neutral").convert("RGB"))
-    assert not np.array_equal(sky, rose) and set(PALETTES) >= {"sky", "rose", "mint"}
+    ink = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "ink"), style="ink"), "neutral").convert("RGB"))
+    cocoa = np.asarray(render_sprites(generate_avatar("a", str(tmp_path / "cocoa"), style="cocoa"), "neutral").convert("RGB"))
+    assert not np.array_equal(ink, cocoa) and set(PALETTES) >= {"ink", "ash", "cocoa"}
     # HAIRSTYLE: kept as states, default follows the param — swappable
     a = generate_avatar("a", str(tmp_path / "hair"), hairstyle="long")
     hair = a.part_layer("hair")

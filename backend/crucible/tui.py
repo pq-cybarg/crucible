@@ -217,14 +217,15 @@ class FaceWidget(Static):
         a = self.avatar
         face = a.part_layer("face")
         ov = {}
-        if self._blink:                        # part-based eyes, or a whole-face 'blink' state
+        lash = a.part_layer("eyelash")
+        if self._blink:                        # part-based eyes, a lid overlay, or a whole-face 'blink'
             if a.part_layer("eyes"):
                 ov["eyes"] = "closed"
                 if a.part_layer("pupils"):
                     ov["pupils"] = "off"       # hide the irises behind the shut lids
-                if a.part_layer("eyelash"):
-                    ov["eyelash"] = "closed"
-            elif face and "blink" in face.states:
+            if lash and "closed" in lash.states:
+                ov["eyelash"] = "closed"       # lid comes down (also for imported-portrait rigs)
+            elif not a.part_layer("eyes") and face and "blink" in face.states:
                 ov["face"] = "blink"
         if self.talking:                       # flap open/closed while replying
             open_frame = self._t % 2 == 0
