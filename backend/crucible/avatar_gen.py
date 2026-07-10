@@ -454,6 +454,24 @@ def _detan(im):
     return _despeckle(Image.fromarray(np.dstack([a.astype("uint8"), np.where(m, 0, 255).astype("uint8")]), "RGBA"))
 
 
+def _dechecker_light(im, sq: int = 16):
+    """Checker removal for a LIGHT part (white headphones, grey chain) where the plain colour-match would
+    eat the part itself: only pixels that ALTERNATE (a checker colour whose ±sq neighbour is the OTHER
+    checker colour) are the background; a solid light region (a cup) has no alternating neighbour → kept."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(im.convert("RGB")).astype(int)
+    near = lambda c, t: np.abs(a - c).sum(2) < t
+    wm, gm = near((252, 252, 252), 58), near((190, 190, 190), 62)
+    roll = lambda m, dx, dy: np.roll(np.roll(m, dy, 0), dx, 1)
+    ga = roll(gm, sq, 0) | roll(gm, -sq, 0) | roll(gm, 0, sq) | roll(gm, 0, -sq)
+    wa = roll(wm, sq, 0) | roll(wm, -sq, 0) | roll(wm, 0, sq) | roll(wm, 0, -sq)
+    ch = (wm & ga) | (gm & wa)
+    for _ in range(2):                                       # grow into the adjacent checker-coloured fringe
+        ch = ch | ((roll(ch, 1, 0) | roll(ch, -1, 0) | roll(ch, 0, 1) | roll(ch, 0, -1)) & (wm | gm))
+    return _despeckle(Image.fromarray(np.dstack([a.astype("uint8"), np.where(ch, 0, 255).astype("uint8")]), "RGBA"))
+
+
 def _lift_shadows(im, black: int = 44, gain: float = 0.78):
     """Lift the blacks + gently compress → a brighter, minimal-shadow CEL look (BotW-ish) that also reads
     in the low-res TUI box. Alpha preserved."""
@@ -492,14 +510,19 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     os.makedirs(out_dir, exist_ok=True)
     P = {}
     for role, fn in files.items():
+        if role == "necklace":
+            continue                                        # supplied necklace reads as a stethoscope — drawn below
         path = os.path.join(parts_dir, fn)
         if os.path.exists(path):
             src = Image.open(path)
-            P[role] = _detan(src) if role == "eyes" else _dechecker(src)
+            if role == "eyes":
+                P[role] = _detan(src)
+            elif role == "headphones":                      # white cups: colour-match would erase them
+                P[role] = _dechecker_light(src)
+            else:
+                P[role] = _dechecker(src)
     if "head" not in P or "eyes" not in P:
         raise RuntimeError("need at least a head + eyes part")
-    if "necklace" in P:
-        P["necklace"] = _scale_about_centroid(P["necklace"], 0.78)   # the supplied necklace reads oversized
     W0 = next(iter(P.values())).width
 
     # robust union bounding box (columns/rows with real coverage — ignore stray fringe pixels)
@@ -522,8 +545,20 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     eyes = _lift_shadows(grp("eyes"))
     bangs = _lift_shadows(grp("bangs"))
     mouth = grp("mouth")
-    body = _lift_shadows(grp("sweater", "necklace"))
+    body = _lift_shadows(grp("sweater"))
     headphones = _lift_shadows(grp("headphones")) if "headphones" in P else None
+
+    # a SUBTLE necklace drawn at the sweater collar (thin chain + small pendant) — matches the reference,
+    # avoids the supplied part's stethoscope shape
+    import numpy as _np
+    srows = _np.where(_np.asarray(body.split()[-1]).sum(1) > 5)[0]
+    if len(srows):
+        collar, cx = int(srows[0]), native // 2
+        py = collar + max(3, nh // 20)
+        dn = ImageDraw.Draw(body)
+        dn.line([(cx - native // 11, collar + 1), (cx, py)], fill=(198, 198, 202, 255), width=1)
+        dn.line([(cx + native // 11, collar + 1), (cx, py)], fill=(198, 198, 202, 255), width=1)
+        dn.ellipse([cx - 2, py - 1, cx + 3, py + 4], fill=(182, 182, 188, 255), outline=(120, 120, 126, 255))
 
     def save(img, fn) -> str:
         path = os.path.join(out_dir, fn)
