@@ -418,6 +418,7 @@ PART_FILES = {
     "side": "side hair bob and back.jpg", "head": "blank head.jpg", "chin": "chin and neck.jpg",
     "eyes": "eyes+glasses overlaid on face with loops.jpg", "bangs": "bangs front.jpg",
     "mouth": "mouth.jpg", "sweater": "sweater.jpg", "necklace": "necklace.jpg",
+    "headphones": "headphones.jpg",
 }
 
 
@@ -462,6 +463,22 @@ def _lift_shadows(im, black: int = 44, gain: float = 0.78):
     return Image.merge("RGBA", (r.point(f), g.point(f), b.point(f), al))
 
 
+def _scale_about_centroid(im, s: float):
+    """Scale a part by `s` about its own centre of mass (keeps it aligned) — e.g. shrink an oversized
+    necklace without breaking the shared coordinate frame."""
+    import numpy as np
+    from PIL import Image
+    ys, xs = np.where(np.asarray(im.split()[-1]) > 60)
+    if not len(xs):
+        return im
+    cx, cy = int(xs.mean()), int(ys.mean())
+    w, h = im.size
+    sm = im.resize((max(1, int(w * s)), max(1, int(h * s))), Image.LANCZOS)
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.alpha_composite(sm, (cx - int(cx * s), cy - int(cy * s)))
+    return out
+
+
 def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: int = 200,
                      files: dict | None = None):
     """COMPOSE a companion from pre-separated, pre-aligned part sprites and rig it — the true modular
@@ -481,6 +498,8 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
             P[role] = _detan(src) if role == "eyes" else _dechecker(src)
     if "head" not in P or "eyes" not in P:
         raise RuntimeError("need at least a head + eyes part")
+    if "necklace" in P:
+        P["necklace"] = _scale_about_centroid(P["necklace"], 0.78)   # the supplied necklace reads oversized
     W0 = next(iter(P.values())).width
 
     # robust union bounding box (columns/rows with real coverage — ignore stray fringe pixels)
@@ -504,6 +523,7 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     bangs = _lift_shadows(grp("bangs"))
     mouth = grp("mouth")
     body = _lift_shadows(grp("sweater", "necklace"))
+    headphones = _lift_shadows(grp("headphones")) if "headphones" in P else None
 
     def save(img, fn) -> str:
         path = os.path.join(out_dir, fn)
@@ -575,6 +595,9 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
                       states={s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "smile", "open", "frown")}))
     a.add_layer(Layer(id="body", part="clothes_front", protected=True, z=9,
                       states={"base": save(body, "body.png")}, default_state="base"))
+    if headphones is not None:                                       # over the hair, at the ears
+        a.add_layer(Layer(id="headphones", part="accessory", protected=True, z=10,
+                          states={"base": save(headphones, "headphones.png")}, default_state="base"))
     expr = {"neutral": ("open", "neutral"), "happy": ("open", "smile"), "laughing": ("closed", "open"),
             "surprised": ("open", "open"), "sad": ("open", "frown"), "angry": ("open", "frown"),
             "love": ("closed", "smile"), "curious": ("open", "neutral")}
