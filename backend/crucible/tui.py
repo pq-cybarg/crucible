@@ -246,7 +246,7 @@ class FaceWidget(Static):
 
     def redraw(self) -> None:
         from rich.text import Text
-        from crucible.avatar import blend_expressions
+        from crucible.avatar import blend_expressions, face_view
         from crucible.pixelface import render_image
         try:
             a = self.avatar
@@ -257,6 +257,7 @@ class FaceWidget(Static):
                 from PIL import Image
                 prev = blend_expressions(a, self._tween_from, ov, gaze=g)
                 img = Image.blend(prev.convert("RGBA"), img.convert("RGBA"), self._tween)
+            img = face_view(a, img)                       # TUI zooms into the face (imported busts crop in)
             lines = render_image(img, cols=self._fit_cols(), duotone="terminal-sepia", palette_size=6,
                                  blocks="quad", dither=False)   # flat cel art: no dither (no checker/shimmer)
             self.update(Text.from_ansi("\n".join(lines)))

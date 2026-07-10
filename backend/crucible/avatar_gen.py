@@ -392,14 +392,189 @@ def rig_portrait(image_path: str, out_dir: str, name: str = "kiri", native: int 
             d.arc([mcx - 4, mcy + 2, mcx + 4, mcy + 8], 205, 335, fill=dark, width=2)
         return im
 
+    # face_box: what the tiny TUI box zooms into (the head/face — not the big dark sweater/hair bust, which
+    # shrinks to a dark blob). The web keeps the full portrait.
+    fb = (max(0, gx0 - 20), max(0, gy0 - 44), min(native, gx1 + 20), min(native, my1 + 22))
     a = Avatar(name=name, kind="sprites", size=(native, native),
-               meta={"imported_from": os.path.basename(image_path), "rigged": True})
+               meta={"imported_from": os.path.basename(image_path), "rigged": True, "face_box": list(fb)})
     a.add_layer(Layer(id="face", part="face", protected=True,
                       states={"base": save(base, "base.png")}, default_state="base"))
     a.add_layer(Layer(id="eyes", part="eyes", default_state="open",
                       states={"open": "", "closed": save(eyes_closed, "eyes_closed.png")}))
     a.add_layer(Layer(id="mouth", part="mouth", default_state="neutral", states={
         s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "smile", "open", "frown")}))
+    expr = {"neutral": ("open", "neutral"), "happy": ("open", "smile"), "laughing": ("closed", "open"),
+            "surprised": ("open", "open"), "sad": ("open", "frown"), "angry": ("open", "frown"),
+            "love": ("closed", "smile"), "curious": ("open", "neutral")}
+    for e, (ey, m) in expr.items():
+        a.set_expression(e, {"eyes": ey, "mouth": m})
+    a.save(os.path.join(out_dir, "avatar.json"))
+    return a
+
+
+# A character supplied as SEPARATE, pre-aligned part sprites (each on a painted checkerboard = transparency,
+# except the eyes+glasses which sit on the tan skin). role → filename.
+PART_FILES = {
+    "side": "side hair bob and back.jpg", "head": "blank head.jpg", "chin": "chin and neck.jpg",
+    "eyes": "eyes+glasses overlaid on face with loops.jpg", "bangs": "bangs front.jpg",
+    "mouth": "mouth.jpg", "sweater": "sweater.jpg", "necklace": "necklace.jpg",
+}
+
+
+def _despeckle(rgba):
+    """A 3×3 median on the alpha drops isolated leftover speckles (and fills pinholes) after bg removal."""
+    from PIL import Image, ImageFilter
+    r, g, b, al = rgba.split()
+    return Image.merge("RGBA", (r, g, b, al.filter(ImageFilter.MedianFilter(3))))
+
+
+def _dechecker(im):
+    """Remove a painted checkerboard 'transparency' background → real alpha (the two checker greys, plus a
+    light-grey JPEG-fringe catch-all), then despeckle."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(im.convert("RGB")).astype(int)
+    cor = a[:60, :60].reshape(-1, 3)
+    u, c = np.unique(cor, axis=0, return_counts=True)
+    m = np.zeros(a.shape[:2], bool)
+    for cc in u[np.argsort(-c)[:2]]:
+        m |= np.abs(a - cc).sum(2) < 70
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    m |= (np.abs(r - g) < 16) & (np.abs(g - b) < 16) & (np.minimum(np.minimum(r, g), b) > 172)
+    return _despeckle(Image.fromarray(np.dstack([a.astype("uint8"), np.where(m, 0, 255).astype("uint8")]), "RGBA"))
+
+
+def _detan(im):
+    """The eyes+glasses sit on the flat tan skin — knock that out so only the eyes/glasses/brows remain."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(im.convert("RGB")).astype(int)
+    m = np.abs(a - a[3, 3]).sum(2) < 44
+    return _despeckle(Image.fromarray(np.dstack([a.astype("uint8"), np.where(m, 0, 255).astype("uint8")]), "RGBA"))
+
+
+def _lift_shadows(im, black: int = 44, gain: float = 0.78):
+    """Lift the blacks + gently compress → a brighter, minimal-shadow CEL look (BotW-ish) that also reads
+    in the low-res TUI box. Alpha preserved."""
+    from PIL import Image
+    r, g, b, al = im.split()
+    f = [max(0, min(255, int(black + p * gain))) for p in range(256)]
+    return Image.merge("RGBA", (r.point(f), g.point(f), b.point(f), al))
+
+
+def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: int = 200,
+                     files: dict | None = None):
+    """COMPOSE a companion from pre-separated, pre-aligned part sprites and rig it — the true modular
+    deconstruction. Backgrounds are removed, parts are grouped by z-order into layers (hair+head+chin
+    behind → eyes → bangs → mouth → sweater+necklace), and the EYES and MOUTH stay as riggable layers:
+    a blink shuts the eyes (keeping the glasses/brows/eyeliner); the mouth swaps shape to emote. Looks
+    exactly like the source art, animates, and every part is genuinely separate."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    files = files or PART_FILES
+    os.makedirs(out_dir, exist_ok=True)
+    P = {}
+    for role, fn in files.items():
+        path = os.path.join(parts_dir, fn)
+        if os.path.exists(path):
+            src = Image.open(path)
+            P[role] = _detan(src) if role == "eyes" else _dechecker(src)
+    if "head" not in P or "eyes" not in P:
+        raise RuntimeError("need at least a head + eyes part")
+    W0 = next(iter(P.values())).width
+
+    # robust union bounding box (columns/rows with real coverage — ignore stray fringe pixels)
+    al = np.zeros((W0, W0), int)
+    for im in P.values():
+        al = np.maximum(al, np.asarray(im.split()[-1]))
+    op = al > 40
+    cols, rows = np.where(op.sum(0) > 8)[0], np.where(op.sum(1) > 8)[0]
+    bbox = (int(cols.min()), int(rows.min()), int(cols.max()) + 1, int(rows.max()) + 1)
+    nh = round(native * (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]))
+
+    def grp(*roles):
+        c = Image.new("RGBA", (W0, W0), (0, 0, 0, 0))
+        for r in roles:
+            if r in P:
+                c.alpha_composite(P[r])
+        return c.crop(bbox).resize((native, nh), Image.LANCZOS)
+
+    base = _lift_shadows(grp("side", "head", "chin"))
+    eyes = _lift_shadows(grp("eyes"))
+    bangs = _lift_shadows(grp("bangs"))
+    mouth = grp("mouth")
+    body = _lift_shadows(grp("sweater", "necklace"))
+
+    def save(img, fn) -> str:
+        path = os.path.join(out_dir, fn)
+        img.save(path)
+        return path
+
+    # a robust skin tone from the cheeks (for the closed-eye lids)
+    def px(im, x, y):
+        return im.convert("RGB").getpixel((max(0, min(native - 1, x)), max(0, min(native - 1, y))))
+    cheeks = [px(base, int(native * f), nh * 55 // 100) for f in (0.32, 0.68, 0.4, 0.6)]
+    import statistics
+    skin = tuple(int(statistics.median(c[i] for c in cheeks)) for i in range(3))
+    dark = (52, 38, 40, 255)
+
+    # detect each eye centre (dark iris centroid inside its lens) on the eyes sprite → symmetric lids
+    ea = np.asarray(eyes.convert("RGB")).astype(int)
+    lumf = 0.3 * ea[..., 0] + 0.6 * ea[..., 1] + 0.1 * ea[..., 2]
+    alpha = np.asarray(eyes.split()[-1])
+    def eye_centre(x0, x1):
+        m = (lumf < 110) & (alpha > 60)
+        m[:, :x0] = False; m[:, x1:] = False
+        ys, xs = np.where(m)
+        return (int(xs.mean()), int(ys.mean())) if len(xs) else ((x0 + x1) // 2, nh // 2)
+    mid = native // 2
+    lens = [eye_centre(mid - native // 3, mid), eye_centre(mid, mid + native // 3)]
+
+    # CLOSED eyes: fill the light eyeball with skin, KEEP the dark eyeliner/brows/glasses
+    eyes_closed = eyes.copy()
+    ecp = eyes_closed.load()
+    rr = max(6, native // 16)
+    for (cx, cy) in lens:
+        for y in range(cy - rr, cy + rr + 2):
+            for x in range(cx - rr - 2, cx + rr + 3):
+                if 0 <= x < native and 0 <= y < nh:
+                    r, g, b, aa = eyes_closed.getpixel((x, y))
+                    if aa and (0.3 * r + 0.6 * g + 0.1 * b) > 92:
+                        ecp[x, y] = (*skin, 255)
+        ImageDraw.Draw(eyes_closed).arc([cx - rr, cy, cx + rr, cy + rr + 3], 204, 336, fill=dark, width=1)
+
+    # mouth: neutral = the supplied mouth part; the others are drawn (small shapes) at the same spot
+    ma = np.asarray(mouth.split()[-1])
+    mys, mxs = np.where(ma > 60)
+    mcx, mcy = (int(mxs.mean()), int(mys.mean())) if len(mxs) else (native // 2, nh * 72 // 100)
+
+    def mouth_sprite(state):
+        if state == "neutral":
+            return mouth
+        im = Image.new("RGBA", (native, nh), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        if state == "smile":
+            d.arc([mcx - 6, mcy - 3, mcx + 6, mcy + 4], 25, 155, fill=dark, width=2)
+        elif state == "open":
+            d.ellipse([mcx - 4, mcy - 3, mcx + 4, mcy + 5], fill=(120, 72, 70, 255), outline=dark)
+        elif state == "frown":
+            d.arc([mcx - 6, mcy + 2, mcx + 6, mcy + 9], 205, 335, fill=dark, width=2)
+        return im
+
+    fb = [max(0, lens[0][0] - native // 4), max(0, min(l[1] for l in lens) - nh // 4),
+          min(native, lens[1][0] + native // 4), min(nh, mcy + nh // 5)]
+    a = Avatar(name=name, kind="sprites", size=(native, nh),
+               meta={"rigged": True, "from_parts": True, "face_box": fb})
+    a.add_layer(Layer(id="base", part="skin", protected=True, z=2,
+                      states={"base": save(base, "base.png")}, default_state="base"))
+    a.add_layer(Layer(id="eyes", part="eyes", z=5, default_state="open",
+                      states={"open": save(eyes, "eyes_open.png"), "closed": save(eyes_closed, "eyes_closed.png")}))
+    a.add_layer(Layer(id="bangs", part="hair", protected=True, z=6,
+                      states={"base": save(bangs, "bangs.png")}, default_state="base"))
+    a.add_layer(Layer(id="mouth", part="mouth", z=7, default_state="neutral",
+                      states={s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "smile", "open", "frown")}))
+    a.add_layer(Layer(id="body", part="clothes_front", protected=True, z=9,
+                      states={"base": save(body, "body.png")}, default_state="base"))
     expr = {"neutral": ("open", "neutral"), "happy": ("open", "smile"), "laughing": ("closed", "open"),
             "surprised": ("open", "open"), "sad": ("open", "frown"), "angry": ("open", "frown"),
             "love": ("closed", "smile"), "curious": ("open", "neutral")}

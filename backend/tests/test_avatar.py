@@ -279,6 +279,47 @@ def test_tui_hair_is_stable_when_eyes_animate(tmp_path):
     assert op[:4] == blink[:4] == wide[:4]
 
 
+def test_build_from_parts_composes_and_rigs(tmp_path):
+    import numpy as np
+    from PIL import Image, ImageDraw
+    from crucible.avatar_gen import build_from_parts, PART_FILES
+    from crucible.avatar import render_sprites, blink_talk_overrides
+
+    # synthesize the pre-separated parts: a painted checkerboard (transparency) + a shape per part; the
+    # eyes part sits on flat TAN (skin) with two dark irises.
+    pdir = tmp_path / "parts"
+    pdir.mkdir()
+
+    def checker(draw_fn):
+        im = Image.new("RGB", (256, 256))
+        px = im.load()
+        for y in range(256):
+            for x in range(256):
+                px[x, y] = (255, 255, 255) if (x // 8 + y // 8) % 2 == 0 else (204, 204, 204)
+        draw_fn(ImageDraw.Draw(im))
+        return im
+
+    checker(lambda d: d.ellipse([60, 40, 196, 200], fill=(240, 205, 165))).save(str(pdir / PART_FILES["head"]))
+    checker(lambda d: d.polygon([(70, 30), (128, 10), (186, 30), (186, 70), (70, 70)], fill=(40, 32, 34))).save(str(pdir / PART_FILES["bangs"]))
+    checker(lambda d: d.rectangle([70, 180, 186, 256], fill=(30, 30, 36))).save(str(pdir / PART_FILES["sweater"]))
+    tan = Image.new("RGB", (256, 256), (240, 205, 165))
+    dt = ImageDraw.Draw(tan)
+    dt.ellipse([96, 96, 116, 116], fill=(70, 45, 30)); dt.ellipse([140, 96, 160, 116], fill=(70, 45, 30))
+    tan.save(str(pdir / PART_FILES["eyes"]))
+    checker(lambda d: d.line([(124, 150), (132, 150)], fill=(120, 60, 60), width=3)).save(str(pdir / PART_FILES["mouth"]))
+
+    a = build_from_parts(str(pdir), str(tmp_path / "av"), native=160)
+    parts = {l.part for l in a.layers}
+    assert {"skin", "eyes", "hair", "mouth", "clothes_front"} <= parts   # z-ordered part layers
+    assert set(a.part_layer("eyes").states) == {"open", "closed"}
+    assert "face_box" in a.meta
+    # animates: blink shuts the eyes, and gaze does NOT drag the (non-mirror) eyes layer
+    neutral = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
+    blinked = np.asarray(render_sprites(a, "neutral", overrides=blink_talk_overrides(a, blink=True)).convert("RGBA"))
+    assert not np.array_equal(neutral, blinked)
+    assert np.array_equal(neutral, np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.5)).convert("RGBA")))
+
+
 def test_rig_portrait_keeps_art_whole_and_animates(tmp_path):
     import numpy as np
     from PIL import Image

@@ -294,6 +294,13 @@ def blend_expressions(avatar: Avatar, weights: dict, overrides: Optional[dict] =
     return acc
 
 
+def face_view(avatar: Avatar, img):
+    """Crop a composite to the avatar's `face_box` (meta) if set — the tiny TUI box wants the FACE, not a
+    whole bust (a big dark sweater/hair mass reads as a dark blob shrunk down). The web keeps the full art."""
+    box = avatar.meta.get("face_box")
+    return img.crop(tuple(box)) if box else img
+
+
 def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
                cols: int = 28, duotone: str = "terminal-sepia", palette_size: int = 6,
                blocks: str = "quad", gaze: Optional[tuple] = None) -> list[str]:
@@ -301,7 +308,7 @@ def render_tui(avatar: Avatar, expression: str = "neutral", overrides: Optional[
     Defaults to `quad` blocks — 2×2 pixels per character, DOUBLE the resolution in the same box width so
     key features stay recognizable. (VRM/Live2D kinds are driven by the web engines, not rasterized here.)"""
     from crucible.pixelface import render_image
-    img = render_sprites(avatar, expression, overrides, gaze=gaze)
+    img = face_view(avatar, render_sprites(avatar, expression, overrides, gaze=gaze))
     # dither OFF: the face is flat cel-shaded pixel art — error/ordered dither only adds a checker pattern
     # on the flat areas and shimmer as it animates; fixed posterization keeps colours frame-stable.
     return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks, dither=False)
@@ -312,5 +319,5 @@ def render_tui_blend(avatar: Avatar, weights: dict, overrides: Optional[dict] = 
                      blocks: str = "quad", gaze: Optional[tuple] = None) -> list[str]:
     """Like `render_tui` but for a WEIGHTED BLEND of expressions (blendshape-style) — mix moods live."""
     from crucible.pixelface import render_image
-    img = blend_expressions(avatar, weights, overrides, gaze=gaze)
+    img = face_view(avatar, blend_expressions(avatar, weights, overrides, gaze=gaze))
     return render_image(img, cols=cols, duotone=duotone, palette_size=palette_size, blocks=blocks, dither=False)
