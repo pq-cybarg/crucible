@@ -303,21 +303,27 @@ def test_build_from_parts_composes_and_rigs(tmp_path):
     checker(lambda d: d.polygon([(70, 30), (128, 10), (186, 30), (186, 70), (70, 70)], fill=(40, 32, 34))).save(str(pdir / PART_FILES["bangs"]))
     checker(lambda d: d.rectangle([70, 180, 186, 256], fill=(30, 30, 36))).save(str(pdir / PART_FILES["sweater"]))
     tan = Image.new("RGB", (256, 256), (240, 205, 165))
-    dt = ImageDraw.Draw(tan)
-    dt.ellipse([96, 96, 116, 116], fill=(70, 45, 30)); dt.ellipse([140, 96, 160, 116], fill=(70, 45, 30))
+    dt = ImageDraw.Draw(tan)                                 # each eye: a WHITE sclera with a dark iris in it
+    dt.ellipse([92, 92, 120, 120], fill=(245, 245, 245)); dt.ellipse([100, 98, 112, 114], fill=(60, 40, 30))
+    dt.ellipse([136, 92, 164, 120], fill=(245, 245, 245)); dt.ellipse([144, 98, 156, 114], fill=(60, 40, 30))
     tan.save(str(pdir / PART_FILES["eyes"]))
     checker(lambda d: d.line([(124, 150), (132, 150)], fill=(120, 60, 60), width=3)).save(str(pdir / PART_FILES["mouth"]))
 
     a = build_from_parts(str(pdir), str(tmp_path / "av"), native=160)
     parts = {l.part for l in a.layers}
-    assert {"skin", "eyes", "hair", "mouth", "clothes_front"} <= parts   # z-ordered part layers
+    assert {"skin", "eyes", "pupils", "hair", "mouth", "clothes_front"} <= parts   # z-ordered part layers
     assert set(a.part_layer("eyes").states) == {"open", "closed"}
-    assert "face_box" in a.meta
-    # animates: blink shuts the eyes, and gaze does NOT drag the (non-mirror) eyes layer
+    # the iris rides on its own gaze-movable 'pupils' layer, clipped to the eyes, hidden when shut
+    assert set(a.part_layer("pupils").states) == {"on", "off"}
+    assert a.part_layer("pupils").clip == "eyes"
+    assert a.meta.get("gaze_px", 0) >= 2 and "face_box" in a.meta
+    # animates: blink shuts the eyes, and a GLANCE now moves the irises (the fix — they used to be static)
     neutral = np.asarray(render_sprites(a, "neutral").convert("RGBA"))
     blinked = np.asarray(render_sprites(a, "neutral", overrides=blink_talk_overrides(a, blink=True)).convert("RGBA"))
     assert not np.array_equal(neutral, blinked)
-    assert np.array_equal(neutral, np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.5)).convert("RGBA")))
+    assert not np.array_equal(neutral, np.asarray(render_sprites(a, "neutral", gaze=(1.0, 0.5)).convert("RGBA")))
+    # blink hides the iris (pupils → off), so the shut face carries no floating pupil
+    assert a.expressions.get("laughing", {}).get("pupils") == "off"
 
 
 def test_rig_portrait_keeps_art_whole_and_animates(tmp_path):

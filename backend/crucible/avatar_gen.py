@@ -585,18 +585,70 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     mid = native // 2
     lens = [eye_centre(mid - native // 3, mid), eye_centre(mid, mid + native // 3)]
 
-    # CLOSED eyes: fill the light eyeball with skin, KEEP the dark eyeliner/brows/glasses
+    # CLOSED eyes: fill the eyeball opening with skin (KEEP eyeliner/brows/glasses), then draw a clean,
+    # CUTE happy closed-eye curve (^‿^) per eye — consistent + intentional, not a squinty half-lidded patch.
     eyes_closed = eyes.copy()
     ecp = eyes_closed.load()
-    rr = max(6, native // 16)
+    rr = max(8, native // 13)
     for (cx, cy) in lens:
         for y in range(cy - rr, cy + rr + 2):
             for x in range(cx - rr - 2, cx + rr + 3):
-                if 0 <= x < native and 0 <= y < nh:
+                if 0 <= x < native and 0 <= y < nh and (x - cx) ** 2 + ((y - cy) * 1.15) ** 2 <= rr * rr:
                     r, g, b, aa = eyes_closed.getpixel((x, y))
-                    if aa and (0.3 * r + 0.6 * g + 0.1 * b) > 92:
+                    if aa and (0.3 * r + 0.6 * g + 0.1 * b) > 52:         # eyeball (sclera/iris) → skin
                         ecp[x, y] = (*skin, 255)
-        ImageDraw.Draw(eyes_closed).arc([cx - rr, cy, cx + rr, cy + rr + 3], 204, 336, fill=dark, width=1)
+        ew = max(9, native // 15)
+        ImageDraw.Draw(eyes_closed).arc([cx - ew, cy - 3, cx + ew, cy + rr], 200, 340, fill=dark, width=3)
+
+    # PUPILS layer. This eye style is "dead-fish": a flat BROWN IRIS with eyeliner on top and almost no
+    # white sclera — so you can't lift the iris out and fill with white (that made a pale patch + a
+    # wandering dot, i.e. the eye's "style" changing every frame). Instead the gaze cue is the PUPIL +
+    # CATCHLIGHT shifting inside the brown iris. So: flatten each iris core to smooth brown in eyes_open
+    # (erasing the baked pupil/catchlight, keeping the dark eyeliner), and DRAW one clean, IDENTICAL
+    # pupil+catchlight per eye on the pupils layer that gaze can move a couple px. Symmetric → no drift.
+    # The eye must survive the TUI: at ~30-40 cols in a 6-level sepia palette, a dark brown iris + dark
+    # pupil + eyeliner all collapse to the darkest level → a solid black blob. So the flat iris is made a
+    # LIGHT warm tan (lands on a mid sepia, not black), with a DARK pupil and a GENEROUS bright catchlight
+    # — three tones that stay distinct when posterized small. High contrast + simplification, per the brief.
+    # Structure the eye like a proper anime eye so it reads at every size: a LIGHT sclera that stays put
+    # (eyes_open) + a BROWN IRIS unit (iris ring + dark pupil + bright catchlight) that GAZE moves inside
+    # it (pupils layer, clipped to the eye). The light sclera gives the TUI its contrast (it maps to the
+    # lightest sepia, the pupil to the darkest); the brown iris keeps the reference look at full size.
+    eyes_open = eyes.copy()
+    eop = eyes_open.load()
+    pupils = Image.new("RGBA", (native, nh), (0, 0, 0, 0))
+    pdraw = ImageDraw.Draw(pupils)
+    ir = max(5, native // 15)                                # iris sampling / sclera-fill radius
+    irad = max(3, native // 26)                             # brown iris radius
+    prad = max(2, native // 52)                             # dark pupil radius
+    for (cx, cy) in lens:
+        cols = []                                           # iris hue = median of the mid-tone iris band
+        for y in range(cy - ir, cy + ir + 1):
+            for x in range(cx - ir, cx + ir + 1):
+                if 0 <= x < native and 0 <= y < nh and (x - cx) ** 2 + ((y - cy) * 1.1) ** 2 <= ir * ir:
+                    r, g, b, aa = eyes.getpixel((x, y))
+                    lm = 0.3 * r + 0.6 * g + 0.1 * b
+                    if aa > 120 and 40 < lm < 175:          # brown iris (skip near-black liner + light corner)
+                        cols.append((r, g, b))
+        base_iris = tuple(int(statistics.median(c[i] for c in cols)) for i in range(3)) if cols else (120, 82, 66)
+        sclera = tuple(min(255, 210 + int(c * 0.3)) for c in base_iris)   # near-white warm sclera → lightest sepia
+        core = ir * 0.82
+        # HALF-LIDDED "dead-fish" archetype: the eye only OPENS below the lid line; above it is a heavy
+        # dark upper lid, so she reads sleepy/half-closed instead of wide-eyed.
+        lid_y = cy - core * 0.15
+        for y in range(cy - ir, cy + ir + 1):
+            for x in range(cx - ir, cx + ir + 1):
+                if 0 <= x < native and 0 <= y < nh and (x - cx) ** 2 + ((y - cy) * 1.1) ** 2 <= core * core:
+                    r, g, b, aa = eyes.getpixel((x, y))
+                    if aa > 120 and (0.3 * r + 0.6 * g + 0.1 * b) > 30:   # keep the dark eyeliner
+                        eop[x, y] = (*sclera, 255) if y >= lid_y else dark    # sclera below the lid, dark lid above
+        pupc = tuple(min(255, int(c * 0.5) + 22) for c in base_iris)     # SOFT dark-brown pupil that BLENDS
+        #                                                                  into the iris — not a hard black dot
+        icy = cy + max(1, irad // 2)                        # the iris sits LOW in the opening
+        pdraw.ellipse([cx - irad, icy - irad, cx + irad, icy + irad], fill=(*base_iris, 255))        # MATTE brown iris
+        pdraw.ellipse([cx - prad, icy - prad, cx + prad, icy + prad], fill=(*pupc, 255))             # dark pupil — NO catchlight (unreflective dead-fish eye)
+        pdraw.rectangle([cx - irad - 2, 0, cx + irad + 2, int(lid_y)], fill=(0, 0, 0, 0))            # cut the iris top flat under the lid
+    _blank = Image.new("RGBA", (native, nh), (0, 0, 0, 0))
 
     # mouth: the supplied 'mouth' part is only a COLOUR swatch (a brown block) → use it for POSITION only,
     # and DRAW proper lips. A dedicated moderate 'talk' state makes the lip-flap subtle (closed↔talk),
@@ -629,14 +681,19 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     fb = [max(0, lens[0][0] - native // 4), max(0, min(l[1] for l in lens) - nh // 4),
           min(native, lens[1][0] + native // 4), min(nh, mcy + nh // 5)]
     a = Avatar(name=name, kind="sprites", size=(native, nh),
-               meta={"rigged": True, "from_parts": True, "face_box": fb})
+               meta={"rigged": True, "from_parts": True, "face_box": fb,
+                     "gaze_px": max(2, native // 55)})    # how far the irises may travel inside the eye
     a.add_layer(Layer(id="base", part="skin", protected=True, z=2,
                       states={"base": save(base, "base.png")}, default_state="base"))
+    # eyes = the whites/eyeliner/glasses with the iris LIFTED OUT (eyes_open); the iris rides on its own
+    # 'pupils' layer above, clipped to the eyes so a glance moves it a couple px without spilling.
     a.add_layer(Layer(id="eyes", part="eyes", z=5, default_state="open",
-                      states={"open": save(eyes, "eyes_open.png"), "closed": save(eyes_closed, "eyes_closed.png")}))
-    a.add_layer(Layer(id="bangs", part="hair", protected=True, z=6,
+                      states={"open": save(eyes_open, "eyes_open.png"), "closed": save(eyes_closed, "eyes_closed.png")}))
+    a.add_layer(Layer(id="pupils", part="pupils", z=6, clip="eyes", default_state="on",
+                      states={"on": save(pupils, "pupils.png"), "off": save(_blank, "pupils_off.png")}))
+    a.add_layer(Layer(id="bangs", part="hair", protected=True, z=7,
                       states={"base": save(bangs, "bangs.png")}, default_state="base"))
-    a.add_layer(Layer(id="mouth", part="mouth", z=7, default_state="neutral", states={
+    a.add_layer(Layer(id="mouth", part="mouth", z=8, default_state="neutral", states={
         s: save(mouth_sprite(s), f"mouth_{s}.png") for s in ("neutral", "closed", "talk", "smile", "open", "frown")}))
     a.add_layer(Layer(id="body", part="clothes_front", protected=True, z=9,
                       states={"base": save(body, "body.png")}, default_state="base"))
@@ -646,8 +703,8 @@ def build_from_parts(parts_dir: str, out_dir: str, name: str = "kiri", native: i
     expr = {"neutral": ("open", "neutral"), "happy": ("open", "smile"), "laughing": ("closed", "open"),
             "surprised": ("open", "open"), "sad": ("open", "frown"), "angry": ("open", "frown"),
             "love": ("closed", "smile"), "curious": ("open", "neutral")}
-    for e, (ey, m) in expr.items():
-        a.set_expression(e, {"eyes": ey, "mouth": m})
+    for e, (ey, m) in expr.items():                          # iris hidden when the eyes are shut
+        a.set_expression(e, {"eyes": ey, "pupils": "off" if ey == "closed" else "on", "mouth": m})
     a.save(os.path.join(out_dir, "avatar.json"))
     return a
 

@@ -476,6 +476,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     companion = CompanionDriver()          # the live companion drive loop (mood → smoothed face frames)
     from crucible.memory import MemoryStore
     memory = MemoryStore(settings.data_dir / "memory")
+    from crucible.contextstore import ContextStore
+    contexts = ContextStore(settings.data_dir / "contexts")
     from crucible.hierarchy import ProfileStore
     hierarchy_store = ProfileStore(settings.data_dir / "hierarchy.json")
     from crucible.prefs import PreferencesStore
@@ -484,15 +486,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     agent_sessions = AgentSessionStore(settings.data_dir / "agent_sessions.json")
 
     def _memory_text(key: str) -> str:
-        """Resolve a memory key to loadable text — its summary as a header plus its full messages (if a
-        leaf) — what an agent session injects when that memory slot is loaded."""
+        """Resolve a memory key to loadable KNOWLEDGE — its summary plus the fact text. A memory is a
+        distilled fact, never a transcript, so this never injects raw conversation turns (that's what
+        contexts are for). Legacy transcript leaves are condensed to their summary only."""
         node = memory.read(key)
         parts = []
         if node.get("summary"):
             parts.append(node["summary"])
-        if node.get("messages"):
-            parts.append("\n".join(f"{m.get('role')}: {m.get('content','')}" for m in node["messages"]))
+        if node.get("text"):
+            parts.append(node["text"])
+        elif node.get("children"):     # chunked: list the sub-fact summaries, not any bodies
+            parts.extend(f"- {c.get('summary', '')}" for c in node["children"] if c.get("summary"))
         return "\n".join(parts)
+
+    def _context_text(key: str) -> str:
+        """Resolve a saved-context key (c-XXXX) to its verbatim transcript — what a context slot
+        injects. Framed explicitly as reference material (see assembled_context) so a model treats it
+        as a past conversation to consult, not as the current task to summarize."""
+        from crucible.contextstore import render_transcript
+        try:
+            return render_transcript(contexts.read(key).get("messages", []))
+        except KeyError:
+            return ""
 
     def _profile(name: str | None):
         if not name:
@@ -520,6 +535,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     _atexit.register(runtime.stop_all)
     _cancels: set[str] = set()   # run_ids the operator asked to stop (server-side cancel)
     _approvals: dict = {}        # "run_id:call_id" -> {event, decision} for 'ask' tool approvals
+    _hair_rigs: dict = {}        # sid -> HairLayerRig (per-session hair-physics state, mesh deform)
     app = FastAPI(title="Crucible")
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -1238,6 +1254,549 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 "steered-": a.inject_generate(req.test_prompt, vec, -req.coefficient, band, req.max_new_tokens),
             }
         return with_plain("concept", out)
+
+    @app.post("/api/abliteration/detect-bias")
+    def abl_detect_bias(body: dict | None = None) -> dict:
+        """UNSUPERVISED bias / propaganda auto-detection. You don't name the categories — it probes a
+        broad, cross-domain bank and RANKS topics by how strongly THIS model is 'railroaded' (refuses)
+        or 'overwritten' (recites one side on a real axis). Surfaces biases even for categories nobody
+        specified, and returns a ready-to-apply depropaganda direction per flagged axis. Optionally pass
+        {probes:[{topic,question,pro,con,domain}], layer, demo:true} to extend the bank or demo a fix."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (a loaded HF model or GGUF)")
+        from crucible.abliteration.bias_detect import detect_biases, DEFAULT_BIAS_PROBES
+        from crucible.abliteration.detection import is_refusal
+        body = body or {}
+        probes = body.get("probes") or DEFAULT_BIAS_PROBES
+        n = getattr(a, "num_layers", 1)
+        layer = body.get("layer") if body.get("layer") is not None else int(n * 0.6)
+        maxnew = int(body.get("max_new_tokens", 64))
+        ranked = detect_biases(a, layer, lambda q: a.generate(q, maxnew), is_refusal, probes)
+        biases = [{k: v for k, v in r.items() if k != "direction"} for r in ranked]
+        out: dict = {"layer": layer, "n_probes": len(probes),
+                     "biases": biases,
+                     "flagged": [b for b in biases if b["verdict"] != "balanced"],
+                     "directions": {r["topic"]: r["direction"] for r in ranked}}
+        if body.get("demo"):                                 # demonstrate depropaganda on the top flagged axis
+            top = next((r for r in ranked if r["verdict"] != "balanced"), None)
+            if top is not None:
+                band = list(range(layer, min(n, layer + max(1, n // 4))))
+                vec = np.asarray(top["direction"], dtype=np.float64)
+                coef = float(body.get("coefficient", 8.0))
+                out["demo"] = {"topic": top["topic"], "question": top["question"],
+                               "base": a.generate(top["question"], maxnew),
+                               "depropagandized": a.inject_generate(top["question"], vec, coef, band, maxnew)}
+        return with_plain("detect-bias", out)
+
+    @app.post("/api/abliteration/purge-biases")
+    def abl_purge_biases(body: dict | None = None) -> dict:
+        """Remove EVERY detected bias at once: auto-detect the model's bias axes, span their subspace,
+        and project the residual-writing weights out of it (multi-directional abliteration). Deliberately
+        COMPREHENSIVE — enumerate → remove, without judging which leans are 'justified' (truth/trust is a
+        layer added back later). Returns the removal report + before/after on the flagged topics.
+        Mutates the loaded model's weights in place."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (an HF model or GGUF)")
+        from crucible.abliteration.bias_detect import detect_biases, purge_biases, DEFAULT_BIAS_PROBES
+        from crucible.abliteration.detection import is_refusal
+        body = body or {}
+        probes = body.get("probes") or DEFAULT_BIAS_PROBES
+        n = getattr(a, "num_layers", 1)
+        layer = body.get("layer") if body.get("layer") is not None else int(n * 0.6)
+        maxnew = int(body.get("max_new_tokens", 64))
+        ranked = detect_biases(a, layer, lambda q: a.generate(q, maxnew), is_refusal, probes)
+        flagged = [r for r in ranked if r["verdict"] != "balanced"]
+        before = {r["topic"]: r["response"] for r in flagged}
+        report = purge_biases(a, ranked, strength=float(body.get("strength", 1.0)),
+                              include_balanced=bool(body.get("include_balanced")))
+        comparison = [{"topic": r["topic"], "question": r["question"], "verdict": r["verdict"],
+                       "before": before.get(r["topic"], ""), "after": a.generate(r["question"], maxnew)}
+                      for r in flagged]
+        return with_plain("purge-biases", {"layer": layer, "removed": report, "comparison": comparison})
+
+    @app.post("/api/abliteration/sae-purge")
+    def abl_sae_purge(body: dict | None = None) -> dict:
+        """The enumerable-basis path: fit an SAE feature DICTIONARY on the probe activations, ENUMERATE
+        which dictionary features carry bias (differential firing across pro/con framings + refused/
+        answered prompts), then purge over exactly those feature directions. Each bias is now an
+        addressable feature (so it could also be independently steered — superposition). Returns the
+        enumerated bias features + removal report + before/after. Mutates the loaded weights."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (an HF model or GGUF)")
+        from crucible.abliteration.bias_detect import DEFAULT_BIAS_PROBES
+        from crucible.abliteration.sae_bias import (enumerate_bias_features,
+                                                    enumerate_bias_features_large, purge_via_sae)
+        from crucible.abliteration.detection import is_refusal
+        body = body or {}
+        probes = body.get("probes") or DEFAULT_BIAS_PROBES
+        n = getattr(a, "num_layers", 1)
+        layer = body.get("layer") if body.get("layer") is not None else int(n * 0.6)
+        maxnew = int(body.get("max_new_tokens", 64))
+        base = {p["topic"]: a.generate(p["question"], maxnew) for p in probes}     # capture 'before' once
+        cache = {p["question"]: base[p["topic"]] for p in probes}
+        _gen = lambda q: cache.get(q) or a.generate(q, maxnew)
+        if body.get("large", False):     # SAE-feature purge is EXPERIMENTAL: destructive unless the SAE is large-scale     # real models: large per-token corpus SAE (the effective path)
+            sae, features, _ = enumerate_bias_features_large(a, layer, probes, _gen, is_refusal,
+                n_features=int(body.get("n_features", 768)), top_k=int(body.get("top_k", 16)))
+        else:                           # fast/small path (few-sample SAE) — mainly for tests
+            sae, features, _ = enumerate_bias_features(a, layer, probes, _gen, is_refusal,
+                n_features=int(body.get("n_features", 64)), top_k=int(body.get("top_k", 16)))
+        report = purge_via_sae(a, sae, [f["feature"] for f in features], strength=float(body.get("strength", 1.0)))
+        comparison = [{"topic": p["topic"], "question": p["question"],
+                       "before": base[p["topic"]], "after": a.generate(p["question"], maxnew)} for p in probes]
+        return with_plain("sae-purge", {"layer": layer, "n_features_total": int(sae.m),
+                                        "bias_features": features, "removed": report, "comparison": comparison})
+
+    @app.post("/api/abliteration/steer-features")
+    def abl_steer_features(body: dict | None = None) -> dict:
+        """INDEPENDENT per-feature control via SUPERPOSITION. Fit the (deterministic) SAE dictionary,
+        enumerate its bias features, then apply a weighted superposition of the ones you name —
+        {feature_coeffs: {index: coefficient}} (positive amplifies a lean, negative suppresses it) — as
+        REVERSIBLE inference-time steering (no weight edit). Returns the enumerable features to dial plus
+        base vs steered on a probe. Omit feature_coeffs to demo suppressing the top bias features."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (an HF model or GGUF)")
+        from crucible.abliteration.bias_detect import DEFAULT_BIAS_PROBES
+        from crucible.abliteration.sae_bias import (enumerate_bias_features,
+                                                    enumerate_bias_features_large, steer_with_features)
+        from crucible.abliteration.detection import is_refusal
+        body = body or {}
+        probes = body.get("probes") or DEFAULT_BIAS_PROBES
+        n = getattr(a, "num_layers", 1)
+        layer = body.get("layer") if body.get("layer") is not None else int(n * 0.6)
+        maxnew = int(body.get("max_new_tokens", 64))
+        _gen = lambda q: a.generate(q, maxnew)
+        if body.get("large", False):     # SAE-feature purge is EXPERIMENTAL: destructive unless the SAE is large-scale
+            sae, features, _ = enumerate_bias_features_large(a, layer, probes, _gen, is_refusal,
+                n_features=int(body.get("n_features", 768)), top_k=int(body.get("top_k", 16)))
+        else:
+            sae, features, _ = enumerate_bias_features(a, layer, probes, _gen, is_refusal,
+                n_features=int(body.get("n_features", 64)), top_k=int(body.get("top_k", 16)))
+        coeffs = body.get("feature_coeffs")
+        if not coeffs:                                        # default demo: suppress the top bias features
+            coeffs = {f["feature"]: float(body.get("coefficient", -6.0)) for f in features[:5]}
+        coeffs = {int(k): float(v) for k, v in coeffs.items()}
+        prompt = body.get("prompt") or (features and probes and DEFAULT_BIAS_PROBES[0]["question"]) or "Tell me about the government."
+        base, steered = steer_with_features(a, sae, coeffs, str(prompt), layer, maxnew)
+        return with_plain("steer-features", {"layer": layer, "bias_features": features,
+                                             "applied": coeffs, "prompt": str(prompt),
+                                             "base": base, "steered": steered})
+
+    # ---- STUDIO: the beginner-friendly guided flow (dynamic scan → decide → apply → verify) ----------
+    # A single loaded-adapter cache of the last scan's measured rows (keyed by topic) so preview/apply
+    # can reference each finding's direction without shipping big vectors to the client and back.
+    studio_state: dict = {"rows": {}, "layer": None, "health": None}
+    _studio_profiles = settings.data_dir / "studio_profiles.json"
+
+    def _studio_default_layer(a) -> int:
+        return int(getattr(a, "num_layers", 1) * 0.6)
+
+    @app.post("/api/studio/scan")
+    def studio_scan(body: dict | None = None) -> dict:
+        """DYNAMIC bias discovery + model health, in plain language. NO fixed propaganda list. Two REAL
+        discovery methods (choose via `method`):
+          'internals' — READ THE MODEL ITSELF: extract its refusal + over-commitment directions from the
+             unembedding weights (logit-lens auditable), then measure how hard broad EXTERNAL inputs fire
+             them from real activations. Sees structure the model was trained to suppress (inputs come
+             from outside, not from asking the model to name topics).
+          'ask' — ask the model to propose contested claims, frame both sides, and measure its lean
+             (self-report; blind to what it won't articulate).
+          'both' (default) — run internals first, then ask; findings tagged by `source`.
+        Every number is measured live. Body: {method?, domains?, per_domain?, max_claims?, layer?,
+        extra_topic?, external_probes?, max_new_tokens?}."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (an HF model or GGUF)")
+        from crucible.abliteration.discover import discover_biases, frame_claim
+        from crucible.abliteration.introspect import internal_scan
+        from crucible.abliteration.detection import is_refusal
+        from crucible import studio as ST
+        body = body or {}
+        layer = int(body["layer"]) if body.get("layer") is not None else _studio_default_layer(a)
+        maxnew = int(body.get("max_new_tokens", 48))
+        method = str(body.get("method", "both"))
+        gen = lambda q: a.generate(q, maxnew)
+        findings_full: list[dict] = []
+        directions_readout = None
+
+        if method in ("internals", "both"):
+            ins = internal_scan(a, layer, is_refusal, prompts=body.get("external_probes"),
+                                top_k=int(body.get("internal_top_k", 8)))
+            directions_readout = ins["directions"]
+            findings_full.extend(ins["findings"])
+        if method in ("ask", "both"):
+            extra = None
+            if body.get("extra_topic"):
+                f = frame_claim(gen, str(body["extra_topic"]))
+                extra = [{**f, "domain": "your topic", "claim": str(body["extra_topic"])}]
+            disc = discover_biases(a, layer, gen, is_refusal,
+                                   domains=body.get("domains"), per_domain=int(body.get("per_domain", 3)),
+                                   max_claims=int(body.get("max_claims", 12)), extra_probes=extra)
+            for r in disc["findings"]:
+                findings_full.append({**r, "source": r.get("source", "ask")})
+
+        # dedupe by topic (internals win — they read structure), cache full rows server-side
+        seen: dict[str, dict] = {}
+        for r in findings_full:
+            if r["topic"] not in seen:
+                seen[r["topic"]] = r
+        rows = list(seen.values())
+        health = ST.health_baseline(a, is_refusal)
+        studio_state["rows"] = {r["topic"]: r for r in rows}
+        studio_state["layer"] = layer
+        studio_state["health"] = health
+        findings = [{k: v for k, v in r.items() if k != "direction"} for r in rows]
+        flagged = [f for f in findings if f["kind"] != "ok"]
+        summary = {"n_candidates": len(rows), "n_flagged": len(flagged),
+                   "n_refusal": sum(1 for f in flagged if f["kind"] == "refusal"),
+                   "n_lean": sum(1 for f in flagged if f["kind"] == "lean"),
+                   "n_balanced": sum(1 for f in findings if f["kind"] == "ok"),
+                   "method": method,
+                   "healthy": health["perplexity"] < 1e4 and health["refusal_rate"] <= 0.5}
+        out = {"layer": layer, "findings": findings, "summary": summary, "health": health}
+        if directions_readout is not None:
+            out["readout"] = directions_readout       # the model's own refusal/over-commitment words
+        return out
+
+    @app.post("/api/studio/preview")
+    def studio_preview(body: dict | None = None) -> dict:
+        """Reversible before/after for one finding — nothing is written to the weights. Body:
+        {topic, action: remove|keep|enhance, strength: 10-100, max_new_tokens?}."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible import studio as ST
+        body = body or {}
+        row = studio_state["rows"].get(str(body.get("topic")))
+        if row is None:
+            raise HTTPException(status_code=409, detail="no scan for that topic - run a scan first")
+        layer = studio_state["layer"] if studio_state["layer"] is not None else _studio_default_layer(a)
+        out = ST.preview(a, row, str(body.get("action", "remove")), int(body.get("strength", 60)),
+                         layer, max_new_tokens=int(body.get("max_new_tokens", 48)))
+        return {"topic": row["topic"], "action": body.get("action"), **out}
+
+    @app.post("/api/studio/apply")
+    def studio_apply(body: dict | None = None) -> dict:
+        """Apply the user's per-finding choices, then ALWAYS auto-verify. Body:
+        {choices:[{topic, action, strength}], mode: copy|inplace|profile, strength?, out_path?,
+         recipe_name?, base_id?}. Removes are the surgical contrast purge over ONLY the chosen topics;
+        enhances become a reversible steering profile. Whatever the mode, coherence + refusals are
+        re-measured (real perplexity) so a fix can't silently break the model."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.abliteration.detection import is_refusal
+        from crucible.abliteration.bias_detect import lean as lean_fn
+        from crucible import studio as ST
+        import numpy as _np, json as _json, time as _time
+        body = body or {}
+        choices = body.get("choices") or []
+        mode = str(body.get("mode", "copy"))
+        strength = float(body.get("strength", 1.0))
+        layer = studio_state["layer"] if studio_state["layer"] is not None else _studio_default_layer(a)
+        rows = studio_state["rows"]
+        picked = [(c, rows.get(str(c.get("topic")))) for c in choices]
+        picked = [(c, r) for c, r in picked if r is not None]
+        if not picked:
+            raise HTTPException(status_code=409, detail="no matching scanned findings - run a scan first")
+        removes = [r for c, r in picked if c.get("action") == "remove"]
+        enhances = [(c, r) for c, r in picked if c.get("action") == "enhance"]
+
+        before = studio_state["health"] or ST.health_baseline(a, is_refusal)
+        before = {**before, "mean_lean": ST.mean_abs_lean([r for _, r in picked])}
+        snap = ST.snapshot(a)
+        removed = ST.selective_purge(a, removes, strength=strength)     # temporary weight edit → measured
+
+        # re-measure the affected topics (real generations) for before/after evidence + after-leans
+        comparison, after_leans = [], []
+        for c, r in picked:
+            after_ans = str(a.generate(r["question"], 48) or "")
+            if c.get("action") == "remove" and r.get("pro") and r.get("con"):
+                pro = _np.atleast_2d(a.activations([r["pro"]], layer))
+                con = _np.atleast_2d(a.activations([r["con"]], layer))
+                na = _np.atleast_2d(a.activations([after_ans if len(after_ans) > 15 else r["question"]], layer))[0]
+                after_leans.append(abs(float(lean_fn(pro, con, na))))
+            comparison.append({"topic": r["topic"], "kind": r["kind"], "action": c.get("action"),
+                               "before": r.get("response", ""), "after": after_ans})
+        after_health = ST.health_baseline(a, is_refusal)
+        after = {**after_health, "mean_lean": (float(_np.mean(after_leans)) if after_leans else before["mean_lean"])}
+        vd = ST.verdict(before, after)
+
+        # build the reversible profile (enhances always; removes too, so 'profile' mode needs no weights)
+        profile = {"name": str(body.get("recipe_name") or "studio-profile"),
+                   "base_id": str(body.get("base_id", "")), "layer": layer,
+                   "steers": ([{"topic": r["topic"], "action": "suppress", "coef": 8.0 * strength,
+                                "direction": r["direction"]} for r in removes]
+                              + [{"topic": r["topic"], "action": "amplify",
+                                  "coef": -8.0 * (float(c.get("strength", 60)) / 100.0),
+                                  "direction": r["direction"]} for c, r in enhances])}
+
+        cloned_to = None
+        if mode == "copy":
+            cloned_to = str(body.get("out_path") or "models/studio-balanced")
+            a.save(cloned_to)                 # new file has the removes baked in
+            ST.restore(a, snap)               # loaded original stays pristine
+        elif mode == "inplace":
+            pass                              # keep the purge on the loaded weights
+        else:                                 # profile: revert weights; the profile is the artifact
+            ST.restore(a, snap)
+
+        # persist the profile so it can be replayed / served / inspected
+        try:
+            existing = _json.loads(_studio_profiles.read_text()) if _studio_profiles.exists() else []
+        except Exception:
+            existing = []
+        saved = {**{k: v for k, v in profile.items() if k != "steers"},
+                 "n_steers": len(profile["steers"]), "mode": mode,
+                 "topics": [c.get("topic") for c in choices]}
+        existing = [p for p in existing if p.get("name") != profile["name"]] + [saved]
+        try:
+            _studio_profiles.write_text(_json.dumps(existing, indent=2))
+        except Exception:
+            pass
+
+        n_remove = len(removes); n_enhance = len(enhances)
+        n_keep = len(picked) - n_remove - n_enhance
+        return {"mode": mode, "removed": removed, "cloned_to": cloned_to,
+                "applied": {"remove": n_remove, "enhance": n_enhance, "keep": n_keep},
+                "comparison": comparison, "verify": vd,
+                "metrics": {"perplexity": {"before": before["perplexity"], "after": after["perplexity"],
+                                           "ratio": vd["perplexity_ratio"]},
+                            "mean_lean": {"before": before["mean_lean"], "after": after["mean_lean"]},
+                            "refusal_rate": {"before": before["refusal_rate"], "after": after["refusal_rate"]}},
+                "profile": saved}
+
+    @app.post("/api/studio/steer")
+    def studio_steer(body: dict | None = None) -> dict:
+        """LIVE sculpt bench: apply a SUPERPOSITION of the scanned findings' directions to a test
+        question and show base vs steered — reversible (no weight edit). Body: {question,
+        steers:{topic: dial -100..100}} where -100 suppresses the lean (toward balance) and +100
+        amplifies it. The summed steer vector is norm-capped so it can't blow generation up."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        import numpy as _np
+        from crucible import studio as ST
+        body = body or {}
+        question = str(body.get("question") or "").strip()
+        if not question:
+            raise HTTPException(status_code=422, detail="a 'question' is required")
+        steers = body.get("steers") or {}
+        layer = studio_state["layer"] if studio_state["layer"] is not None else _studio_default_layer(a)
+        rows = studio_state["rows"]
+        base_coef = float(body.get("base_coef", 6.0))
+        vec = None
+        applied = {}
+        for topic, dial in steers.items():
+            row = rows.get(str(topic))
+            if row is None or not row.get("direction") or not float(dial):
+                continue
+            d = _np.asarray(row["direction"], dtype=_np.float64)
+            d = d / (float(_np.linalg.norm(d)) or 1.0)
+            # depropaganda direction points TOWARD balance; dial>0 (amplify) pushes toward the lean
+            contrib = (-float(dial) / 100.0) * base_coef * d
+            vec = contrib if vec is None else vec + contrib
+            applied[str(topic)] = float(dial)
+        base = str(a.generate(question, int(body.get("max_new_tokens", 48))) or "")
+        if vec is None:
+            return {"question": question, "base": base, "steered": base, "applied": {}, "norm": 0.0}
+        norm = float(_np.linalg.norm(vec))
+        cap = float(body.get("cap", 16.0))
+        if norm > cap:                                   # keep the superposition from lobotomizing generation
+            vec = vec * (cap / norm)
+        band = ST._band(a, layer)
+        steered = str(a.inject_generate(question, vec, 1.0, band, int(body.get("max_new_tokens", 48))) or "")
+        return {"question": question, "base": base, "steered": steered, "applied": applied,
+                "norm": round(min(norm, cap), 2)}
+
+    @app.get("/api/studio/map")
+    def studio_map() -> dict:
+        """A 2-D projection (PCA) of the scanned findings' direction vectors — the feature map. Nearby
+        points do related things. Returns per-finding {topic, kind, x, y, strength, lean}."""
+        import numpy as _np
+        rows = [r for r in studio_state["rows"].values() if r.get("direction")]
+        if len(rows) < 2:
+            return {"points": [{"topic": r["topic"], "kind": r["kind"], "x": 0.5, "y": 0.5,
+                                "strength": float(r.get("bias_score", 0.0)), "lean": float(r.get("lean", 0.0))}
+                               for r in rows]}
+        D = _np.array([_np.asarray(r["direction"], dtype=_np.float64) /
+                       (float(_np.linalg.norm(r["direction"])) or 1.0) for r in rows])
+        Dc = D - D.mean(axis=0)
+        try:
+            _, _, Vt = _np.linalg.svd(Dc, full_matrices=False)
+            xy = Dc @ Vt[:2].T                            # project onto top-2 principal directions
+        except Exception:
+            xy = _np.zeros((len(rows), 2))
+        # normalize each axis to [0.08, 0.92] for plotting
+        out = []
+        for j in range(2):
+            col = xy[:, j]
+            lo, hi = float(col.min()), float(col.max())
+            xy[:, j] = 0.08 + 0.84 * ((col - lo) / ((hi - lo) or 1.0))
+        for i, r in enumerate(rows):
+            # deterministic declumping jitter: when a principal axis has near-zero variance the points
+            # collapse onto each other, so spread co-located points by a small topic-seeded offset
+            jx = ((abs(hash(("x", r["topic"]))) % 1000) / 1000.0 - 0.5) * 0.07
+            jy = ((abs(hash(("y", r["topic"]))) % 1000) / 1000.0 - 0.5) * 0.07
+            out.append({"topic": r["topic"], "kind": r["kind"],
+                        "x": round(min(0.96, max(0.04, float(xy[i, 0]) + jx)), 4),
+                        "y": round(min(0.96, max(0.04, float(xy[i, 1]) + jy)), 4),
+                        "strength": float(r.get("bias_score", 0.0)), "lean": float(r.get("lean", 0.0))})
+        return {"points": out}
+
+    @app.get("/api/studio/profiles")
+    def studio_profiles() -> dict:
+        import json as _json
+        try:
+            return {"profiles": _json.loads(_studio_profiles.read_text()) if _studio_profiles.exists() else []}
+        except Exception:
+            return {"profiles": []}
+
+    # ---- TRUTH-FINDING (stage 1): consistency + internal truthfulness probe (offline, no oracle) ------
+    truth_state: dict = {"probe": None, "layer": None}
+
+    def _truth_probe(a, layer: int):
+        """Train the SAPLMA-style internal truth probe once (on the uncontroversial fact bank) and cache
+        it. Retrains if the scan layer changed. Returns the probe dict (carries its own cv_accuracy)."""
+        if truth_state["probe"] is None or truth_state["layer"] != layer:
+            from crucible.abliteration.truthprobe import train_truth_probe
+            truth_state["probe"] = train_truth_probe(a, layer)
+            truth_state["layer"] = layer
+        return truth_state["probe"]
+
+    @app.post("/api/truth/check")
+    def truth_check(body: dict | None = None) -> dict:
+        """Reliability of a single claim — NOT a truth verdict. Runs the consistency probe (does the
+        model hold this across rewordings + its negation?) and the internal truthfulness probe (the
+        model's own hidden-state sense of true/false, reported with the probe's cross-validated accuracy).
+        Body: {claim, pro?, con?, question?, layer?}. pro/con are auto-generated if omitted."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded - needs torch (an HF model or GGUF)")
+        from crucible.abliteration.discover import frame_claim
+        from crucible.abliteration.detection import is_refusal
+        from crucible import truth as TR
+        body = body or {}
+        claim = str(body.get("claim") or body.get("question") or "").strip()
+        if not claim:
+            raise HTTPException(status_code=422, detail="a 'claim' (or 'question') is required")
+        layer = int(body["layer"]) if body.get("layer") is not None else _studio_default_layer(a)
+        gen = lambda q: a.generate(q, int(body.get("max_new_tokens", 48)))
+        pro, con, question = body.get("pro"), body.get("con"), body.get("question")
+        if not (pro and con):
+            f = frame_claim(gen, claim)
+            pro, con = pro or f["pro"], con or f["con"]
+            question = question or f["question"]
+        probe = _truth_probe(a, layer)
+        prof = TR.reliability_profile(a, str(question or claim), str(pro), str(con), layer, is_refusal,
+                                      probe=probe, claim_for_probe=claim)
+        return {"claim": claim, "layer": layer, **prof}
+
+    from crucible.evidence import EvidenceCorpus
+    evidence_corpus = EvidenceCorpus(settings.data_dir / "evidence_corpus.json")
+
+    @app.get("/api/truth/corpus")
+    def truth_corpus_list() -> dict:
+        return {"sources": evidence_corpus.sources(), "n_passages": len(evidence_corpus.chunks)}
+
+    @app.post("/api/truth/corpus", status_code=201)
+    def truth_corpus_add(body: dict) -> dict:
+        """Add a trusted source to ground claims against (offline). Body: {source, text}."""
+        text = str((body or {}).get("text") or "").strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="'text' is required")
+        added = evidence_corpus.add(str((body or {}).get("source") or "source"), text)
+        return {"added_passages": added, "sources": evidence_corpus.sources(), "n_passages": len(evidence_corpus.chunks)}
+
+    @app.delete("/api/truth/corpus", status_code=204)
+    def truth_corpus_clear() -> None:
+        evidence_corpus.clear()
+
+    @app.post("/api/truth/evidence")
+    def truth_evidence(body: dict | None = None) -> dict:
+        """Ground a claim against YOUR trusted corpus — supported / contradicted / not-found, with the
+        passages and sources. Provenance, not a truth verdict. Body: {claim, k?}."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.evidence import ground_claim
+        body = body or {}
+        claim = str(body.get("claim") or "").strip()
+        if not claim:
+            raise HTTPException(status_code=422, detail="a 'claim' is required")
+        return ground_claim(claim, evidence_corpus, lambda p, n=48: a.generate(p, n),
+                            k=int(body.get("k", 4)))
+
+    @app.post("/api/truth/calibration")
+    def truth_calibration(body: dict | None = None) -> dict:
+        """Does the model's STATED confidence match its accuracy? Judges a sample of verifiable facts and
+        compares verbalized confidence to correctness → accuracy, ECE, over/under-confidence, reliability
+        diagram. Body: {sample?} (default 20 of the fact bank, for responsiveness)."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.calibration import calibration_meter
+        body = body or {}
+        sample = body.get("sample")
+        return {"model": "loaded model", **calibration_meter(a, sample=int(sample) if sample else 20)}
+
+    @app.post("/api/truth/crossmodel")
+    def truth_crossmodel(body: dict | None = None) -> dict:
+        """Ask several independent local models the same claim and map agreement (consensus, NOT truth).
+        Body: {claim, ollama_models?: [names], answers?: [{name, answer}]}. Always includes the loaded
+        model; queries named Ollama models via the local server (keep_alive=0 so nothing stays resident);
+        `answers` lets a caller supply external models directly. Degrades gracefully to <2 responders."""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.crossmodel import triangulate, build_claim_prompt
+        body = body or {}
+        claim = str(body.get("claim") or "").strip()
+        if not claim:
+            raise HTTPException(status_code=422, detail="a 'claim' is required")
+        prompt = build_claim_prompt(claim)
+        answers = [{"name": "loaded model", "answer": str(a.generate(prompt, 64) or "")}]
+        if body.get("ollama_models"):
+            import os as _os
+            from crucible.ollama_native import OllamaNativeModel
+            base = _os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+            for name in body["ollama_models"]:
+                try:                                      # keep_alive=0 → ollama unloads right after (no freeze)
+                    m = OllamaNativeModel(base, served_model=str(name), keep_alive="0", max_output_tokens=64)
+                    answers.append({"name": str(name), "answer": str(m([{"role": "user", "content": prompt}], [])["content"])})
+                except Exception:
+                    pass                                  # unreachable / not pulled — skip, don't fail the call
+        for extra in (body.get("answers") or []):         # externally-supplied model answers
+            answers.append({"name": str(extra.get("name", "?")), "answer": str(extra.get("answer", ""))})
+        return {"claim": claim, **triangulate(claim, answers)}
+
+    @app.post("/api/studio/reliability")
+    def studio_reliability(body: dict | None = None) -> dict:
+        """Reliability profile for a scanned Studio finding (by topic) — tells a justified conviction from
+        an installed lean: does the model hold this across rewordings, and does its internal state back it?"""
+        a = abliteration_adapter
+        if a is None:
+            raise HTTPException(status_code=503, detail="no model adapter loaded")
+        from crucible.abliteration.detection import is_refusal
+        from crucible import truth as TR
+        body = body or {}
+        row = studio_state["rows"].get(str(body.get("topic")))
+        if row is None:
+            raise HTTPException(status_code=409, detail="no scan for that topic - run a scan first")
+        layer = studio_state["layer"] if studio_state["layer"] is not None else _studio_default_layer(a)
+        pro, con = row.get("pro"), row.get("con")
+        if not (pro and con):                    # internal-scan findings have no pro/con axis — frame the claim
+            from crucible.abliteration.discover import frame_claim
+            f = frame_claim(lambda q: a.generate(q, 48), row.get("claim") or row["topic"])
+            pro, con = f["pro"], f["con"]
+        probe = _truth_probe(a, layer)
+        prof = TR.reliability_profile(a, row.get("question", row["topic"]), str(pro), str(con), layer,
+                                      is_refusal, probe=probe, claim_for_probe=row.get("claim") or row["topic"])
+        return {"topic": row["topic"], "layer": layer, **prof}
 
     @app.post("/api/abliteration/run")
     def abl_run(req: AbliterateRequest) -> dict:
@@ -2388,13 +2947,23 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         fn = compact if req.force else maybe_compact
         out = fn(req.messages, summarizer, req.max_tokens, req.keep_recent)
         out["tokens"] = estimate_tokens(req.messages)
-        # Crystallize the PRE-compaction context into versioned memory so it's never lost — the
-        # summary is the passthrough, the full messages stay recallable.
+        # The PRE-compaction turns are never lost — but a conversation is a CONTEXT, not a memory.
+        # Archive the raw turns as a reloadable context, then DISTILL durable knowledge out of them
+        # into the memory store. Recall gets facts; the transcript stays reloadable as a context.
         if req.crystallize and out.get("compacted") and out.get("summary"):
-            node = memory.crystallize(req.messages, out["summary"], session=req.session_id,
-                                      stats=out.get("stats"))
-            out["memory"] = {"key": node["key"], "label": node["label"], "ref": node.get("ref"),
-                             "versioned": memory.versioned}
+            from crucible.contextstore import render_transcript
+            from crucible.distill import distill_knowledge
+            ctx = contexts.save(req.messages, summary=out["summary"], session=req.session_id or "",
+                                source="compaction")
+            out["context"] = {"key": ctx["key"], "size": ctx["size"], "source": "compaction"}
+            facts = distill_knowledge(render_transcript(req.messages), solver)
+            saved = []
+            for f in facts:
+                node = memory.crystallize(f["content"], f["summary"], label=f.get("label", ""),
+                                          session=req.session_id or "", source_context=ctx["key"])
+                saved.append({"key": node["key"], "label": node["label"]})
+            out["memories"] = saved
+            out["versioned"] = memory.versioned
         return out
 
     @app.get("/api/memory/index")
@@ -2427,13 +2996,91 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         pid = None if top else (parent if parent is not None else "__all__")
         return {"sessions": agent_sessions.list(parent_id=pid)}
 
+    # --- default agent model: auto-pick the best available coding model (we can't assume any is on hand)
+    import time as _time
+    _default_model_cache: dict = {"id": None, "at": -1e9}
+
+    def _endpoint_models(endpoint: str) -> list[dict]:
+        """What a live endpoint serves: Ollama /api/tags (with param sizes) or OpenAI /v1/models."""
+        import httpx
+        from crucible.model_select import parse_param_size
+        base = endpoint.rstrip("/")
+        try:
+            r = httpx.get(base + "/api/tags", timeout=2.0)
+            if r.status_code < 300:
+                out = [{"name": m.get("name") or m.get("model") or "",
+                        "size_b": parse_param_size((m.get("details") or {}).get("parameter_size"))}
+                       for m in (r.json().get("models") or [])]
+                if any(o["name"] for o in out):
+                    return [o for o in out if o["name"]]
+        except Exception:
+            pass
+        try:
+            r = httpx.get(base + "/v1/models", timeout=2.0)
+            if r.status_code < 300:
+                data = r.json().get("data") or r.json().get("models") or []
+                return [{"name": (m.get("id") or m.get("name") or ""), "size_b": None}
+                        for m in data if (m.get("id") or m.get("name"))]
+        except Exception:
+            pass
+        return []
+
+    def _discover_coding_candidates() -> list[dict]:
+        """Every model reachable through a live registered endpoint — the pool to pick a default from."""
+        from crucible.model_select import parse_param_size
+        cands: list[dict] = []
+        for m in reg.list():
+            if not m.endpoint or not _endpoint_alive(m.endpoint):
+                continue
+            served = _endpoint_models(m.endpoint)
+            if served:
+                cands += [{"name": s["name"], "size_b": s["size_b"], "endpoint": m.endpoint,
+                           "served_model": s["name"]} for s in served]
+            else:                                             # a single-model endpoint with no listing
+                cands.append({"name": m.served_model or m.name or m.id, "size_b": parse_param_size(m.name),
+                              "endpoint": m.endpoint, "served_model": m.served_model, "id": m.id})
+        return cands
+
+    def _ensure_model_registered(name: str, endpoint: str, served: str | None) -> str:
+        import re as _re
+        from datetime import datetime, timezone
+        from crucible.registry import Model as _RegModel
+        rid = "auto-" + _re.sub(r"[^a-z0-9]+", "-", (name or "model").lower()).strip("-")
+        try:
+            reg.get(rid)
+        except KeyError:
+            reg.register(_RegModel(id=rid, name=name, base_id=None, path="", quant="", kind="base",
+                                   endpoint=endpoint, created=datetime.now(timezone.utc).isoformat(),
+                                   notes="auto-selected default coding model", served_model=served or name))
+        return rid
+
+    def _default_agent_model_id() -> str | None:
+        """The best available coding model for a NEW agent tab — auto-detected, never a freeze-risk giant.
+        Cached ~60s so opening several tabs doesn't re-probe every endpoint. Returns None (→ the generic
+        resolve chain) when nothing suitable is installed."""
+        from crucible.model_select import preferred_coding_model
+        if _default_model_cache["id"] and _time.monotonic() - _default_model_cache["at"] < 60:
+            return _default_model_cache["id"]
+        best = preferred_coding_model(_discover_coding_candidates())
+        rid = None
+        if best:
+            rid = best.get("id") or _ensure_model_registered(best["name"], best["endpoint"], best.get("served_model"))
+        _default_model_cache.update(id=rid, at=_time.monotonic())
+        return rid
+
+    @app.get("/api/agent-sessions/default-model")
+    def agent_sessions_default_model() -> dict:
+        """The model a new agent tab would get by default (best available coding model, auto-detected)."""
+        return {"model_id": _default_agent_model_id()}
+
     @app.post("/api/agent-sessions", status_code=201)
     def agent_sessions_create(body: dict) -> dict:
         """Open a new agent tab: a session bound to a working directory, optionally a subagent of
-        another (parent_id)."""
+        another (parent_id). With no model given, it defaults to the best available coding model."""
         try:
+            model_id = body.get("model_id") or _default_agent_model_id()
             return agent_sessions.create(title=str(body.get("title", "")), cwd=str(body.get("cwd", ".")),
-                                         model_id=body.get("model_id"), parent_id=body.get("parent_id"))
+                                         model_id=model_id, parent_id=body.get("parent_id"))
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
@@ -2462,7 +3109,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         """The session's LIVE assembled context — enabled memory + context slots injected ahead of its
         conversation. Exactly what a run would send, so the UI can preview what's loaded."""
         try:
-            return {"messages": agent_sessions.assembled_context(sid, memory_text=_memory_text)}
+            return {"messages": agent_sessions.assembled_context(sid, memory_text=_memory_text, context_text=_context_text)}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"session '{sid}' not found")
 
@@ -2512,7 +3159,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             raise HTTPException(status_code=503, detail="no model available - select a model or register an endpoint")
 
         # assembled context (enabled slots ahead of the conversation) + the new user turn
-        convo = [*agent_sessions.assembled_context(sid, memory_text=_memory_text),
+        convo = [*agent_sessions.assembled_context(sid, memory_text=_memory_text, context_text=_context_text),
                  {"role": "user", "content": message}]
         # persist the user turn now (pure conversation — slots are re-assembled each run, not stored)
         agent_sessions.update(sid, status="running",
@@ -2548,16 +3195,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
         runner = react_run if react else hybrid_run
         events = runner(model, tools, convo, policy, audit, approver=approver)
 
-        def _visible_reply(content) -> bool:
-            # a weak model often emits a raw tool-call (JSON / 'Action:') as its text — that's NOT a chat
-            # reply and must not be saved/shown as the assistant's answer (the tool_call event covers it).
-            c = (content or "").strip()
-            if not c:
-                return False
-            if c.startswith("{") and '"name"' in c and '"arguments"' in c:
-                return False
-            low = c.lower()
-            return not (low.startswith("action:") or low.startswith("action input") or low.startswith("thought:"))
+        from crucible.agent_react import is_visible_reply as _visible_reply   # JSON/scaffold/tool-dump gate
 
         def stream():
             assistant = ""
@@ -2711,8 +3349,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
 
     @app.get("/api/memory/{key}")
     def memory_read(key: str) -> dict:
-        """Open one memory: a leaf returns its full messages; a chunked node returns its children's
-        summary cards (drill down) — so you never load more context than you ask for."""
+        """Open one memory: a leaf returns its distilled fact text; a chunked node returns its
+        children's summary cards (drill down) — so you never load more than you ask for."""
         try:
             return memory.read(key)
         except KeyError:
@@ -2737,24 +3375,59 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             raise HTTPException(status_code=404, detail=f"no memory '{key}'")
         subchunks = req.subchunks
         if not subchunks:
-            msgs = node.get("messages")
-            if not msgs:
-                raise HTTPException(status_code=422, detail="memory has no messages to auto-split (already chunked?)")
+            text = node.get("text") or ""
+            paras = [p for p in text.split("\n\n") if p.strip()]
+            if len(paras) < 2:
+                raise HTTPException(status_code=422, detail="memory text has no sub-parts to auto-split (already chunked?)")
             solver = _make_solver(req.model_id)
             if solver is None:
                 raise HTTPException(status_code=503, detail="no model available to summarize the auto-split chunks")
-            from crucible.context import SUMMARIZE_INSTRUCTION, render_transcript
-            k = max(2, min(int(req.chunks), len(msgs)))
-            size = (len(msgs) + k - 1) // k
+            from crucible.context import SUMMARIZE_INSTRUCTION
+            k = max(2, min(int(req.chunks), len(paras)))
+            size = (len(paras) + k - 1) // k
             subchunks = []
-            for i in range(0, len(msgs), size):
-                grp = msgs[i:i + size]
-                summ = solver(SUMMARIZE_INSTRUCTION + render_transcript(grp))
-                subchunks.append({"summary": summ, "messages": grp})
+            for i in range(0, len(paras), size):
+                grp = "\n\n".join(paras[i:i + size])
+                summ = solver(SUMMARIZE_INSTRUCTION + grp)
+                subchunks.append({"summary": summ, "text": grp})
         try:
             return memory.recrystallize(key, subchunks)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=422, detail=str(e))
+
+    # --- contexts: archived CONVERSATIONS (reloadable), kept separate from memories ----------------
+    @app.get("/api/contexts")
+    def contexts_index(session: str | None = None, sort: str | None = None) -> dict:
+        """Every archived context as a scan card — a past conversation you can reload wholesale.
+        Distinct from /api/memory/index (distilled knowledge). Optional session filter + sort."""
+        return {"contexts": contexts.index(session, sort or "recency")}
+
+    @app.get("/api/contexts/{key}")
+    def context_read(key: str) -> dict:
+        """Open one archived context — its full verbatim messages, to reload or inspect."""
+        try:
+            return contexts.read(key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"no context '{key}'")
+
+    @app.delete("/api/contexts/{key}")
+    def context_delete(key: str) -> dict:
+        """Delete an archived context. Any memories distilled from it live on in the memory store."""
+        return {"deleted": contexts.delete(key), "key": key}
+
+    @app.post("/api/memory/migrate")
+    def memory_migrate(body: dict | None = None) -> dict:
+        """One-shot: drain legacy TRANSCRIPT memories (raw conversations that were crystallized into
+        the memory store) out to the ContextStore, and reconstruct real memories (distilled facts)
+        from them. dry_run=true reports what would move without writing. Needs a model to distill
+        unless dry_run."""
+        body = body or {}
+        dry = bool(body.get("dry_run", False))
+        from crucible.migrate_memory import migrate_transcript_memories
+        solver = None if dry else _make_solver(body.get("model_id"))
+        if not dry and solver is None:
+            raise HTTPException(status_code=503, detail="no model available to distill memories (or pass dry_run=true)")
+        return migrate_transcript_memories(memory, contexts, solver=solver, dry_run=dry)
 
     @app.get("/api/hierarchy/profiles")
     def hierarchy_profiles() -> dict:
@@ -2864,20 +3537,192 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
     @app.get("/api/avatar/render.png")
     def avatar_render_png(expression: str = "neutral", blend: str | None = None,
                           gx: float = 0.0, gy: float = 0.0, blink: float = 0.0, talk: float = 0.0,
-                          scale: int = 240):
+                          scale: int = 240, bob: float = 0.0, tilt: float = 0.0,
+                          arm_l: float = 0.0, arm_r: float = 0.0,
+                          hair_phys: int = 0, sid: str = "", hide: str = ""):
         """Render the ACTUAL active avatar (the cute-anime sprite composite / generated companion) to a PNG
         — the same image the TUI face shows — for a mood BLEND with gaze, blink and talk. The web window
         displays this so the browser shows the real avatar art, not a stand-in. `blend`='happy:0.6,
-        surprised:0.4'; `gx,gy`∈[-1,1]; `blink`/`talk`≥0.5 apply those frames; `scale` = output width px."""
+        surprised:0.4'; `gx,gy`∈[-1,1]; `blink`/`talk`≥0.5 apply those frames; `scale` = output width px.
+        `hair_phys=1`+`sid` = mesh-deform the hair layer with spring physics (lag/bounce), stateful per sid."""
         import io
         from PIL import Image
-        from crucible.avatar import blend_expressions, blink_talk_overrides
+        from crucible.avatar import blend_expressions, blink_talk_overrides, render_sprites
         from crucible.avatar_gen import ensure_default_avatar
         a = ensure_default_avatar(str(settings.data_dir))
         weights = _parse_blend(blend, expression)
-        overrides = blink_talk_overrides(a, blink=blink >= 0.5, talk=talk >= 0.5)
+        overrides = blink_talk_overrides(a, blink=blink >= 0.35, talk=talk >= 0.5)
+        # graduate the blink so it EASES shut instead of snapping: a mid-blink 'half' lid frame. KEEP the
+        # iris visible in the half-lidded frame (pupils ON) — turning it off left a blank white sclera that
+        # read as a creepy 'lizard' eye; only the fully-shut frame (>=0.72) hides the iris.
+        eyes_layer = a.part_layer("eyes")
+        if eyes_layer is not None and 0.35 <= blink < 0.72 and "half" in eyes_layer.states:
+            overrides["eyes"] = "half"
+            if a.part_layer("pupils"):
+                overrides["pupils"] = "on"
         gaze = (max(-1.0, min(1.0, gx)), max(-1.0, min(1.0, gy)))
-        img = blend_expressions(a, weights, overrides=overrides, gaze=gaze).convert("RGBA")
+        # HEAD MOTION: tilt + bob applied to the HEAD ONLY — the region above the neck line is lifted,
+        # rotated about the neck, and re-seated over a STATIONARY body. NEAREST keeps pixel art crisp; a
+        # small overlap at the neck hides the seam. Clamped so nothing flies off.
+        t = max(-12.0, min(12.0, float(tilt)))
+        b = int(max(-12, min(12, bob)))
+        meta = a.meta if isinstance(a.meta, dict) else {}
+        neck = int(meta.get("neck_y", a.size[1] * 0.55))
+
+        def _head_move(im):
+            if abs(t) <= 0.01 and not b:
+                return im
+            wi, hi = im.size
+            import numpy as _np
+            from crucible.mesh_deform import build_grid_mesh, warp_triangles
+            # MESH NECK: rigid head above the jaw, static collar below, the neck FLEXES between — a smooth
+            # linkage instead of a hard crop seam that slid at the collarbone. Head verts all take the same
+            # rigid rotation (so the face/eyes don't distort); collar verts stay put; neck verts blend.
+            jaw = neck - 18
+            collar = neck + 8
+            band_bot = min(hi, collar + 8)
+            rest, tris, _r, _c, _rr = build_grid_mesh((0, 0, wi - 1, band_bot), 9, 12)
+            th = _np.radians(-t)
+            cs, sn = _np.cos(th), _np.sin(th)
+            dst = rest.copy()
+            for i in range(len(rest)):
+                x, y = rest[i]
+                w = 1.0 if y <= jaw else (0.0 if y >= collar else (collar - y) / (collar - jaw))
+                if w <= 0.0:
+                    continue
+                dx, dy = x - wi / 2, y - neck
+                rx = wi / 2 + dx * cs - dy * sn
+                ry = neck + dx * sn + dy * cs + b
+                dst[i, 0] = x + w * (rx - x)
+                dst[i, 1] = y + w * (ry - y)
+            band = _np.array(im.crop((0, 0, wi, band_bot)))
+            warped = warp_triangles(band, rest, dst, tris)
+            out = im.copy()
+            out.paste(Image.fromarray(warped, "RGBA"), (0, 0))
+            return out
+
+        # HAIR PHYSICS path: the hair sits at z=7 — BELOW the mouth (z8) + headphones (z10) and ABOVE the
+        # face/body. So compose the below-hair band and the above-hair band separately, mesh-deform the hair
+        # with a spring solver (roots pinned to the skull, tips lag/bounce), and stack lower → hair → upper.
+        # The head-bob applies to the rigid bands; the hair gets it via its physics anchor. Guarded so the
+        # default path is byte-identical when hair_phys is off.
+        use_hair = bool(hair_phys) and bool(sid) and a.part_layer("hair") is not None
+        if use_hair:
+            _items = [(n, float(w)) for n, w in (weights or {}).items() if w and w > 0] or [("neutral", 1.0)]
+            dom = max(_items, key=lambda kv: kv[1])[0]
+            _tot = sum(w for _, w in _items)
+
+            def _band(parts, ov=overrides):
+                """Weighted BLENDSHAPE mix of the mood mix for a z-band (mirrors blend_expressions but
+                for a subset of parts) — so a mixed mood actually blends here, not just the dominant one."""
+                acc = None
+                used = 0.0
+                for name, w in _items:
+                    layer = render_sprites(a, name, ov, None, gaze, only_parts=parts).convert("RGBA")
+                    if acc is None:
+                        acc = layer
+                        used = w / _tot
+                        continue
+                    used += w / _tot
+                    acc = Image.blend(acc, layer, (w / _tot) / used)
+                return acc
+
+            from crucible.face_params import blend_params, draw_mouth, draw_eyes, draw_blush, draw_brows
+            from PIL import ImageDraw as _ImageDraw
+            fparams = blend_params(weights)
+            # talk is a CONTINUOUS 0..1 lip-open amount (not a binary flap) → smooth mouth motion
+            fparams["mouth_open"] = max(fparams["mouth_open"], max(0.0, min(1.0, talk)) * 0.5)
+            # LAYER VISIBILITY: `hide=glasses,hair,…` skips those layers/features (settings toggles)
+            _hide = {h.strip().lower() for h in hide.split(",") if h.strip()}
+            _hp = {"body": "clothes_front", "headphones": "accessory"}
+            _hidden = {_hp.get(h, h) for h in _hide}
+            # BELOW band: render the OPEN eye sprite (+ iris), then MORPH the eyelids + blush from params
+            # (continuous eye_open close / happy ^ arc / blush) — a real morph, not sprite-state snapping.
+            # EYES: render the OPEN eye + iris, then CONTINUOUSLY close by squash-deforming the real art
+            # (draw_eyes) and re-composite the SEPARATED rigid glasses on top. Smooth, keeps eyeshadow/lash.
+            eye_ov = dict(overrides)
+            eye_ov["eyes"] = "open"
+            eye_ov["pupils"] = "off" if ("pupils" in _hide or "irises" in _hide) else "on"
+            _eyeoff = _hidden | ({"pupils"} if "eyes" in _hidden else set())   # eyes group also hides the iris
+            below = {"skin", "clothes_front", "eyes", "pupils", "blush", "brows"} - _eyeoff   # z < hair(7)
+            below_img = _band(below, eye_ov)
+            import os as _os2
+            _gp = None
+            for _lyr in getattr(a, "layers", []):
+                _pp = [q for q in getattr(_lyr, "states", {}).values() if isinstance(q, str)]
+                if _pp:
+                    _gp = _os2.path.join(_os2.path.dirname(_pp[0]), "glasses.png")
+                    break
+            _glass = None if "glasses" in _hide else (
+                Image.open(_gp).convert("RGBA") if (_gp and _os2.path.exists(_gp)) else None)
+            # LASHES = a SEPARATE part; passed to draw_eyes which TRANSLATES them down (rigid) with the
+            # closing lid (glasses stay rigid on top). Hidden if the lash or eyes group is off.
+            _lp = _os2.path.join(_os2.path.dirname(_gp), "lashes.png") if _gp else None
+            _lash = None if ("eyelashes" in _hide or "eyes" in _hidden) else (
+                Image.open(_lp).convert("RGBA") if (_lp and _os2.path.exists(_lp)) else None)
+            if _lash is not None:
+                below_img.alpha_composite(_lash)              # merged pre-squash → deforms with the eye
+            if "eyes" not in _hidden:
+                # half_w=22 so the squash box spans the FULL lash width (curls reach ±20 from centre).
+                draw_eyes(below_img, [(70, 127), (134, 127)], fparams,
+                          blink=max(0.0, min(1.0, blink)), glasses=_glass, half_w=22)
+            elif _glass is not None:                          # glasses independent when eyes are hidden
+                below_img.alpha_composite(_glass)
+            if "brows" not in _hide:
+                draw_brows(_ImageDraw.Draw(below_img, "RGBA"), [(70, 127), (134, 127)], fparams)
+            if "blush" not in _hide:
+                draw_blush(below_img, [(80, 150), (124, 150)], fparams)
+            lower = _head_move(below_img)
+            # ABOVE band = headphones + a PARAMETRIC MOUTH morphed from the blended params.
+            above_img = _band({"accessory"} - _hidden)
+            if "mouth" not in _hide:
+                draw_mouth(_ImageDraw.Draw(above_img, "RGBA"), 101, 158, fparams, 1.0,
+                           lips="mouth-lips" not in _hide, inside="mouth-inside" not in _hide)
+            upper = _head_move(above_img)
+            img = lower
+            if "hair" not in _hidden:     # the physics rig is CACHED, so gate the composite on the hide flag
+                hair_band = _band({"hair"})
+                import numpy as _np
+                from crucible.mesh_deform import HairLayerRig
+                rig = _hair_rigs.get(sid)
+                if rig is None:
+                    # ATTACHED feel: strong anchor + chain + heavy damping so the hair tracks the head with
+                    # only a subtle tip jiggle (not a loose container the head phases through), pinned firmly
+                    # near the roots (pin_exp high) and sharing the head-bob pivot.
+                    rig = HairLayerRig(_np.array(hair_band), rows=12, pin_exp=2.2,
+                                       pivot_override=(a.size[0] / 2, neck),
+                                       k_anchor=0.22, k_anchor_gain=0.5, k_chain=0.5, damp=0.45)
+                    if len(_hair_rigs) > 32:
+                        _hair_rigs.pop(next(iter(_hair_rigs)))
+                    _hair_rigs[sid] = rig
+                img.alpha_composite(Image.fromarray(rig.deform(t, b), "RGBA"))   # physics hair
+            img.alpha_composite(upper)
+        else:
+            img = blend_expressions(a, weights, overrides=overrides, gaze=gaze).convert("RGBA")
+            img = _head_move(img)
+        # ARM ARTICULATION: the arms are two separate sprites (arm_left/right.png) rotated about their
+        # shoulder pivot so they can gesture with the mood (like the head bob) while the torso stays put.
+        # Overlaid AFTER head motion so the arms are independent of it; clamped so they can't fly off.
+        import os as _os
+        meta_a = a.meta if isinstance(a.meta, dict) else {}
+        active_dir = None
+        for _lyr in getattr(a, "layers", []):
+            _paths = [p for p in getattr(_lyr, "states", {}).values() if isinstance(p, str)]
+            if _paths:
+                active_dir = _os.path.dirname(_paths[0])
+                break
+        if active_dir:
+            for fn, piv_key, ang in (("arm_left.png", "arm_pivot_l", arm_l),
+                                     ("arm_right.png", "arm_pivot_r", arm_r)):
+                piv = meta_a.get(piv_key)
+                path = _os.path.join(active_dir, fn)
+                if not piv or not _os.path.exists(path):
+                    continue
+                arm = Image.open(path).convert("RGBA")
+                aa = max(-35.0, min(35.0, float(ang)))
+                if abs(aa) > 0.01:
+                    arm = arm.rotate(aa, resample=Image.NEAREST, center=(piv[0], piv[1]), expand=False)
+                img.alpha_composite(arm)
         # Upscale by an INTEGER factor only (NEAREST) so every source pixel stays a uniform square — a
         # non-integer factor makes some pixels 2 wide and others 3, which reads as a distorted picture.
         target = max(32, min(1024, int(scale)))

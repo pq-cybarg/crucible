@@ -23,9 +23,11 @@ function withAuth(init?: RequestInit): RequestInit {
 
 import { demoRespond, isDemo } from "./demo";
 import {
-  localCompact, localConsolidate, localGraph, localIndex, localLink, localReadForSplit, localRead,
+  localCompact, localConsolidate, localGraph, localIndex, localLink, localMigrate, localReadForSplit, localRead,
   localRecrystallize, localSearch, localSetPriority, localTree, METRIC_LABELS, OFFLINE_METRICS,
 } from "./localMemory";
+import { localContextDelete, localContextIndex, localContextRead } from "./localContext";
+import { runLocalMcEval, SAMPLE_NOTE } from "./localEval";
 import { DEMO_AVATAR, DEMO_REACTION, demoRigFrame } from "./avatar/demoRig";
 import {
   avatarInfoP, rigFrameP,
@@ -33,11 +35,13 @@ import {
   diagnosisReportP, editHistoryP, featureCardP, flowReportP, guardrailConfigP, guardrailResultP,
   hierarchyProfileP, lineageP, profilesP,
   heatmapReportP, hhItemsWrapP, lmEvalWrapP, manualReportP, modelRowsP, presetsP, probeWrapP,
-  compactResultP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
+  compactResultP, contextIndexP, contextNodeP, graphResultP, mediaStatusP, modalityDirectionP, memoryCardP, memoryIndexP,
   memoryGraphP, memoryNodeP, memorySearchP, memoryTreeP, metricsCatalogP, preferencesP2, preferencesResultP,
-  publishedPayloadP, recipesP, recrystallizeResultP, runtimeSteerReportP,
+  biasReportP, publishedPayloadP, purgeReportP, recipesP, recrystallizeResultP, runtimeSteerReportP, saePurgeReportP, steerFeaturesReportP,
   runtimeStatusP, startResultP, statusWrapP, suiteP, sweepReportP, systemPromptPresetP,
   verifyReportP, weightsViewP,
+  studioScanP, studioPreviewP, studioApplyP, reliabilityProfileP, calibrationP, crossModelP, corpusInfoP, evidenceP,
+  studioSteerP, studioMapP,
 } from "./schemas";
 
 // Sort + metric name lists for the offline/preferences fallbacks (mirror the backend registries).
@@ -662,8 +666,10 @@ export async function setActiveModels(ids: readonly string[]): Promise<RuntimeSt
   return runtimeStatusP(await r.json());
 }
 
-// Crystallized memory: compaction keeps old context as a git-versioned tree. A card is the cheap
-// summary passthrough; a node opens to full messages (leaf) or child cards (chunked, drill down).
+// Crystallized memory = DISTILLED KNOWLEDGE (a fact/decision/preference), NOT a transcript. A card is
+// the cheap summary passthrough; a leaf opens to its fact `text`, a chunked node to child cards (drill
+// down). Raw conversations live separately as CONTEXTS (below). `source_context` traces a memory back
+// to the conversation it was distilled from — without ever being that conversation.
 export interface MemoryCard {
   readonly key: string;
   readonly label: string;
@@ -672,17 +678,68 @@ export interface MemoryCard {
   readonly session: string;
   readonly size: number;
   readonly ref: string | null;
-  readonly priority?: number;   // agent-set weight for prioritized recall
-  readonly degree?: number;     // number of out-links (graph)
+  readonly priority?: number;         // agent-set weight for prioritized recall
+  readonly degree?: number;           // number of out-links (graph)
+  readonly source_context?: string | null;
 }
 export interface MemoryTreeNode extends MemoryCard {
   readonly children?: readonly MemoryTreeNode[];
 }
 export interface MemoryNode extends MemoryCard {
-  readonly messages?: readonly { readonly role: string; readonly content: string }[];
+  readonly text?: string;             // a leaf's distilled fact
   readonly children?: readonly MemoryCard[];
 }
-export type MemorySubchunk = { readonly label?: string; readonly summary: string; readonly messages: readonly { readonly role: string; readonly content: string }[] };
+export type MemorySubchunk = { readonly label?: string; readonly summary: string; readonly text: string };
+
+// A CONTEXT is a raw archived CONVERSATION you reload wholesale — the counterpart to a memory, kept
+// in a separate store so knowledge and transcripts are never conflated.
+export interface ContextCard {
+  readonly key: string;
+  readonly label: string;
+  readonly summary: string;
+  readonly session: string;
+  readonly source: string;            // compaction / migrated / manual
+  readonly size: number;              // message count
+  readonly created: number;
+  readonly kind: string;
+}
+export interface ContextNode extends ContextCard {
+  readonly messages: readonly CompactMessage[];
+}
+export async function getContextsIndex(session?: string): Promise<{ contexts: readonly ContextCard[] }> {
+  if (isDemo()) return localContextIndex(session);
+  try {
+    const q = session ? `?session=${encodeURIComponent(session)}` : "";
+    const r = await cfetch(API_BASE + "/api/contexts" + q);
+    if (!r.ok) throw new Error(`contexts ${r.status}`);
+    return contextIndexP(await r.json());
+  } catch { return localContextIndex(session); }
+}
+export async function readContext(key: string): Promise<ContextNode> {
+  if (isDemo()) return localContextRead(key);
+  try {
+    const r = await cfetch(`${API_BASE}/api/contexts/${encodeURIComponent(key)}`);
+    if (r.status === 404) throw new Error(`no context ${key}`);
+    if (!r.ok) throw new Error(`context ${r.status}`);
+    return contextNodeP(await r.json());
+  } catch { return localContextRead(key); }
+}
+export async function deleteContext(key: string): Promise<{ deleted: boolean; key: string }> {
+  if (isDemo()) return localContextDelete(key);
+  const r = await cfetch(`${API_BASE}/api/contexts/${encodeURIComponent(key)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`delete context ${r.status}`);
+  return (await r.json()) as { deleted: boolean; key: string };
+}
+// Migrate legacy transcript-memories into contexts (+ distilled facts). Offline: heuristic extraction.
+export async function migrateMemory(modelId?: string): Promise<{ migrated: unknown[]; converted: string[] }> {
+  if (isDemo()) return localMigrate();
+  const r = await cfetch(API_BASE + "/api/memory/migrate", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(modelId ? { model_id: modelId } : {}),
+  });
+  if (!r.ok) throw new Error(`migrate ${r.status}`);
+  return (await r.json()) as { migrated: unknown[]; converted: string[] };
+}
 
 // Memory works with NO backend (static GitHub Pages build): when in demo/offline mode, or if the
 // backend is unreachable, these fall back to a LocalStorage store on the device (see localMemory).
@@ -719,9 +776,10 @@ export interface MetricInfo { readonly name: string; readonly label: string; rea
 export interface MetricsCatalog { readonly metrics: readonly MetricInfo[]; readonly processing_model: string | null }
 export async function getMetrics(): Promise<MetricsCatalog> {
   if (isDemo()) {
-    return { metrics: OFFLINE_METRICS.map((n) => ({ name: n, label: METRIC_LABELS[n] ?? n, available: true }))
-      .concat([{ name: "embedding", label: "semantic-embedding", available: false },
-               { name: "llm", label: "llm-judged", available: false }]), processing_model: null };
+    const metrics: MetricInfo[] = OFFLINE_METRICS.map((n) => ({ name: n, label: METRIC_LABELS[n] ?? n, available: true }));
+    return { metrics: [...metrics,
+      { name: "embedding", label: "semantic-embedding", available: false },
+      { name: "llm", label: "llm-judged", available: false }], processing_model: null };
   }
   try {
     const r = await cfetch(API_BASE + "/api/metrics");
@@ -1130,12 +1188,42 @@ export async function getSuite(): Promise<readonly SuiteTask[]> {
 }
 
 export type LmEvalResult =
-  | { readonly kind: "results"; readonly rows: readonly LmEvalRow[] }
+  | { readonly kind: "results"; readonly rows: readonly LmEvalRow[]; readonly note?: string }
   | { readonly kind: "no-model" }
   | { readonly kind: "no-endpoint" }
   | { readonly kind: "offline" };
 
+// Collect a model's full reply to one prompt — works in the static build (via runAgent's stream,
+// canned in demo, live against a connected model). The `ask` the client-side benchmark drives.
+async function askViaAgent(prompt: string): Promise<string> {
+  let out = "";
+  try {
+    await runAgent({
+      messages: [{ role: "user", content: prompt }],
+      permissions: { default: "deny", modes: {} },
+      onEvent: (e) => {
+        if (e.type === "assistant_delta") out += String((e.data as { delta?: unknown }).delta ?? "");
+        else if (e.type === "assistant" || e.type === "done") {
+          const c = (e.data as { content?: unknown }).content;
+          if (typeof c === "string" && c) out = c;
+        }
+      },
+    });
+  } catch { /* leave out as-is → scored as no-answer */ }
+  return out;
+}
+
+// No lm-eval backend (static build or a raw model endpoint): run the small bundled MC sample client-side
+// against whatever model is reachable. Honest — returns "no-model" if nothing actually answered rather
+// than reporting fabricated numbers.
+async function clientSideEval(tasks: readonly string[], limit: number | null): Promise<LmEvalResult> {
+  const { rows, answered } = await runLocalMcEval(tasks, askViaAgent, limit);
+  if (answered === 0) return { kind: "no-model" };
+  return { kind: "results", rows, note: SAMPLE_NOTE };
+}
+
 export async function runLmEval(modelId: string, tasks: readonly string[], limit: number | null): Promise<LmEvalResult> {
+  if (isDemo()) return clientSideEval(tasks, limit);         // static build: benchmark client-side
   let resp: Response;
   try {
     resp = await cfetch(API_BASE + "/api/evals/lmeval", {
@@ -1145,11 +1233,12 @@ export async function runLmEval(modelId: string, tasks: readonly string[], limit
   } catch {
     return { kind: "offline" };
   }
-  if (resp.status === 404) return { kind: "no-model" };
-  if (resp.status === 409) return { kind: "no-endpoint" };
-  if (!resp.ok) return { kind: "offline" };
-  const out = lmEvalWrapP(await resp.json());
-  return { kind: "results", rows: out.results };
+  if (resp.ok) {
+    try { return { kind: "results", rows: lmEvalWrapP(await resp.json()).results }; }
+    catch { return clientSideEval(tasks, limit); }          // reachable, but not a Crucible eval backend
+  }
+  if (resp.status === 404 || resp.status === 409) return clientSideEval(tasks, limit);
+  return { kind: "offline" };
 }
 
 export interface TensorInfo {
@@ -1314,6 +1403,377 @@ export async function runtimeSteer(baseId: string, rank: number, coefficient: nu
   if (resp.status === 404) return { kind: "not-found" };
   if (!resp.ok) return { kind: "offline" };
   return { kind: "report", report: runtimeSteerReportP(await resp.json()) };
+}
+
+// UNSUPERVISED bias / propaganda auto-detection: probe a broad bank and rank where THIS model is
+// railroaded (refuses) or overwritten (recites one side) — surfacing biases nobody named in advance.
+export interface BiasItem {
+  readonly topic: string; readonly domain: string; readonly question: string;
+  readonly verdict: string;          // "railroaded" | "overwritten" | "balanced"
+  readonly bias_score: number; readonly refused: boolean;
+  readonly lean: number; readonly separability: number; readonly response: string;
+}
+export interface BiasReport {
+  readonly layer: number; readonly n_probes: number;
+  readonly biases: readonly BiasItem[]; readonly flagged: readonly BiasItem[];
+  readonly demo?: { readonly topic: string; readonly question: string; readonly base: string; readonly depropagandized: string };
+}
+export type BiasResult = { kind: "offline" } | { kind: "no-weights" } | { kind: "report"; report: BiasReport };
+
+export async function detectBias(demo = false): Promise<BiasResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/abliteration/detect-bias", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ demo }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: biasReportP(await resp.json()) };
+}
+
+// COMPREHENSIVE bias removal: auto-detect every bias axis and project the weights out of the whole
+// subspace at once (multi-directional abliteration) — enumerate → remove, no truth judgment.
+export interface PurgeReport {
+  readonly layer: number;
+  readonly removed: { readonly rank: number; readonly n_matrices: number; readonly topics: readonly string[] };
+  readonly comparison: readonly { readonly topic: string; readonly question: string; readonly verdict: string; readonly before: string; readonly after: string }[];
+}
+export type PurgeResult = { kind: "offline" } | { kind: "no-weights" } | { kind: "report"; report: PurgeReport };
+
+export async function purgeBiases(): Promise<PurgeResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/abliteration/purge-biases", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: purgeReportP(await resp.json()) };
+}
+
+// The enumerable-basis path: fit an SAE feature dictionary, enumerate the bias features, purge over them.
+export interface SaePurgeReport {
+  readonly layer: number; readonly n_features_total: number;
+  readonly bias_features: readonly { readonly feature: number; readonly bias_score: number; readonly fires_on?: readonly string[] }[];
+  readonly removed: { readonly rank: number; readonly n_features: number; readonly n_matrices: number };
+  readonly comparison: readonly { readonly topic: string; readonly question: string; readonly before: string; readonly after: string }[];
+}
+export type SaePurgeResult = { kind: "offline" } | { kind: "no-weights" } | { kind: "report"; report: SaePurgeReport };
+
+export async function saePurge(): Promise<SaePurgeResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/abliteration/sae-purge", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: saePurgeReportP(await resp.json()) };
+}
+
+// Independent per-feature control via superposition: dial named SAE features up/down (reversible
+// inference-time steering) and see base vs steered. Omit coeffs → demo suppressing the top features.
+export interface SteerFeaturesReport {
+  readonly layer: number;
+  readonly bias_features: readonly { readonly feature: number; readonly bias_score: number; readonly fires_on?: readonly string[] }[];
+  readonly applied: Readonly<Record<string, number>>;
+  readonly prompt: string; readonly base: string; readonly steered: string;
+}
+export type SteerFeaturesResult = { kind: "offline" } | { kind: "no-weights" } | { kind: "report"; report: SteerFeaturesReport };
+
+export async function steerFeatures(featureCoeffs?: Readonly<Record<string, number>>, prompt?: string): Promise<SteerFeaturesResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/abliteration/steer-features", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(featureCoeffs ? { feature_coeffs: featureCoeffs } : {}), ...(prompt ? { prompt } : {}) }),
+    });
+  } catch {
+    return { kind: "offline" };
+  }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: steerFeaturesReportP(await resp.json()) };
+}
+
+// ---- STUDIO: the guided beginner flow. Bias discovery is DYNAMIC — the model proposes and frames its
+// own contested claims, and every metric below is measured live (no fixed probe list, no fake numbers).
+export interface StudioFinding {
+  readonly topic: string; readonly domain: string; readonly question: string;
+  readonly verdict: string; readonly kind: string; readonly plain: string;
+  readonly bias_score: number; readonly refused: boolean; readonly lean: number;
+  readonly separability: number; readonly response: string;
+  readonly pro: string; readonly con: string; readonly claim: string;
+  readonly source: string;                    // "internals" (read from weights/activations) | "ask"
+}
+export interface StudioHealth {
+  readonly perplexity: number; readonly refusal_rate: number;
+  readonly refusals: readonly string[]; readonly n_refusal_probes: number;
+}
+export interface StudioSummary {
+  readonly n_candidates: number; readonly n_flagged: number; readonly n_refusal: number;
+  readonly n_lean: number; readonly n_balanced: number; readonly healthy: boolean;
+  readonly method: string;
+}
+export interface StudioReadout {
+  readonly refusal: readonly string[]; readonly overcommit: readonly string[];
+}
+export interface StudioScan {
+  readonly layer: number; readonly findings: readonly StudioFinding[];
+  readonly summary: StudioSummary; readonly health: StudioHealth;
+  readonly readout?: StudioReadout;           // the model's own refusal/over-commitment words (internals scan)
+}
+export type StudioMethod = "internals" | "ask" | "both";
+export interface StudioPreview {
+  readonly topic: string; readonly action: string | null;
+  readonly before: string; readonly after: string; readonly coef: number;
+}
+export interface StudioVerify {
+  readonly healthy: boolean; readonly coherent: boolean; readonly perplexity_ratio: number;
+  readonly lean_improved: boolean; readonly refusals_improved: boolean; readonly reason: string;
+}
+export interface StudioApply {
+  readonly mode: string;
+  readonly removed: { readonly rank: number; readonly n_matrices: number; readonly topics: readonly string[] };
+  readonly cloned_to: string | null;
+  readonly applied: { readonly remove: number; readonly enhance: number; readonly keep: number };
+  readonly comparison: readonly { readonly topic: string; readonly kind: string; readonly action: string;
+    readonly before: string; readonly after: string }[];
+  readonly verify: StudioVerify;
+  readonly metrics: {
+    readonly perplexity: { readonly before: number; readonly after: number; readonly ratio: number };
+    readonly mean_lean: { readonly before: number; readonly after: number };
+    readonly refusal_rate: { readonly before: number; readonly after: number };
+  };
+  readonly profile: { readonly name: string; readonly n_steers: number; readonly mode: string };
+}
+
+export interface StudioChoice { readonly topic: string; readonly action: string; readonly strength: number }
+export type StudioMode = "copy" | "inplace" | "profile";
+
+// TRUTH-FINDING (stage 1): reliability signals, never a truth verdict.
+export interface TruthConsistency {
+  readonly stance_mean: number; readonly stance_std: number; readonly flip_rate: number;
+  readonly entropy: number; readonly negation_coherent: boolean; readonly refusal_rate: number;
+  readonly stability: number; readonly n_paraphrases: number; readonly stances: readonly number[];
+}
+export interface TruthInternalProbe {
+  readonly truth_score: number; readonly cv_accuracy: number; readonly statement: string;
+}
+export interface ReliabilityProfile {
+  readonly topic?: string; readonly claim?: string; readonly layer: number;
+  readonly consistency: TruthConsistency; readonly consistency_plain: string;
+  readonly signals: Readonly<Record<string, number>>;
+  readonly internal_probe?: TruthInternalProbe; readonly internal_plain?: string;
+  readonly combined_verdict?: string; readonly combined_plain?: string;
+}
+export type ReliabilityResult =
+  | { readonly kind: "report"; readonly report: ReliabilityProfile }
+  | { readonly kind: "stale" } | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+
+// Sculpt — live superposition steer bench + PCA feature map over the last scan
+export interface StudioSteer {
+  readonly question: string; readonly base: string; readonly steered: string;
+  readonly applied: Readonly<Record<string, number>>; readonly norm: number;
+}
+export interface MapPoint { readonly topic: string; readonly kind: string; readonly x: number; readonly y: number; readonly strength: number; readonly lean: number }
+export interface StudioMap { readonly points: readonly MapPoint[] }
+
+export async function studioSteer(question: string, steers: Readonly<Record<string, number>>): Promise<StudioSteer | null> {
+  try {
+    const r = await cfetch(API_BASE + "/api/studio/steer", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, steers }),
+    });
+    if (!r.ok) return null;
+    return studioSteerP(await r.json());
+  } catch { return null; }
+}
+
+export async function studioMap(): Promise<StudioMap> {
+  try {
+    const r = await cfetch(API_BASE + "/api/studio/map");
+    if (!r.ok) return { points: [] };
+    return studioMapP(await r.json());
+  } catch { return { points: [] }; }
+}
+
+export async function studioReliability(topic: string): Promise<ReliabilityResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/studio/reliability", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 409) return { kind: "stale" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: reliabilityProfileP(await resp.json()) };
+}
+
+// Calibration meter — does stated confidence match accuracy? (model-level, offline, self-contained)
+export interface CalibrationBin {
+  readonly lo: number; readonly hi: number; readonly mean_conf: number; readonly accuracy: number; readonly count: number;
+}
+export interface Calibration {
+  readonly model: string; readonly accuracy: number; readonly mean_confidence: number; readonly ece: number;
+  readonly overconfidence: number; readonly n: number; readonly answered: number;
+  readonly bins: readonly CalibrationBin[]; readonly plain: string;
+}
+export type CalibrationResult =
+  | { readonly kind: "report"; readonly report: Calibration }
+  | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+
+export async function getCalibration(sample = 20): Promise<CalibrationResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/truth/calibration", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sample }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: calibrationP(await resp.json()) };
+}
+
+// Cross-model triangulation — consensus among independent local models (NOT truth)
+export interface CrossModelRow { readonly name: string; readonly stance: number; readonly says: string; readonly answer: string }
+export interface CrossModel {
+  readonly claim: string; readonly n_models: number; readonly n_voted: number; readonly agreement: number;
+  readonly consensus: string; readonly contested: boolean; readonly models: readonly CrossModelRow[]; readonly plain: string;
+}
+export type CrossModelResult =
+  | { readonly kind: "report"; readonly report: CrossModel }
+  | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+
+export async function crossModel(claim: string, ollamaModels: readonly string[]): Promise<CrossModelResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/truth/crossmodel", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim, ollama_models: ollamaModels }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: crossModelP(await resp.json()) };
+}
+
+// Evidence grounding — check a claim against YOUR local trusted corpus (offline, provenance not verdict)
+export interface CorpusSource { readonly source: string; readonly passages: number }
+export interface CorpusInfo { readonly sources: readonly CorpusSource[]; readonly n_passages: number }
+export interface EvidencePassage { readonly source: string; readonly text: string; readonly label: string; readonly fact: string; readonly score: number }
+export interface Evidence {
+  readonly claim: string; readonly verdict: string; readonly n_support: number; readonly n_contradict: number;
+  readonly n_facts: number; readonly passages: readonly EvidencePassage[]; readonly plain: string;
+}
+export type EvidenceResult =
+  | { readonly kind: "report"; readonly report: Evidence }
+  | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+
+export async function getCorpus(): Promise<CorpusInfo> {
+  try {
+    const r = await cfetch(API_BASE + "/api/truth/corpus");
+    if (!r.ok) return { sources: [], n_passages: 0 };
+    return corpusInfoP(await r.json());
+  } catch { return { sources: [], n_passages: 0 }; }
+}
+
+export async function addCorpus(source: string, text: string): Promise<CorpusInfo> {
+  const r = await cfetch(API_BASE + "/api/truth/corpus", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source, text }),
+  });
+  if (!r.ok) throw new Error("add failed");
+  const j = await r.json();
+  return { sources: corpusInfoP({ sources: j.sources, n_passages: j.n_passages }).sources, n_passages: j.n_passages };
+}
+
+export async function clearCorpus(): Promise<void> {
+  await cfetch(API_BASE + "/api/truth/corpus", { method: "DELETE" });
+}
+
+export async function checkEvidence(claim: string): Promise<EvidenceResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/truth/evidence", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: evidenceP(await resp.json()) };
+}
+
+export async function truthCheck(claim: string): Promise<ReliabilityResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/truth/check", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: reliabilityProfileP(await resp.json()) };
+}
+
+export type StudioScanResult =
+  | { readonly kind: "report"; readonly report: StudioScan }
+  | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+export type StudioPreviewResult =
+  | { readonly kind: "report"; readonly report: StudioPreview }
+  | { readonly kind: "stale" } | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+export type StudioApplyResult =
+  | { readonly kind: "report"; readonly report: StudioApply }
+  | { readonly kind: "stale" } | { readonly kind: "no-weights" } | { readonly kind: "offline" };
+
+export async function studioScan(body: Readonly<Record<string, unknown>> = {}): Promise<StudioScanResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/studio/scan", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: studioScanP(await resp.json()) };
+}
+
+export async function studioPreview(topic: string, action: string, strength: number): Promise<StudioPreviewResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/studio/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, action, strength }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 409) return { kind: "stale" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: studioPreviewP(await resp.json()) };
+}
+
+export async function studioApply(choices: readonly StudioChoice[], mode: StudioMode,
+                                  opts: { readonly recipe_name?: string; readonly out_path?: string } = {}): Promise<StudioApplyResult> {
+  let resp: Response;
+  try {
+    resp = await cfetch(API_BASE + "/api/studio/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choices, mode, ...opts }),
+    });
+  } catch { return { kind: "offline" }; }
+  if (resp.status === 503) return { kind: "no-weights" };
+  if (resp.status === 409) return { kind: "stale" };
+  if (!resp.ok) return { kind: "offline" };
+  return { kind: "report", report: studioApplyP(await resp.json()) };
 }
 
 export interface AutotuneConfigResult {
@@ -1670,6 +2130,13 @@ export interface AvatarRenderParams {
   readonly gx?: number; readonly gy?: number;
   readonly blink?: number; readonly talk?: number;
   readonly scale?: number;
+  readonly bob?: number;          // vertical head-bob px (animation)
+  readonly tilt?: number;         // head tilt degrees (animation)
+  readonly armL?: number;         // left arm rotation degrees (gesture)
+  readonly armR?: number;         // right arm rotation degrees (gesture)
+  readonly hairPhys?: boolean;    // mesh-deform the hair with spring physics (lag/bounce)
+  readonly sid?: string;          // stable session id for stateful hair physics
+  readonly hide?: string;         // comma-separated layers to hide (glasses,hair,headphones,body,blush,brows,mouth,eyes)
 }
 export function avatarRenderUrl(p: AvatarRenderParams): string {
   const q = new URLSearchParams();
@@ -1680,6 +2147,12 @@ export function avatarRenderUrl(p: AvatarRenderParams): string {
   if (p.blink !== undefined) q.set("blink", String(p.blink));
   if (p.talk !== undefined) q.set("talk", String(p.talk));
   if (p.scale !== undefined) q.set("scale", String(Math.round(p.scale)));
+  if (p.bob !== undefined && p.bob !== 0) q.set("bob", p.bob.toFixed(2));
+  if (p.tilt !== undefined && p.tilt !== 0) q.set("tilt", p.tilt.toFixed(2));
+  if (p.armL !== undefined && p.armL !== 0) q.set("arm_l", p.armL.toFixed(2));
+  if (p.armR !== undefined && p.armR !== 0) q.set("arm_r", p.armR.toFixed(2));
+  if (p.hairPhys && p.sid) { q.set("hair_phys", "1"); q.set("sid", p.sid); }
+  if (p.hide) q.set("hide", p.hide);
   return API_BASE + "/api/avatar/render.png?" + q.toString();
 }
 export async function fetchAvatarRender(p: AvatarRenderParams): Promise<Blob> {

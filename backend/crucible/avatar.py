@@ -157,6 +157,11 @@ def _gaze_offset(avatar: Avatar, gaze: Optional[tuple]) -> tuple:
         return (0, 0)
     gx = max(-1.0, min(1.0, float(gaze[0])))
     gy = max(-1.0, min(1.0, float(gaze[1])))
+    # `gaze_px` (meta) caps the travel in pixels — big detailed portraits have small eyes, so a size-scaled
+    # offset would fling the iris across the face; a few px is right there.
+    cap = avatar.meta.get("gaze_px")
+    if cap:
+        return (round(gx * cap), round(gy * cap * 0.7))
     return (round(gx * avatar.size[0] * 0.06), round(gy * avatar.size[1] * 0.04))
 
 
@@ -168,9 +173,10 @@ def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False
     face = avatar.part_layer("face")
     lash = avatar.part_layer("eyelash")
     if blink:
-        if avatar.part_layer("eyes"):
-            ov["eyes"] = "closed"
-            if avatar.part_layer("pupils"):
+        eyes = avatar.part_layer("eyes")
+        if eyes:
+            ov["eyes"] = "blink" if "blink" in eyes.states else "closed"   # a natural upper-lid blink,
+            if avatar.part_layer("pupils"):                                #  NOT the happy ^‿^ (that's for love/laugh)
                 ov["pupils"] = "off"
         if lash and "closed" in lash.states:  # a lid layer closes on blink (also for imported-portrait rigs
             ov["eyelash"] = "closed"          # where the eyes live in the base 'face' image, not an 'eyes' part)
@@ -186,7 +192,8 @@ def blink_talk_overrides(avatar: Avatar, blink: bool = False, talk: bool = False
 
 
 def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optional[dict] = None,
-                   box: Optional[tuple] = None, gaze: Optional[tuple] = None):
+                   box: Optional[tuple] = None, gaze: Optional[tuple] = None,
+                   only_parts: Optional[set] = None):
     """Composite a sprite-kind avatar's visible layers (RGBA PNGs, alpha-blended back-to-front) into one
     image, resized to fit `box` (defaults to the avatar's native size) while KEEPING KEY FEATURES
     recognizable (nearest-neighbour so pixel art stays crisp when shrunk). Returns a PIL image.
@@ -210,6 +217,8 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
         if _el is not None and _el.mirror:
             gaze_part = "eyes"
     items = avatar.compose(expression, overrides)
+    if only_parts is not None:                          # render just these parts (transparent elsewhere) —
+        items = [it for it in items if it.get("part") in only_parts]   # used to overlay crisp eyes onto a blend
 
     def paint(item):
         """Render one item's sprite(s) onto a FRESH full-canvas layer, honouring mirror pairs / placement /
@@ -292,6 +301,15 @@ def blend_expressions(avatar: Avatar, weights: dict, overrides: Optional[dict] =
         used += frac
         alpha = frac / used
         acc = Image.blend(acc, layer_img, alpha)
+    # Averaging full renders washes out DISCRETE structural features — most visibly the eye WHITES vanish
+    # when an open-eyed and a closed-eyed expression are mixed (the sclera averages into skin). So overlay
+    # the DOMINANT expression's eye parts at full opacity on top of the blend: the eyes stay crisp (with
+    # their whites) while the rest of the mood still blends smoothly.
+    if acc is not None:
+        dominant = max(items, key=lambda kv: kv[1])[0]
+        eyes = render_sprites(avatar, dominant, overrides, box, gaze,
+                              only_parts={"eyes", "pupils", "eyelash"}).convert("RGBA")
+        acc = Image.alpha_composite(acc.convert("RGBA"), eyes)
     return acc
 
 
