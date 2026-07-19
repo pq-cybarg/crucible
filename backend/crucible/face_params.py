@@ -93,14 +93,16 @@ def blend_params(weights: dict) -> dict:
 
 
 def draw_mouth(draw, cx: int, cy: int, p: dict, s: float = 1.0,
-               lips: bool = True, inside: bool = True):
+               lips: bool = True, inside: bool = True, teeth: bool = True, tongue: bool = True):
     """Draw a MORPHING mouth from params (continuous frown↔smile, shut↔open) in the
-    avatar's simple-lip style. `s` scales for the sprite size (native ~1.0). `lips`/
-    `inside` toggle the lip outline / inner-mouth fill (part-hierarchy toggles)."""
+    avatar's simple-lip style. `s` scales for the sprite size (native ~1.0). `lips`/`inside`
+    toggle the lip outline / inner-mouth cavity; `teeth`/`tongue` add a subtle upper-teeth band
+    and a soft tongue that only appear once the mouth is CLEARLY open (part-hierarchy toggles)."""
     w = 7.0 * s * p.get("mouth_width", 1.0)
     op = _clamp(p.get("mouth_open", 0.0), 0.0, 1.0)
     cv = _clamp(p.get("mouth_curve", 0.0), -1.0, 1.0)
     DK, INN, LO = (74, 40, 36, 255), (96, 52, 48, 255), (188, 120, 110, 255)
+    TEETH, TONGUE = (240, 234, 228, 255), (206, 116, 116, 255)
     lw = max(1, int(2 * s))
 
     # ONE continuous shape (no open/closed branch → no pop when talking/blending), densely sampled so it
@@ -116,8 +118,18 @@ def draw_mouth(draw, cx: int, cy: int, p: dict, s: float = 1.0,
     lower = [(x, y + gap * (0.5 + 0.5 * (1 - t * t))) for t, (x, y) in zip(tsx, upper)]
 
     if gap > 1.4 * s:                                         # visibly open
-        if inside:                                           # inner mouth (cavity / tongue+teeth stand-in)
+        if inside:                                           # inner mouth cavity
             draw.polygon(upper + lower[::-1], fill=INN)
+            # TONGUE: a soft mound rising from the lower lip, only when clearly open
+            if tongue and gap > 4.0 * s:
+                base = lower[3:-3]
+                rise = min(0.6, 0.28 + 0.4 * op)
+                top = [(x, y - gap * rise) for x, y in base]
+                draw.polygon(top + base[::-1], fill=TONGUE)
+            # UPPER TEETH: a thin bright band tucked under the upper lip, only when clearly open
+            if teeth and gap > 3.2 * s:
+                band = [(x, y + 1.1 * s) for x, y in upper[2:-2]]
+                draw.line(band, fill=TEETH, width=max(1, int(1.6 * s)), joint="curve")
             draw.line([(x, y - 1.2 * s) for x, y in lower[2:-2]], fill=LO, width=1)   # lower-lip sheen
         if lips:
             draw.line(lower, fill=DK, width=1, joint="curve")

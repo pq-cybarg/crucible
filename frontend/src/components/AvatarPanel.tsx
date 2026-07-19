@@ -125,7 +125,7 @@ export default function AvatarPanel(): JSX.Element {
     { id: "nose", label: "nose" },
     { id: "mouth", label: "mouth", kids: [
       { id: "mouth-lips", label: "lips" }, { id: "mouth-inside", label: "inside" },
-      { id: "mouth-teeth", label: "teeth", soon: true }, { id: "mouth-tongue", label: "tongue", soon: true }] },
+      { id: "mouth-teeth", label: "teeth" }, { id: "mouth-tongue", label: "tongue" }] },
     { id: "hair", label: "hair", kids: [{ id: "hair-sub", label: "subsections", soon: true }] },
     { id: "brows", label: "brows" }, { id: "blush", label: "blush" }, { id: "glasses", label: "glasses" },
     { id: "headphones", label: "headphones" }, { id: "body", label: "body" },

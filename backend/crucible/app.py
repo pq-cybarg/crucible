@@ -3697,7 +3697,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             above_img = _band({"accessory"} - _hidden)
             if "mouth" not in _hide:
                 draw_mouth(_ImageDraw.Draw(above_img, "RGBA"), 101, 158, fparams, 1.0,
-                           lips="mouth-lips" not in _hide, inside="mouth-inside" not in _hide)
+                           lips="mouth-lips" not in _hide, inside="mouth-inside" not in _hide,
+                           teeth="mouth-teeth" not in _hide, tongue="mouth-tongue" not in _hide)
             upper = _head_move(above_img)
             img = lower
             if "hair" not in _hidden:     # the physics rig is CACHED, so gate the composite on the hide flag
