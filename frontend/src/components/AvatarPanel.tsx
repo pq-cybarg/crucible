@@ -119,7 +119,7 @@ export default function AvatarPanel(): JSX.Element {
   // parent respects a child's own disable (its own toggle stays off). `soon` = not yet a separated part.
   const PART_TREE: { id: string; label: string; soon?: boolean; kids?: { id: string; label: string; soon?: boolean }[] }[] = [
     { id: "eyes", label: "eyes", kids: [
-      { id: "irises", label: "irises" }, { id: "pupils", label: "pupils", soon: true },
+      { id: "irises", label: "irises" }, { id: "pupils", label: "pupils" },
       { id: "whites", label: "whites", soon: true },
       { id: "eyelashes", label: "eyelashes" }, { id: "eyelids", label: "eyelids", soon: true }] },
     { id: "nose", label: "nose", soon: true },

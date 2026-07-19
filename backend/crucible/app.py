@@ -3642,9 +3642,8 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             # (draw_eyes) and re-composite the SEPARATED rigid glasses on top. Smooth, keeps eyeshadow/lash.
             eye_ov = dict(overrides)
             eye_ov["eyes"] = "open"
-            eye_ov["pupils"] = "off" if ("pupils" in _hide or "irises" in _hide) else "on"
-            _eyeoff = _hidden | ({"pupils"} if "eyes" in _hidden else set())   # eyes group also hides the iris
-            below = {"skin", "clothes_front", "eyes", "pupils", "blush", "brows"} - _eyeoff   # z < hair(7)
+            # iris + pupil are their OWN parts, composited separately below → drop "pupils" from the band.
+            below = {"skin", "clothes_front", "eyes", "blush", "brows"} - _hidden   # z < hair(7)
             below_img = _band(below, eye_ov)
             import os as _os2
             _gp = None
@@ -3653,13 +3652,24 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 if _pp:
                     _gp = _os2.path.join(_os2.path.dirname(_pp[0]), "glasses.png")
                     break
-            _glass = None if "glasses" in _hide else (
-                Image.open(_gp).convert("RGBA") if (_gp and _os2.path.exists(_gp)) else None)
-            # LASHES = a SEPARATE part; passed to draw_eyes which TRANSLATES them down (rigid) with the
-            # closing lid (glasses stay rigid on top). Hidden if the lash or eyes group is off.
-            _lp = _os2.path.join(_os2.path.dirname(_gp), "lashes.png") if _gp else None
-            _lash = None if ("eyelashes" in _hide or "eyes" in _hidden) else (
-                Image.open(_lp).convert("RGBA") if (_lp and _os2.path.exists(_lp)) else None)
+            _adir = _os2.path.dirname(_gp) if _gp else None
+            def _eyepart(name):
+                _pth = _os2.path.join(_adir, name) if _adir else None
+                return Image.open(_pth).convert("RGBA") if (_pth and _os2.path.exists(_pth)) else None
+            _eyes_hidden = "eyes" in _hidden
+            # IRIS (under) then PUPIL (over) composited INTO the eye buffer BEFORE the squash so they close
+            # with the eye; each hidden by its own toggle or the eyes group.
+            if not _eyes_hidden and "irises" not in _hide:
+                _iris = _eyepart("irises.png")
+                if _iris is not None:
+                    below_img.alpha_composite(_iris)
+            if not _eyes_hidden and "pupils" not in _hide:
+                _pup = _eyepart("pupils.png")
+                if _pup is not None:
+                    below_img.alpha_composite(_pup)
+            _glass = None if "glasses" in _hide else _eyepart("glasses.png")
+            # LASHES translate/squash with the closing lid; hidden by the lash or eyes group.
+            _lash = None if ("eyelashes" in _hide or _eyes_hidden) else _eyepart("lashes.png")
             if _lash is not None:
                 below_img.alpha_composite(_lash)              # merged pre-squash → deforms with the eye
             if "eyes" not in _hidden:
