@@ -13,6 +13,7 @@ function estimateTokens(msgs: readonly { readonly content: string }[]): number {
 }
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 import ContextExplorer from "./ContextExplorer";
+import ChatAvatar from "./ChatAvatar";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -232,8 +233,9 @@ export default function AgentConsole(): JSX.Element {
     if (compacting || busy || history.length < 4) return;
     setCompacting(true);
     try {
+      const _mid = getActiveModelId();
       const res = await compactConversation(history as readonly CompactMessage[], {
-        force: true, keepRecent: 6, modelId: getActiveModelId() ?? undefined,
+        force: true, keepRecent: 6, ...(_mid ? { modelId: _mid } : {}),
       });
       if (!res.compacted) return;
       const rebuilt: Turn[] = res.messages.flatMap((m): Turn[] => {
@@ -379,8 +381,12 @@ export default function AgentConsole(): JSX.Element {
     }
   }
 
+  const lastTurn = turns[turns.length - 1];
+  const streaming = lastTurn?.kind === "assistant" && lastTurn.streaming === true;
   return (
     <div className="console">
+      {/* the companion, watching the conversation — talks while the agent streams, idles otherwise */}
+      <div className="chat-avatar-dock"><ChatAvatar talking={streaming || busy} size={112} /></div>
       <div className="thread">
         <AnimatePresence initial={false}>
           {turns.length === 0 && (
