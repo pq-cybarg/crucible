@@ -120,9 +120,9 @@ export default function AvatarPanel(): JSX.Element {
   const PART_TREE: { id: string; label: string; soon?: boolean; kids?: { id: string; label: string; soon?: boolean }[] }[] = [
     { id: "eyes", label: "eyes", kids: [
       { id: "irises", label: "irises" }, { id: "pupils", label: "pupils" },
-      { id: "whites", label: "whites", soon: true },
+      { id: "whites", label: "whites" },
       { id: "eyelashes", label: "eyelashes" }, { id: "eyelids", label: "eyelids", soon: true }] },
-    { id: "nose", label: "nose", soon: true },
+    { id: "nose", label: "nose" },
     { id: "mouth", label: "mouth", kids: [
       { id: "mouth-lips", label: "lips" }, { id: "mouth-inside", label: "inside" },
       { id: "mouth-teeth", label: "teeth", soon: true }, { id: "mouth-tongue", label: "tongue", soon: true }] },

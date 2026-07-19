@@ -3656,9 +3656,19 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             def _eyepart(name):
                 _pth = _os2.path.join(_adir, name) if _adir else None
                 return Image.open(_pth).convert("RGBA") if (_pth and _os2.path.exists(_pth)) else None
+            # NOSE = its own part (lifted off the head sprite); composited onto the face, moves with the
+            # head (below_img is head-moved later). Hidden by its own toggle.
+            if "nose" not in _hide:
+                _nose = _eyepart("nose.png")
+                if _nose is not None:
+                    below_img.alpha_composite(_nose)
             _eyes_hidden = "eyes" in _hidden
-            # IRIS (under) then PUPIL (over) composited INTO the eye buffer BEFORE the squash so they close
-            # with the eye; each hidden by its own toggle or the eyes group.
+            # WHITES (sclera, backmost) then IRIS then PUPIL composited INTO the eye buffer BEFORE the squash
+            # so they close with the eye; each hidden by its own toggle or the eyes group.
+            if not _eyes_hidden and "whites" not in _hide:
+                _wh = _eyepart("whites.png")
+                if _wh is not None:
+                    below_img.alpha_composite(_wh)
             if not _eyes_hidden and "irises" not in _hide:
                 _iris = _eyepart("irises.png")
                 if _iris is not None:
