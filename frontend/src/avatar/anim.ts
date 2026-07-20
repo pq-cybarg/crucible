@@ -12,6 +12,23 @@ export function dominant(weights: Record<string, number>): string {
   return best;
 }
 
+// Which moods carry a special EYE SHAPE (mirrors the backend EXPRESSION_PARAMS eye_shape map). Used to
+// trigger a blink when the shape changes so the swap happens behind the closing lids ("reopen as new eyes").
+export const SHAPE_MOODS: Record<string, string> = {
+  smug: "cat", teasing: "cat", lovestruck: "heart",
+  starstruck: "star_bloom", dizzy: "swirl", mesmerized: "concentric",
+};
+
+/** The strongest shape-bearing mood's shape name (past a small threshold), or "" — mirrors blend_params. */
+export function shapeOf(weights: Record<string, number>): string {
+  let best = "", bw = 0.3;
+  for (const [k, w] of Object.entries(weights)) {
+    const s = SHAPE_MOODS[k];
+    if (s && w > bw) { bw = w; best = s; }
+  }
+  return best;
+}
+
 // Per-expression MOTION so moods play as animations, not stills: a mouth flap (talk), a vertical head
 // bob, and a slight tilt, as functions of time. Closed-eye moods (laughing/love) come alive through the
 // bounce/sway rather than staring blankly. Amplitudes are small — lively, not seasick.

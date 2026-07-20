@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import { fetchAvatarRender } from "../api";
 import { makeIdle } from "../avatar/idle";
-import { blendString, dominant, expressionAnim } from "../avatar/anim";
+import { blendString, dominant, expressionAnim, shapeOf } from "../avatar/anim";
 
 /**
  * A small, always-on companion avatar for the CHAT window — the same live-rendered face as the
@@ -31,6 +31,7 @@ export default function ChatAvatar(
     let cur: [number, number] = [0, 0];
     let curW: Record<string, number> = { neutral: 1 };
     let blinkSeq: number[] = [];
+    let lastShape = "";                             // blink when the eye-shape changes (morph under the lids)
     const urls: (string | null)[] = [null, null];
     let top = 0;
     const loop = (now: number): void => {
@@ -38,6 +39,11 @@ export default function ChatAvatar(
       if (now - last < 66) return;                  // ~15fps, gentle on the chat
       last = now;
       const it = idle();
+      const tgtShape = shapeOf(moodRef.current);    // morph-under-blink: swap the shape behind the lids
+      if (tgtShape !== lastShape) {
+        lastShape = tgtShape;
+        if (blinkSeq.length === 0) blinkSeq = [0.4, 0.6, 0.85, 1, 1, 0.85, 0.6, 0.4];
+      }
       if (it.blink && blinkSeq.length === 0) blinkSeq = [0.4, 0.6, 0.85, 1, 1, 0.85, 0.6, 0.4];
       const blink = blinkSeq.shift() ?? 0;
       cur = [cur[0] + (it.gaze[0] - cur[0]) * 0.3, cur[1] + (it.gaze[1] - cur[1]) * 0.3];

@@ -6,7 +6,7 @@ import { browOffset, eyeGeometry, mouthPath, readFace } from "../avatar/face";
 import { DEMO_AVATAR, DEMO_REACTION, demoRigFrame } from "../avatar/demoRig";
 import { isDemo } from "../demo";
 import { makeIdle } from "../avatar/idle";
-import { blendString, dominant, expressionAnim } from "../avatar/anim";
+import { blendString, dominant, expressionAnim, shapeOf } from "../avatar/anim";
 
 // The web COMPANION window. LIVE (a backend is connected): it displays the ACTUAL avatar art — the same
 // cute-anime sprite the TUI face shows — server-rendered to PNG per frame with gaze/blink/talk, so the
@@ -140,11 +140,19 @@ export default function AvatarPanel(): JSX.Element {
     let top = 0;
     let curW: Record<string, number> = { neutral: 1 };        // eased weights → the face MORPHS between moods
     let blinkSeq: number[] = [];                              // blink amount curve: ease shut → hold → open
+    let lastShape = "";                                       // current eye-shape, to blink when it changes
     const loop = (now: number): void => {
       raf = requestAnimationFrame(loop);
       if (now - last < 60) return;
       last = now;
       const it = idle();
+      // MORPH-UNDER-BLINK: when the special eye-shape changes, blink so the swap happens behind the closing
+      // lids — she "closes her eyes and reopens as new eyes" instead of the shape popping in the open eye.
+      const tgtShape = shapeOf(weightsRef.current);
+      if (tgtShape !== lastShape) {
+        lastShape = tgtShape;
+        if (blinkSeq.length === 0) blinkSeq = [0.4, 0.6, 0.85, 1, 1, 0.85, 0.6, 0.4];
+      }
       // a slower, smoother blink: ease half → shut → half → open over ~8 frames (a 4-frame flick read as
       // too fast, and its brief half frames flashed). The half frames keep the iris now, so they're a
       // natural hooded lid, not a blank eye.
