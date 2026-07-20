@@ -31,13 +31,20 @@ EXPRESSION_PARAMS = {
     "surprised": {"mouth_open": 0.7, "mouth_width": 0.8, "eye_open": 1.18, "brow": 0.9},
     "sad":       {"mouth_curve": -0.6, "eye_open": 0.82, "brow": -0.4},
     "angry":     {"mouth_curve": -0.35, "mouth_open": 0.1, "eye_open": 0.95, "brow": -0.9},
-    "love":      {"mouth_curve": 0.8, "mouth_open": 0.15, "eye_open": 0.4, "eye_happy": 1.0, "blush": 1.0},
+    # love softened: a gentle happy squint, NOT always fully shut (eye_open 0.55 / eye_happy 0.85) — mixed
+    # moods open it further; heart-eyes are a SEPARATE transient effect ("lovestruck"), not baked in here.
+    "love":      {"mouth_curve": 0.8, "mouth_open": 0.15, "eye_open": 0.55, "eye_happy": 0.85, "blush": 1.0},
     "curious":   {"mouth_curve": 0.15, "eye_open": 1.05, "brow": 0.4},
-    "smug":      {"mouth_curve": 0.4, "mouth_width": 0.8, "eye_open": 0.8, "brow": -0.2},
+    "smug":      {"mouth_curve": 0.4, "mouth_width": 0.8, "eye_open": 0.8, "brow": -0.2, "eye_shape": "cat"},
     "shy":       {"mouth_curve": 0.2, "mouth_open": 0.05, "eye_open": 0.75, "blush": 0.9},
-    "teasing":   {"mouth_curve": 0.5, "mouth_open": 0.2, "eye_open": 0.7, "eye_happy": 0.4},
+    "teasing":   {"mouth_curve": 0.5, "mouth_open": 0.2, "eye_open": 0.7, "eye_happy": 0.4, "eye_shape": "cat"},
     "scared":    {"mouth_open": 0.4, "mouth_curve": -0.3, "eye_open": 1.1, "brow": 0.3},
     "talk":      {"mouth_open": 0.45},
+    # EFFECT moods — special eye shapes for intense / temporary beats; blend one in for the moment.
+    "lovestruck": {"mouth_curve": 0.85, "mouth_open": 0.2, "eye_open": 1.05, "blush": 1.0, "eye_shape": "heart"},
+    "starstruck": {"mouth_curve": 0.6, "mouth_open": 0.45, "eye_open": 1.1, "brow": 0.6, "eye_shape": "star_bloom"},
+    "dizzy":      {"mouth_curve": -0.1, "mouth_open": 0.2, "eye_open": 1.0, "eye_shape": "swirl"},
+    "mesmerized": {"mouth_curve": 0.1, "mouth_open": 0.15, "eye_open": 1.0, "eye_shape": "concentric"},
 }
 
 
@@ -89,6 +96,16 @@ def blend_params(weights: dict) -> dict:
     p["eye_happy"] = _clamp(p["eye_happy"], 0.0, 1.0)
     p["brow"] = _clamp(p["brow"], -1.2, 1.2)
     p["blush"] = _clamp(p["blush"], 0.0, 1.0)
+
+    # ---- EYE-SHAPE (categorical): the strongest active mood that declares an `eye_shape` wins; its weight
+    # is the INTENSITY, so special eyes (heart/star/cat/…) only show when that mood is strong, not always.
+    shape, samt = "", 0.0
+    for n in wn:
+        sh = EXPRESSION_PARAMS.get(n, {}).get("eye_shape")
+        if sh and wn[n] > samt:
+            shape, samt = sh, wn[n]
+    p["eye_shape"] = shape
+    p["eye_shape_amt"] = round(samt, 3)
     return p
 
 
@@ -148,7 +165,14 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
     never deform. `blink` (0..1) closes on top. `centers` = [(cx,cy), …]."""
     from PIL import Image, ImageDraw
     eo = _clamp(p.get("eye_open", 1.0) * (1.0 - _clamp(blink, 0.0, 1.0)), 0.06, 1.15)
-    if eo < 1.0:
+    # SPECIAL EYE SHAPE (heart/star/cat/…): when a strong shape mood is active and she's not mid-blink,
+    # show OPEN eyes carrying that shape instead of squashing/^-arcing. Gated on intensity so it's a beat,
+    # not a permanent state. (Morphing under a blink is orchestrated by the caller — swap during the shut
+    # frame so it "reopens as new eyes".)
+    _shape = p.get("eye_shape", "")
+    _samt = _clamp(p.get("eye_shape_amt", 0.0), 0.0, 1.0)
+    show_shape = bool(_shape) and _samt > 0.55 and _clamp(blink, 0.0, 1.0) < 0.5
+    if not show_shape and eo < 1.0:
         d = ImageDraw.Draw(img, "RGBA")
         for (cx, cy) in centers:
             x0, y0, x1, y1 = cx - half_w, cy - top_h, cx + half_w, cy + bot_h
@@ -165,7 +189,7 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
     # eye reads as the classic ^_^ (still the deadpan lash colour, not glossy round anime eyes).
     eh = _clamp(p.get("eye_happy", 0.0), 0.0, 1.0)
     arc = eh * _clamp((1.0 - eo) * 1.5, 0.0, 1.0)             # ^ strength: happy AND closing
-    if arc > 0.05:
+    if not show_shape and arc > 0.05:
         d = ImageDraw.Draw(img, "RGBA")
         LINE = (52, 40, 40, 255)
         aw = half_w - 2
@@ -182,6 +206,15 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
                 d.rectangle([cx - half_w, cy - top_h, cx + half_w, cy + bot_h + 1], fill=lid)
             d.line(pts, fill=LINE, width=3, joint="curve")
             d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)  # soft lower lash
+
+    if show_shape:
+        from crucible.eye_shapes import SHAPES
+        fn = SHAPES.get(_shape)
+        if fn is not None:
+            d = ImageDraw.Draw(img, "RGBA")
+            for (cx, cy) in centers:
+                d.ellipse([cx - 9, cy - 8, cx + 9, cy + 8], fill=(235, 232, 230, 255))  # erase round iris
+                fn(img, cx, cy, 8.0, _samt)
 
     if glasses is not None:
         img.alpha_composite(glasses)                          # rigid real-art frames back on top

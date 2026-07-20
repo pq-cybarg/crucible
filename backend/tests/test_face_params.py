@@ -74,3 +74,28 @@ def test_open_eye_has_no_happy_arc():
     before = np.asarray(img).copy()
     draw_eyes(img, [(70, 127)], blend_params({"neutral": 1}), half_w=22)
     assert np.array_equal(before, np.asarray(img))          # neutral open eye: draw_eyes is a no-op here
+
+
+def test_eye_shape_selected_by_dominant_mood():
+    assert blend_params({"smug": 1})["eye_shape"] == "cat"
+    assert blend_params({"lovestruck": 1})["eye_shape"] == "heart"
+    assert blend_params({"starstruck": 1})["eye_shape"] == "star_bloom"
+    assert blend_params({"neutral": 1}).get("eye_shape", "") == ""     # no special shape on a plain mood
+
+
+def test_eye_shape_amt_tracks_intensity():
+    # a faint shape mood → low amt (draw_eyes gates the overlay on amt>0.55, so a light smug stays normal)
+    strong = blend_params({"smug": 1})["eye_shape_amt"]
+    faint = blend_params({"smug": 0.3, "neutral": 0.7})["eye_shape_amt"]
+    assert strong > 0.9 and faint < 0.55
+
+
+def test_shape_overlay_changes_the_rendered_eye():
+    import numpy as np
+    from PIL import Image
+    from crucible.face_params import draw_eyes
+    def render(params):
+        img = Image.new("RGBA", (200, 200), (235, 232, 230, 255))   # sclera-ish base so a shape shows
+        draw_eyes(img, [(70, 127), (134, 127)], blend_params(params), half_w=22)
+        return np.asarray(img)
+    assert not np.array_equal(render({"lovestruck": 1}), render({"neutral": 1, "eye_open": 1}))
