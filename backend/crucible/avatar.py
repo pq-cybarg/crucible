@@ -216,9 +216,20 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
         _el = avatar.part_layer("eyes")
         if _el is not None and _el.mirror:
             gaze_part = "eyes"
+    import os as _os
+    _adir = ""                                          # the avatar's sprite dir (for the loose part PNGs)
+    for _lyr in getattr(avatar, "layers", []):
+        _paths = [q for q in getattr(_lyr, "states", {}).values() if isinstance(q, str)]
+        if _paths:
+            _adir = _os.path.dirname(_paths[0])
+            break
+    _has = lambda n: bool(_adir) and _os.path.exists(_os.path.join(_adir, f"{n}.png"))
+
     items = avatar.compose(expression, overrides)
     if only_parts is not None:                          # render just these parts (transparent elsewhere) —
         items = [it for it in items if it.get("part") in only_parts]   # used to overlay crisp eyes onto a blend
+    elif _has("pupils"):                                # FULL render WITH a loose pupil part → composite it
+        items = [it for it in items if it.get("part") != "pupils"]     # below (with iris, in order), not here
 
     def paint(item):
         """Render one item's sprite(s) onto a FRESH full-canvas layer, honouring mirror pairs / placement /
@@ -263,6 +274,28 @@ def render_sprites(avatar: Avatar, expression: str = "neutral", overrides: Optio
         if clip and clip in masks:                        # OCCLUDE: keep this layer only where the target is
             lc.putalpha(ImageChops.multiply(lc.split()[-1], masks[clip]))
         canvas.alpha_composite(lc)
+
+    # PART OVERLAYS (parity with the web): the separated parts (whites/iris/pupil/lashes/glasses/nose) were
+    # pulled OUT of the base sprites, so the web endpoint re-composites them. The sprite-blend path (TUI +
+    # non-hair web) must too, or the face renders incomplete (rim-only eyes, no nose). Only on a FULL render
+    # (only_parts is None); the web's banded renders pass only_parts and composite the parts themselves.
+    if only_parts is None:
+        blinking = bool(overrides) and str(overrides.get("eyes", "")) in ("blink", "closed", "half")
+        # (part, follows_gaze). iris + pupil track the look-direction; the rest stay put. Open-eye parts are
+        # skipped while blinking so the closed lid reads (glasses/nose always show). Each is composited only
+        # if its loose PNG exists, so procedurally-generated avatars (no split parts) are unaffected.
+        overlays = [("nose", False)]
+        if not blinking:
+            overlays += [("whites", False), ("irises", True), ("pupils", True), ("lashes", False)]
+        overlays += [("glasses", False)]
+        for name, follow in overlays:
+            if _has(name):
+                try:
+                    part = Image.open(_os.path.join(_adir, f"{name}.png")).convert("RGBA")
+                except (OSError, ValueError):
+                    continue
+                canvas.alpha_composite(part, (gdx, gdy) if follow else (0, 0))
+
     if (w, h) != avatar.size:
         canvas = canvas.resize((w, h), Image.NEAREST)     # crisp downscale for the small TUI box
     return canvas
