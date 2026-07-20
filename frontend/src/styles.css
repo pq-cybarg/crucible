@@ -1170,6 +1170,8 @@ label.pipe-comp input { margin-right: 4px; }
 .avatar-row .btn { padding: 6px 12px; font-size: 12px; text-transform: capitalize; }
 .avatar-row .btn.on { background: rgba(255,106,26,0.15); color: var(--amber-bright); border-color: var(--amber); }
 .avatar-toggles { margin-top: 4px; }
+.avatar-effects { align-items: center; }
+.avatar-eff-label { font-size: 11px; color: var(--amber, #ff6a1a); letter-spacing: 0.05em; align-self: center; }
 .avatar-reactions { margin-top: 8px; }
 .avatar-reactions .chip { cursor: pointer; text-transform: capitalize; }
 .avatar-reactions .chip:hover { color: var(--amber-bright); border-color: var(--amber); }

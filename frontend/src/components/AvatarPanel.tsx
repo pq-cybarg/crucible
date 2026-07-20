@@ -16,6 +16,11 @@ import { blendString, dominant, expressionAnim } from "../avatar/anim";
 
 const REACTIONS = ["funny", "cute", "scary", "sad", "surprised", "sus", "calm"] as const;
 
+// Special EYE-SHAPE effect moods (parametric-only, not in avatar.json) — pick one to see the shape:
+// lovestruck=heart, starstruck=Oshi-no-Ko star+bloom, dizzy=swirl, mesmerized=concentric. (cat-slit lives
+// on smug/teasing, already in the expression list.)
+const EFFECT_MOODS = ["lovestruck", "starstruck", "dizzy", "mesmerized"] as const;
+
 // blendString / dominant / expressionAnim now live in ../avatar/anim (shared with the in-chat avatar).
 
 // --- offline SVG face (demo only) --------------------------------------------------------------------
@@ -247,6 +252,14 @@ export default function AvatarPanel(): JSX.Element {
             ))}
           </div>
 
+          <div className="avatar-row avatar-effects">
+            <span className="avatar-eff-label">✦ eyes</span>
+            {EFFECT_MOODS.map((name) => (
+              <button key={name} className={`btn ghost${active === name ? " on" : ""}`}
+                onClick={() => pickExpression(name)} title="special eye-shape effect">{name}</button>
+            ))}
+          </div>
+
           <div className="avatar-row avatar-toggles">
             <button className={`btn ghost${talking ? " on" : ""}`} onClick={() => setTalking((t) => !t)}>
               {talking ? "talking…" : "talk"}</button>
@@ -288,8 +301,9 @@ export default function AvatarPanel(): JSX.Element {
 
           {mixing && (
             <div className="avatar-mix">
-              <p className="avatar-hint">Blend expressions by weight — a real-time blendshape mix.</p>
-              {expressions.map((name) => (
+              <p className="avatar-hint">Blend expressions by weight — a real-time blendshape mix. The ✦ eye
+                effects are intensity-gated: they only kick in past ~0.55 weight (a beat, not a permanent stare).</p>
+              {[...expressions, ...EFFECT_MOODS].map((name) => (
                 <label key={name} className="avatar-slider">
                   <span>{name}</span>
                   <input type="range" min={0} max={1} step={0.05} value={weights[name] ?? 0}
