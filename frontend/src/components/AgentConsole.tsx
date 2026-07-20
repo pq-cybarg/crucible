@@ -15,6 +15,7 @@ import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveMo
 import ContextExplorer from "./ContextExplorer";
 import ChatAvatar from "./ChatAvatar";
 import ToolFeed from "./ToolFeed";
+import { toModelHistory } from "../chatHistory";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -193,15 +194,9 @@ export default function AgentConsole(): JSX.Element {
     );
   }
 
-  const history = useMemo<readonly ChatMessage[]>(
-    () =>
-      turns.flatMap((turn): readonly ChatMessage[] =>
-        turn.kind === "user" || turn.kind === "assistant"
-          ? [{ role: turn.kind, content: turn.text }]
-          : [],
-      ),
-    [turns],
-  );
+  // The model context = ONLY the human<->model dialogue. toModelHistory enforces that tool-use, notices,
+  // and all avatar ANIMATION state stay OUT of the context window (animation context != chat context, #31).
+  const history = useMemo<readonly ChatMessage[]>(() => toModelHistory(turns), [turns]);
 
   const estTokens = useMemo(() => estimateTokens(history), [history]);
   const [copied, setCopied] = useState(false);
