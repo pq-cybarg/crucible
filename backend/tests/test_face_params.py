@@ -1,5 +1,5 @@
 """Parametric expression blending: weighted params + nonlinear emotion interactions."""
-from crucible.face_params import blend_params, EXPRESSION_PARAMS, DEFAULTS
+from crucible.face_params import blend_params, draw_eyes, EXPRESSION_PARAMS, DEFAULTS
 
 
 def test_neutral_is_defaults():
@@ -42,3 +42,35 @@ def test_params_are_clamped():
 def test_empty_weights_safe():
     assert blend_params({}) == DEFAULTS
     assert blend_params(None) == DEFAULTS
+
+
+def _eye_render(params):
+    """Render the eye region for a param set and return the RGBA numpy array (over a skin base)."""
+    import numpy as np
+    from PIL import Image
+    img = Image.new("RGBA", (200, 200), (219, 179, 147, 255))   # skin base so the lid samples real skin
+    draw_eyes(img, [(70, 127), (134, 127)], blend_params(params), half_w=22)
+    return np.asarray(img.crop((48, 108, 156, 146)))
+
+
+def test_happy_arc_morphs_the_closed_eye_shape():
+    # laughing (eye_happy=1, eyes mostly closed) must draw a DIFFERENT eye than a plain closed eye — the
+    # ^ arc, not just a top-down squash. Compare against a non-happy close of the same openness.
+    import numpy as np
+    laughing = _eye_render({"laughing": 1})
+    plain_closed = _eye_render({"sad": 1, "neutral": 0})   # low-ish open, eye_happy=0 → flat squash, no arc
+    assert not np.array_equal(laughing, plain_closed)
+    # the ^ arc lifts dark pixels ABOVE the lower lid — there is dark ink in the upper half of the eye box
+    dark = (laughing[..., :3].sum(axis=2) < 200) & (laughing[..., 3] > 40)
+    upper_dark = dark[: dark.shape[0] // 2].sum()
+    assert upper_dark > 0, "happy ^ arc should place lash ink in the upper half of the eye"
+
+
+def test_open_eye_has_no_happy_arc():
+    # a fully-open eye (eye_open=1, no blink) must be untouched by the arc logic (draw_eyes early-returns).
+    import numpy as np
+    from PIL import Image
+    img = Image.new("RGBA", (200, 200), (219, 179, 147, 255))
+    before = np.asarray(img).copy()
+    draw_eyes(img, [(70, 127)], blend_params({"neutral": 1}), half_w=22)
+    assert np.array_equal(before, np.asarray(img))          # neutral open eye: draw_eyes is a no-op here

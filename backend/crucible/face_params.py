@@ -158,6 +158,31 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
             squ = region.resize((bw, nh), Image.BILINEAR)     # squash the eye toward the lower lid
             d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=skin)  # clear to lid skin
             img.alpha_composite(squ, (x0, y1 - nh))           # re-seat, anchored at the bottom lid
+
+    # HAPPY ^ ARC (eye-shape morph): a happy squint (laughing/love, eye_happy>0) doesn't just close
+    # top-down — the lids meet in an upward ‿-mirrored arc. As the eye closes WITH eye_happy, morph the
+    # flat closed line into a ^ (centre arcs UP), clearing the compressed eyeball once it dominates so the
+    # eye reads as the classic ^_^ (still the deadpan lash colour, not glossy round anime eyes).
+    eh = _clamp(p.get("eye_happy", 0.0), 0.0, 1.0)
+    arc = eh * _clamp((1.0 - eo) * 1.5, 0.0, 1.0)             # ^ strength: happy AND closing
+    if arc > 0.05:
+        d = ImageDraw.Draw(img, "RGBA")
+        LINE = (52, 40, 40, 255)
+        aw = half_w - 2
+        peak = 9.0 * arc                                     # how high the centre lifts
+        for (cx, cy) in centers:
+            base_y = cy + 5                                  # outer corners sit ~eye line; centre lifts UP
+            n = 15
+            pts = [(cx + (-1 + 2 * i / (n - 1)) * aw,
+                    base_y - peak * (1 - (-1 + 2 * i / (n - 1)) ** 2)) for i in range(n)]
+            if arc > 0.45:                                    # the ^ dominates → hide the compressed eyeball,
+                lid = img.getpixel((cx, max(0, cy - top_h - 2)))    # using the LOCAL lid skin (no flat patch)
+                if len(lid) == 4 and lid[3] < 40:
+                    lid = skin
+                d.rectangle([cx - half_w, cy - top_h, cx + half_w, cy + bot_h + 1], fill=lid)
+            d.line(pts, fill=LINE, width=3, joint="curve")
+            d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)  # soft lower lash
+
     if glasses is not None:
         img.alpha_composite(glasses)                          # rigid real-art frames back on top
 
