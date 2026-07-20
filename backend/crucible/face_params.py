@@ -33,7 +33,7 @@ EXPRESSION_PARAMS = {
     "angry":     {"mouth_curve": -0.35, "mouth_open": 0.1, "eye_open": 0.95, "brow": -0.9},
     # love softened: a gentle happy squint, NOT always fully shut (eye_open 0.55 / eye_happy 0.85) — mixed
     # moods open it further; heart-eyes are a SEPARATE transient effect ("lovestruck"), not baked in here.
-    "love":      {"mouth_curve": 0.8, "mouth_open": 0.15, "eye_open": 0.55, "eye_happy": 0.85, "blush": 1.0},
+    "love":      {"mouth_curve": 0.8, "mouth_open": 0.15, "eye_open": 0.55, "eye_happy": 0.45, "blush": 1.0},
     "curious":   {"mouth_curve": 0.15, "eye_open": 1.05, "brow": 0.4},
     "smug":      {"mouth_curve": 0.4, "mouth_width": 0.8, "eye_open": 0.8, "brow": -0.2, "eye_shape": "cat"},
     "shy":       {"mouth_curve": 0.2, "mouth_open": 0.05, "eye_open": 0.75, "blush": 0.9},
@@ -169,10 +169,17 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
     # show OPEN eyes carrying that shape instead of squashing/^-arcing. Gated on intensity so it's a beat,
     # not a permanent state. (Morphing under a blink is orchestrated by the caller — swap during the shut
     # frame so it "reopens as new eyes".)
+    blink_c = _clamp(blink, 0.0, 1.0)
     _shape = p.get("eye_shape", "")
     _samt = _clamp(p.get("eye_shape_amt", 0.0), 0.0, 1.0)
-    show_shape = bool(_shape) and _samt > 0.55 and _clamp(blink, 0.0, 1.0) < 0.5
-    if not show_shape and eo < 1.0:
+    # MORPH (continuous): the special shape forms OUT of the normal eye and back as its mood eases in/out —
+    # 0 → round eye, 1 → full shape. The frontend eases the mood weight, so `_samt` (and this morph) ramp
+    # smoothly. Suppressed mid-blink so a blink shows the normal close, then it re-forms ("under the lid").
+    morph = _clamp((_samt - 0.3) * 1.8, 0.0, 1.0) if _shape else 0.0
+    show_shape = morph > 0.02 and blink_c < 0.5
+
+    # eye CLOSE by squashing the real art toward the lower lid (skipped while a shape has fully taken over)
+    if morph < 0.98 and eo < 1.0:
         d = ImageDraw.Draw(img, "RGBA")
         for (cx, cy) in centers:
             x0, y0, x1, y1 = cx - half_w, cy - top_h, cx + half_w, cy + bot_h
@@ -183,38 +190,41 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
             d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=skin)  # clear to lid skin
             img.alpha_composite(squ, (x0, y1 - nh))           # re-seat, anchored at the bottom lid
 
-    # HAPPY ^ ARC (eye-shape morph): a happy squint (laughing/love, eye_happy>0) doesn't just close
-    # top-down — the lids meet in an upward ‿-mirrored arc. As the eye closes WITH eye_happy, morph the
-    # flat closed line into a ^ (centre arcs UP), clearing the compressed eyeball once it dominates so the
-    # eye reads as the classic ^_^ (still the deadpan lash colour, not glossy round anime eyes).
+    # HAPPY ^ ARC: a STRONG happy squint (laughing) reads as an upward ^_^, not a flat top-down line. Driven
+    # by the MOOD's openness (eye_open), NOT blink — so a blink does the normal close and the ^ re-forms on
+    # reopen (it never renders as a second pair over the animating eye). Sized to the eye, always clears.
+    eop = _clamp(p.get("eye_open", 1.0), 0.0, 1.3)
     eh = _clamp(p.get("eye_happy", 0.0), 0.0, 1.0)
-    arc = eh * _clamp((1.0 - eo) * 1.5, 0.0, 1.0)             # ^ strength: happy AND closing
-    if not show_shape and arc > 0.05:
+    arc = eh * _clamp((1.0 - eop) * 1.5, 0.0, 1.0)
+    if not show_shape and arc > 0.5 and blink_c < 0.3:
         d = ImageDraw.Draw(img, "RGBA")
-        LINE = (52, 40, 40, 255)
-        aw = half_w - 2
-        peak = 9.0 * arc                                     # how high the centre lifts
+        aw = 13                                              # match the eye width (not the squash box)
+        peak = 8.0
         for (cx, cy) in centers:
-            base_y = cy + 5                                  # outer corners sit ~eye line; centre lifts UP
+            base_y = cy + 4
             n = 15
             pts = [(cx + (-1 + 2 * i / (n - 1)) * aw,
                     base_y - peak * (1 - (-1 + 2 * i / (n - 1)) ** 2)) for i in range(n)]
-            if arc > 0.45:                                    # the ^ dominates → hide the compressed eyeball,
-                lid = img.getpixel((cx, max(0, cy - top_h - 2)))    # using the LOCAL lid skin (no flat patch)
-                if len(lid) == 4 and lid[3] < 40:
-                    lid = skin
-                d.rectangle([cx - half_w, cy - top_h, cx + half_w, cy + bot_h + 1], fill=lid)
-            d.line(pts, fill=LINE, width=3, joint="curve")
-            d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)  # soft lower lash
+            lid = img.getpixel((cx, max(0, cy - top_h - 2)))
+            if len(lid) == 4 and lid[3] < 40:
+                lid = skin
+            d.rectangle([cx - half_w, cy - top_h, cx + half_w, cy + bot_h + 1], fill=lid)   # hide the eyeball
+            d.line(pts, fill=(52, 40, 40, 255), width=3, joint="curve")
+            d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)
 
     if show_shape:
         from crucible.eye_shapes import SHAPES
         fn = SHAPES.get(_shape)
         if fn is not None:
             d = ImageDraw.Draw(img, "RGBA")
+            sl = Image.new("RGBA", img.size, (0, 0, 0, 0))    # draw the shape on a layer → fade in by morph
+            r = 8.0 * (0.62 + 0.38 * morph)                   # grows from ~60% to full as it forms
             for (cx, cy) in centers:
-                d.ellipse([cx - 9, cy - 8, cx + 9, cy + 8], fill=(235, 232, 230, 255))  # erase round iris
-                fn(img, cx, cy, 8.0, _samt)
+                d.ellipse([cx - 9, cy - 8, cx + 9, cy + 8], fill=(235, 232, 230, int(255 * morph)))  # fade iris
+                fn(sl, cx, cy, r, 1.0)
+            faded = sl.split()[-1].point(lambda v: int(v * morph))
+            sl.putalpha(faded)
+            img.alpha_composite(sl)
 
     if glasses is not None:
         img.alpha_composite(glasses)                          # rigid real-art frames back on top

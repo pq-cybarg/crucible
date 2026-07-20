@@ -17,7 +17,9 @@ from PIL import Image, ImageDraw, ImageFilter
 IRIS = (111, 87, 77, 255)          # the deadpan brown iris
 PUPIL = (58, 44, 44, 255)
 HILITE = (236, 214, 206, 230)
-PINK = (214, 96, 112, 255)
+ROSE = (150, 84, 86, 255)          # iris-brown nudged red/pink — a FLAT, anime-friendly heart tone
+ROSE_HI = (196, 132, 130, 220)
+PINK = (214, 96, 112, 255)         # louder pink (heart_pink variant)
 PINK_HI = (255, 232, 236, 235)
 GOLD = (240, 206, 90, 255)
 BLOOM = (150, 210, 255, 255)       # Oshi-no-Ko cool star bloom
@@ -59,9 +61,10 @@ def draw_cat(img, cx, cy, r, amt=1.0):
 
 
 def draw_heart(img, cx, cy, r, amt=1.0, pink=False):
+    # default = a FLAT rose (iris-brown + red/pink tint) so it stays anime, not a loud sticker pink.
     d = ImageDraw.Draw(img, "RGBA")
-    col = PINK if pink else IRIS
-    hi = PINK_HI if pink else HILITE
+    col = PINK if pink else ROSE
+    hi = PINK_HI if pink else ROSE_HI
     d.polygon(_heart_poly(cx, cy, r * 1.05), fill=col)
     d.polygon(_heart_poly(cx - r * 0.22, cy - r * 0.22, r * 0.4), fill=hi)     # highlight lobe
 
