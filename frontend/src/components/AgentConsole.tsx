@@ -14,6 +14,7 @@ function estimateTokens(msgs: readonly { readonly content: string }[]): number {
 import { chatDirectStream, getActiveChatModel, getActiveChatService, getActiveModelId, getChatMode } from "../services";
 import ContextExplorer from "./ContextExplorer";
 import ChatAvatar from "./ChatAvatar";
+import ToolFeed from "./ToolFeed";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -383,10 +384,17 @@ export default function AgentConsole(): JSX.Element {
 
   const lastTurn = turns[turns.length - 1];
   const streaming = lastTurn?.kind === "assistant" && lastTurn.streaming === true;
+  // Tool-use is relegated to a compact feed UNDER the companion so it no longer floods the thread; the
+  // thread stays the human↔model dialogue (+ interactive permission cards, notices, memory tallies).
+  const toolItems = turns.filter((t) => t.kind === "tool");
+  const mainTurns = turns.filter((t) => t.kind !== "tool");
   return (
     <div className="console">
-      {/* the companion, watching the conversation — talks while the agent streams, idles otherwise */}
-      <div className="chat-avatar-dock"><ChatAvatar talking={streaming || busy} size={112} /></div>
+      {/* the companion + her tool-activity feed — she talks while the agent streams, idles otherwise */}
+      <div className="chat-avatar-dock">
+        <ChatAvatar talking={streaming || busy} size={112} />
+        <ToolFeed items={toolItems} />
+      </div>
       <div className="thread">
         <AnimatePresence initial={false}>
           {turns.length === 0 && (
@@ -400,7 +408,7 @@ export default function AgentConsole(): JSX.Element {
               the forge is lit — issue an instruction and the harness will drive the model with tools
             </motion.div>
           )}
-          {turns.map((turn) => (
+          {mainTurns.map((turn) => (
             <motion.div
               key={turn.id}
               initial={{ opacity: 0, y: 8 }}
