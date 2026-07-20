@@ -62,11 +62,18 @@ def draw_cat(img, cx, cy, r, amt=1.0):
 
 def draw_heart(img, cx, cy, r, amt=1.0, pink=False):
     # default = a FLAT rose (iris-brown + red/pink tint) so it stays anime, not a loud sticker pink.
+    # Built from two OVERLAPPING lobe-circles + a point so it's SOLID (no notch gap that would let the
+    # eye-white show through as a hole), and the highlight is CENTRED.
     d = ImageDraw.Draw(img, "RGBA")
     col = PINK if pink else ROSE
     hi = PINK_HI if pink else ROSE_HI
-    d.polygon(_heart_poly(cx, cy, r * 1.05), fill=col)
-    d.polygon(_heart_poly(cx - r * 0.22, cy - r * 0.22, r * 0.4), fill=hi)     # highlight lobe
+    lobe = r * 0.54
+    ly = cy - r * 0.36                                    # lobe-centres row (nudged up to keep it in the eye)
+    d.ellipse([cx - r * 0.92, ly - lobe, cx + r * 0.04, ly + lobe], fill=col)   # left lobe
+    d.ellipse([cx - r * 0.04, ly - lobe, cx + r * 0.92, ly + lobe], fill=col)   # right lobe
+    d.polygon([(cx - r * 0.9, ly - r * 0.05), (cx + r * 0.9, ly - r * 0.05),
+               (cx, cy + r * 0.7)], fill=col)                             # shorter bottom point (stays in eye)
+    d.ellipse([cx - r * 0.28, cy - r * 0.4, cx + r * 0.28, cy], fill=hi)  # centred shine
 
 
 def draw_star(img, cx, cy, r, amt=1.0, col=GOLD):

@@ -212,18 +212,33 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
             d.line(pts, fill=(52, 40, 40, 255), width=3, joint="curve")
             d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)
 
+    # CLOSED-LID line: the squash alone nearly VANISHES at full close (she "blinks out of existence"), so as
+    # the eye nears shut draw the lash line meeting the lower lid — a natural closed EYELID, fading in by how
+    # closed it is. Skipped when the ^ or a special shape is drawn (those handle their own close).
+    arc_drawn = arc > 0.5 and blink_c < 0.3
+    close_amt = _clamp((0.42 - eo) / 0.42, 0.0, 1.0)
+    if not show_shape and not arc_drawn and close_amt > 0.06:
+        d = ImageDraw.Draw(img, "RGBA")
+        lw = 13
+        for (cx, cy) in centers:
+            ly = cy + 5
+            n = 13
+            ts = [(-1.0 + 2.0 * i / (n - 1)) for i in range(n)]
+            pts = [(cx + t * lw, ly + 1.8 * (1 - t * t)) for t in ts]   # gentle ‿ lower-lid line
+            d.line(pts, fill=(52, 40, 40, int(235 * close_amt)), width=2, joint="curve")
+
     if show_shape:
         from crucible.eye_shapes import SHAPES
         fn = SHAPES.get(_shape)
         if fn is not None:
-            d = ImageDraw.Draw(img, "RGBA")
-            sl = Image.new("RGBA", img.size, (0, 0, 0, 0))    # draw the shape on a layer → fade in by morph
+            # Draw the shape on its OWN layer and fade it in by `morph`, then composite. The CALLER fades the
+            # real round iris/pupil OUT by the same morph, so the shape crossfades from the eye ON the real
+            # sclera — NO white erase ellipse (that used to paint over the skin / eye outlines / lids).
+            sl = Image.new("RGBA", img.size, (0, 0, 0, 0))
             r = 8.0 * (0.62 + 0.38 * morph)                   # grows from ~60% to full as it forms
             for (cx, cy) in centers:
-                d.ellipse([cx - 9, cy - 8, cx + 9, cy + 8], fill=(235, 232, 230, int(255 * morph)))  # fade iris
                 fn(sl, cx, cy, r, 1.0)
-            faded = sl.split()[-1].point(lambda v: int(v * morph))
-            sl.putalpha(faded)
+            sl.putalpha(sl.split()[-1].point(lambda v: int(v * morph)))
             img.alpha_composite(sl)
 
     if glasses is not None:

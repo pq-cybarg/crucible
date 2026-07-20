@@ -3663,18 +3663,32 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                 if _nose is not None:
                     below_img.alpha_composite(_nose)
             _eyes_hidden = "eyes" in _hidden
-            # WHITES (sclera, backmost) then IRIS then PUPIL composited INTO the eye buffer BEFORE the squash
-            # so they close with the eye; each hidden by its own toggle or the eyes group.
+            # A special EYE SHAPE (heart/star/…) CROSSFADES with the round iris/pupil: as its mood eases in,
+            # fade the real iris+pupil OUT (by 1-morph) and draw.py fades the shape IN — so the shape forms
+            # from the real eye on the real sclera (whites stay), never a white patch painted over the face.
+            _esh = fparams.get("eye_shape", "") if isinstance(fparams, dict) else ""
+            _esamt = float(fparams.get("eye_shape_amt", 0.0)) if isinstance(fparams, dict) else 0.0
+            _morph = max(0.0, min(1.0, (_esamt - 0.3) * 1.8)) if _esh else 0.0
+
+            def _fade(im, a):
+                if im is None or a >= 0.999:
+                    return im
+                im2 = im.copy()
+                im2.putalpha(im2.split()[-1].point(lambda v: int(v * a)))
+                return im2
+
+            # WHITES (sclera, backmost) → IRIS → PUPIL, composited BEFORE the squash so they close with the
+            # eye; each hidden by its own toggle or the eyes group. Iris/pupil fade under a rising shape.
             if not _eyes_hidden and "whites" not in _hide:
                 _wh = _eyepart("whites.png")
                 if _wh is not None:
                     below_img.alpha_composite(_wh)
             if not _eyes_hidden and "irises" not in _hide:
-                _iris = _eyepart("irises.png")
+                _iris = _fade(_eyepart("irises.png"), 1.0 - _morph)
                 if _iris is not None:
                     below_img.alpha_composite(_iris)
             if not _eyes_hidden and "pupils" not in _hide:
-                _pup = _eyepart("pupils.png")
+                _pup = _fade(_eyepart("pupils.png"), 1.0 - _morph)
                 if _pup is not None:
                     below_img.alpha_composite(_pup)
             _glass = None if "glasses" in _hide else _eyepart("glasses.png")
