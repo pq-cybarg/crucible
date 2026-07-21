@@ -18,16 +18,24 @@ export function moodFromText(text: string): MoodHit | null {
   if (has(/❤️|💕|💖|😍|🥰/) || (has(/\blove(d|s|ly)?\b|adorable|sweetheart|precious/) && exclaims >= 1)) {
     return { mood: "lovestruck", weight: 0.9 };
   }
+  // admiration → sparkle/kirakira eyes
+  if (has(/gorgeous|beautiful|stunning|magnificent|so pretty|perfect!|flawless/)) return { mood: "sparkly", weight: 0.85 };
   // wonder / hype → star eyes
   if (has(/⭐|🌟|✨|🤩/) || has(/incredible|amazing|awesome|fantastic|brilliant|wow\b/) || exclaims >= 3) {
     return { mood: "starstruck", weight: 0.85 };
   }
   // mirth → laughing (the ^ squint)
   if (has(/😂|🤣|\bhaha+\b|\blol\b|\blmao\b|hilarious/)) return { mood: "laughing", weight: 0.8 };
+  // shock → pinprick/dot eyes
+  if (has(/😱|😳|oh no|no way|wait,? what/) || /\?!|!\?/.test(text)) return { mood: "shock", weight: 0.8 };
+  // grief → crying/tears (before the softer "sad")
+  if (has(/😭|😢|heartbreak|devastat|so sad|makes me (want to )?cry/)) return { mood: "crying", weight: 0.75 };
   // confusion → swirl eyes
   if (has(/🥴|😵|confus|baffl|no idea|not sure what|can'?t tell/)) return { mood: "dizzy", weight: 0.75 };
+  // ko / dead-tired → X eyes
+  if (has(/💀|i'?m dead|i can'?t even|so done|exhaust/)) return { mood: "ko", weight: 0.8 };
   // apology / failure → sad (soft, no special eyes)
-  if (has(/😔|😢|\bsorry\b|unfortunately|apologi|\berror\b|\bfailed\b|couldn'?t/)) return { mood: "sad", weight: 0.55 };
+  if (has(/😔|\bsorry\b|unfortunately|apologi|\berror\b|\bfailed\b|couldn'?t/)) return { mood: "sad", weight: 0.55 };
   // curiosity → curious (soft)
   if (text.trim().endsWith("?") || has(/curious|interesting|i wonder|good question/)) return { mood: "curious", weight: 0.5 };
   // mild positive → happy (soft)

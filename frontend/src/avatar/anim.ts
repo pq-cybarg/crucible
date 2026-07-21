@@ -17,6 +17,7 @@ export function dominant(weights: Record<string, number>): string {
 export const SHAPE_MOODS: Record<string, string> = {
   smug: "cat", teasing: "cat", lovestruck: "heart",
   starstruck: "star_bloom", dizzy: "swirl", mesmerized: "concentric",
+  sparkly: "sparkle", ko: "x_eyes", fired_up: "flame", greedy: "money", shock: "dots", crying: "tears",
 };
 
 /** The strongest shape-bearing mood's shape name (past a small threshold), or "" — mirrors blend_params. */

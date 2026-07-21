@@ -20,4 +20,9 @@ describe("moodFromText — context-free chat sentiment → companion mood", () =
   });
   it("question → curious", () => expect(moodFromText("Which one do you want?")?.mood).toBe("curious"));
   it("flat/neutral text → no forced mood", () => expect(moodFromText("The file has 12 lines.")).toBeNull());
+
+  it("admiration → sparkle", () => expect(moodFromText("That's absolutely gorgeous!")?.mood).toBe("sparkly"));
+  it("shock → dot eyes", () => expect(moodFromText("Wait what?! oh no")?.mood).toBe("shock"));
+  it("grief → crying", () => expect(moodFromText("that's so sad 😭")?.mood).toBe("crying"));
+  it("dead-tired → ko", () => expect(moodFromText("I'm so done, exhausted 💀")?.mood).toBe("ko"));
 });

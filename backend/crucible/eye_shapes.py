@@ -127,6 +127,64 @@ def draw_star_bloom(img, cx, cy, r, amt=1.0):
     d.polygon(_star_poly(cx, cy, r * 0.6, points=4, inner=0.3, rot=0), fill=(255, 255, 255, 255))
 
 
+def draw_sparkle(img, cx, cy, r, amt=1.0):
+    """Kirakira shoujo eyes — a glossy jewel iris with big catchlights + sparkles (admiring/excited)."""
+    d = ImageDraw.Draw(img, "RGBA")
+    d.ellipse([cx - r, cy - r * 0.86, cx + r, cy + r * 0.86], fill=(126, 100, 158, 255))
+    d.ellipse([cx - r * 0.34, cy - r * 0.08, cx + r * 0.34, cy + r * 0.52], fill=(74, 54, 106, 255))  # pupil low
+    d.ellipse([cx - r * 0.54, cy - r * 0.56, cx - r * 0.08, cy - r * 0.1], fill=(255, 255, 255, 255))  # big shine
+    d.ellipse([cx + r * 0.16, cy + r * 0.14, cx + r * 0.44, cy + r * 0.42], fill=(255, 255, 255, 235))  # small
+    for sx, sy, sr in ((cx + r * 0.86, cy - r * 0.74, r * 0.3), (cx - r * 0.82, cy + r * 0.66, r * 0.22)):
+        d.polygon(_star_poly(sx, sy, sr, points=4, inner=0.28), fill=(255, 255, 255, 255))         # sparkles
+
+
+def draw_x_eyes(img, cx, cy, r, amt=1.0):
+    """Comedic KO / dead-tired ✕ eyes."""
+    d = ImageDraw.Draw(img, "RGBA")
+    col = (52, 40, 40, 255)
+    d.line([(cx - r * 0.72, cy - r * 0.72), (cx + r * 0.72, cy + r * 0.72)], fill=col, width=3, joint="curve")
+    d.line([(cx - r * 0.72, cy + r * 0.72), (cx + r * 0.72, cy - r * 0.72)], fill=col, width=3, joint="curve")
+
+
+def draw_flame(img, cx, cy, r, amt=1.0):
+    """Fired-up / determined — a flame burning in the eye."""
+    d = ImageDraw.Draw(img, "RGBA")
+    d.polygon([(cx - r * 0.7, cy + r * 0.8), (cx - r * 0.82, cy - r * 0.1), (cx - r * 0.32, cy + r * 0.12),
+               (cx, cy - r * 0.92), (cx + r * 0.32, cy + r * 0.12), (cx + r * 0.82, cy - r * 0.1),
+               (cx + r * 0.7, cy + r * 0.8)], fill=(230, 116, 40, 255))                             # outer flame
+    d.polygon([(cx - r * 0.36, cy + r * 0.7), (cx - r * 0.42, cy), (cx, cy - r * 0.5),
+               (cx + r * 0.42, cy), (cx + r * 0.36, cy + r * 0.7)], fill=(246, 206, 92, 255))        # inner
+
+
+def draw_money(img, cx, cy, r, amt=1.0):
+    """Greedy $ eyes."""
+    d = ImageDraw.Draw(img, "RGBA")
+    d.ellipse([cx - r, cy - r * 0.86, cx + r, cy + r * 0.86], fill=(66, 138, 82, 255))              # green iris
+    g = (238, 240, 214, 255)
+    d.line([(cx, cy - r * 0.82), (cx, cy + r * 0.82)], fill=g, width=2)                             # $ vertical
+    d.arc([cx - r * 0.52, cy - r * 0.66, cx + r * 0.52, cy + r * 0.06], 300, 150, fill=g, width=2)  # top S curve
+    d.arc([cx - r * 0.52, cy - r * 0.06, cx + r * 0.52, cy + r * 0.66], 120, 330, fill=g, width=2)  # bottom S
+
+
+def draw_dots(img, cx, cy, r, amt=1.0):
+    """Shock / pinprick — tiny pupils on a wide pale eye."""
+    d = ImageDraw.Draw(img, "RGBA")
+    d.ellipse([cx - r, cy - r * 0.9, cx + r, cy + r * 0.9], fill=(238, 236, 233, 255))
+    d.ellipse([cx - r * 0.2, cy - r * 0.2, cx + r * 0.2, cy + r * 0.2], fill=(42, 32, 32, 255))     # tiny pupil
+
+
+def draw_tears(img, cx, cy, r, amt=1.0):
+    """Welling tears — glossy eyes brimming, a drop falling (crying)."""
+    d = ImageDraw.Draw(img, "RGBA")
+    d.ellipse([cx - r, cy - r * 0.86, cx + r, cy + r * 0.86], fill=(138, 152, 176, 255))            # glossy iris
+    d.ellipse([cx - r * 0.4, cy - r * 0.18, cx + r * 0.4, cy + r * 0.5], fill=(58, 70, 92, 255))    # pupil
+    d.ellipse([cx - r * 0.46, cy - r * 0.5, cx - r * 0.08, cy - r * 0.12], fill=(255, 255, 255, 245))  # welling shine
+    tx, ty = cx + r * 0.1, cy + r * 0.98
+    d.ellipse([tx - r * 0.24, ty - r * 0.06, tx + r * 0.24, ty + r * 0.36], fill=(150, 202, 240, 220))
+    d.polygon([(tx - r * 0.22, ty + r * 0.02), (tx + r * 0.22, ty + r * 0.02), (tx, ty - r * 0.4)],
+              fill=(150, 202, 240, 220))                                                            # tear drop
+
+
 SHAPES = {
     "cat": draw_cat,
     "heart": draw_heart,
@@ -135,4 +193,10 @@ SHAPES = {
     "swirl": draw_swirl,
     "concentric": draw_concentric,
     "star_bloom": draw_star_bloom,
+    "sparkle": draw_sparkle,
+    "x_eyes": draw_x_eyes,
+    "flame": draw_flame,
+    "money": draw_money,
+    "dots": draw_dots,
+    "tears": draw_tears,
 }

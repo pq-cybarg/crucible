@@ -45,6 +45,12 @@ EXPRESSION_PARAMS = {
     "starstruck": {"mouth_curve": 0.6, "mouth_open": 0.45, "eye_open": 1.1, "brow": 0.6, "eye_shape": "star_bloom"},
     "dizzy":      {"mouth_curve": -0.1, "mouth_open": 0.2, "eye_open": 1.0, "eye_shape": "swirl"},
     "mesmerized": {"mouth_curve": 0.1, "mouth_open": 0.15, "eye_open": 1.0, "eye_shape": "concentric"},
+    "sparkly":    {"mouth_curve": 0.75, "mouth_open": 0.3, "eye_open": 1.15, "brow": 0.4, "blush": 0.5, "eye_shape": "sparkle"},
+    "ko":         {"mouth_curve": -0.1, "mouth_open": 0.28, "eye_open": 1.0, "eye_shape": "x_eyes"},
+    "fired_up":   {"mouth_curve": 0.35, "mouth_open": 0.4, "eye_open": 1.1, "brow": -0.3, "eye_shape": "flame"},
+    "greedy":     {"mouth_curve": 0.5, "mouth_width": 0.9, "eye_open": 1.05, "eye_shape": "money"},
+    "shock":      {"mouth_open": 0.5, "mouth_width": 0.7, "eye_open": 1.2, "brow": 0.7, "eye_shape": "dots"},
+    "crying":     {"mouth_curve": -0.5, "mouth_open": 0.25, "eye_open": 0.95, "brow": -0.2, "eye_shape": "tears"},
 }
 
 

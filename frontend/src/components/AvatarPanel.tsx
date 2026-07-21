@@ -19,7 +19,8 @@ const REACTIONS = ["funny", "cute", "scary", "sad", "surprised", "sus", "calm"] 
 // Special EYE-SHAPE effect moods (parametric-only, not in avatar.json) — pick one to see the shape:
 // lovestruck=heart, starstruck=Oshi-no-Ko star+bloom, dizzy=swirl, mesmerized=concentric. (cat-slit lives
 // on smug/teasing, already in the expression list.)
-const EFFECT_MOODS = ["lovestruck", "starstruck", "dizzy", "mesmerized"] as const;
+const EFFECT_MOODS = ["lovestruck", "starstruck", "sparkly", "dizzy", "mesmerized",
+  "fired_up", "greedy", "shock", "crying", "ko"] as const;
 
 // blendString / dominant / expressionAnim now live in ../avatar/anim (shared with the in-chat avatar).
 
