@@ -178,16 +178,22 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
     morph = _clamp((_samt - 0.3) * 1.8, 0.0, 1.0) if _shape else 0.0
     show_shape = morph > 0.02 and blink_c < 0.5
 
-    # eye CLOSE by squashing the real art toward the lower lid (skipped while a shape has fully taken over)
-    if morph < 0.98 and eo < 1.0:
+    # eye CLOSE by squashing the real art toward the lower lid. Runs whenever the shape ISN'T currently shown
+    # (a shape mood still BLINKS: at blink>0.5 show_shape drops, so the eye closes here, then the shape
+    # re-forms) — not `morph<0.98`, which skipped the close for full shapes so the iris just vanished.
+    if not show_shape and eo < 1.0:
         d = ImageDraw.Draw(img, "RGBA")
+        H = img.height
         for (cx, cy) in centers:
             x0, y0, x1, y1 = cx - half_w, cy - top_h, cx + half_w, cy + bot_h
             bw, bh = x1 - x0, y1 - y0
             region = img.crop((x0, y0, x1, y1))
             nh = max(2, round(bh * eo))
             squ = region.resize((bw, nh), Image.BILINEAR)     # squash the eye toward the lower lid
-            d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=skin)  # clear to lid skin
+            lid = img.getpixel((cx, min(H - 1, cy + bot_h + 5)))   # LOCAL cheek skin (the fixed constant
+            if not (isinstance(lid, tuple) and len(lid) == 4 and lid[3] > 200):   # mismatched the face shade)
+                lid = skin
+            d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=lid)   # clear to lid skin (matched to the local face)
             img.alpha_composite(squ, (x0, y1 - nh))           # re-seat, anchored at the bottom lid
 
     # HAPPY ^ ARC: a STRONG happy squint (laughing) reads as an upward ^_^, not a flat top-down line. Driven
