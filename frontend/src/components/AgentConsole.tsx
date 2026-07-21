@@ -16,6 +16,7 @@ import ContextExplorer from "./ContextExplorer";
 import ChatAvatar from "./ChatAvatar";
 import ToolFeed from "./ToolFeed";
 import { toModelHistory } from "../chatHistory";
+import { moodFromText } from "../avatar/sentiment";
 
 export type Turn =
   | { readonly id: string; readonly kind: "user"; readonly text: string }
@@ -115,6 +116,11 @@ export function reduce(turns: readonly Turn[], event: AgentEvent, nextId: () => 
 
 export default function AgentConsole(): JSX.Element {
   const [turns, setTurns] = useState<readonly Turn[]>([]);
+  // The in-chat companion reacts to the mood of each finished reply (client-side sentiment, context-free) —
+  // a temporary emotional beat (heart/star eyes on strong moments) that decays back to neutral.
+  const [chatMood, setChatMood] = useState<Record<string, number>>({ neutral: 1 });
+  const moodTimer = useRef<number | undefined>(undefined);
+  const lastMoodId = useRef<string>("");
   const [draft, setDraft] = useState("");
   const [perm, setPerm] = useState<PermissionMode>("ask");
   const [react, setReact] = useState(false);
@@ -377,6 +383,20 @@ export default function AgentConsole(): JSX.Element {
     }
   }
 
+  // React the companion to each FINISHED reply once: map its text → a mood, hold it ~4s, then ease back to
+  // neutral. Only the latest finalized assistant turn triggers (guarded by id), so it's a beat, not a loop.
+  useEffect(() => {
+    const last = [...turns].reverse().find((t) => t.kind === "assistant");
+    if (!last || last.kind !== "assistant" || last.streaming === true || last.id === lastMoodId.current) return;
+    lastMoodId.current = last.id;
+    const hit = moodFromText(last.text);
+    if (!hit) return;
+    setChatMood({ [hit.mood]: hit.weight });
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setChatMood({ neutral: 1 }), 4200);
+  }, [turns]);
+  useEffect(() => () => window.clearTimeout(moodTimer.current), []);
+
   const lastTurn = turns[turns.length - 1];
   const streaming = lastTurn?.kind === "assistant" && lastTurn.streaming === true;
   // Tool-use is relegated to a compact feed UNDER the companion so it no longer floods the thread; the
@@ -387,7 +407,7 @@ export default function AgentConsole(): JSX.Element {
     <div className="console">
       {/* the companion + her tool-activity feed — she talks while the agent streams, idles otherwise */}
       <div className="chat-avatar-dock">
-        <ChatAvatar talking={streaming || busy} size={112} />
+        <ChatAvatar talking={streaming || busy} mood={chatMood} size={112} />
         <ToolFeed items={toolItems} />
       </div>
       <div className="thread">
