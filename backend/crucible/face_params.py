@@ -176,12 +176,16 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
     # 0 → round eye, 1 → full shape. The frontend eases the mood weight, so `_samt` (and this morph) ramp
     # smoothly. Suppressed mid-blink so a blink shows the normal close, then it re-forms ("under the lid").
     morph = _clamp((_samt - 0.3) * 1.8, 0.0, 1.0) if _shape else 0.0
-    show_shape = morph > 0.02 and blink_c < 0.5
+    # As the eye CLOSES (eo→0), the shape fades out WITH the lids instead of a hard blink<0.5 cutoff (that
+    # cutoff made the squash engage suddenly → the lashes jumped/"detached" mid-blink). open_f: 1 open → 0 shut.
+    open_f = _clamp((eo - 0.3) / 0.6, 0.0, 1.0)
+    shape_alpha = morph * open_f
+    show_shape = shape_alpha > 0.02
 
-    # eye CLOSE by squashing the real art toward the lower lid. Runs whenever the shape ISN'T currently shown
-    # (a shape mood still BLINKS: at blink>0.5 show_shape drops, so the eye closes here, then the shape
-    # re-forms) — not `morph<0.98`, which skipped the close for full shapes so the iris just vanished.
-    if not show_shape and eo < 1.0:
+    # eye CLOSE by squashing the real art toward the lower lid — CONTINUOUS (every frame eo<1), so the eye
+    # and the pre-composited lashes always squash together and never desync. Shape moods sit at eo>=1 when
+    # open (no squash) and squash smoothly as a blink lowers eo.
+    if eo < 1.0:
         d = ImageDraw.Draw(img, "RGBA")
         H = img.height
         for (cx, cy) in centers:
@@ -241,10 +245,10 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
             # real round iris/pupil OUT by the same morph, so the shape crossfades from the eye ON the real
             # sclera — NO white erase ellipse (that used to paint over the skin / eye outlines / lids).
             sl = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            r = 8.0 * (0.62 + 0.38 * morph)                   # grows from ~60% to full as it forms
+            r = 8.0 * (0.62 + 0.38 * morph)                   # size grows as it FORMS (morph)…
             for (cx, cy) in centers:
                 fn(sl, cx, cy, r, 1.0)
-            sl.putalpha(sl.split()[-1].point(lambda v: int(v * morph)))
+            sl.putalpha(sl.split()[-1].point(lambda v: int(v * shape_alpha)))   # …opacity fades with the lids
             img.alpha_composite(sl)
 
     if glasses is not None:
