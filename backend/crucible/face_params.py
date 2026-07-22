@@ -184,45 +184,23 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None, lashes=No
     eh = _clamp(p.get("eye_happy", 0.0), 0.0, 1.0)
     arc = eh * _clamp((1.0 - eop) * 1.5, 0.0, 1.0)
 
-    # BLINK / CLOSE — the upper LID descends and OCCLUDES the eye top-down (the full-size iris is covered,
-    # never squished). Its lower margin is a CURVE pinned at the eye CORNERS (they barely move) that dips to
-    # meet the lower lid in the MIDDLE. The REAL detailed lashes are WARPED to follow that curve (each column
-    # slid down by the curve amount) — so every mode shows the SAME lush lashes (not a thin drawn line),
-    # detail kept, corners anchored. `close`: 0 open … 1 shut. AW = the lash/eye half-width.
+    # BLINK / CLOSE — SQUASH the eye toward its CENTRE: the whole eye (iris + the pre-composited lashes +
+    # the bordering lash/lid lines) compresses vertically as it closes, so its outline SQUEEZES together
+    # (the SIDES compress too) rather than the lid sliding down over a static eye. Centred (not bottom-
+    # anchored) so it doesn't read as the eye sliding downward. `close`: 0 open … 1 shut.
     close = _clamp(1.0 - eo, 0.0, 1.0)
-    AW = 16
-    _blinking = (not show_shape) and (arc <= 0.5) and (close > 0.02)
-    if _blinking:
+    if not show_shape and arc <= 0.5 and close > 0.02:
         d = ImageDraw.Draw(img, "RGBA")
         H = img.height
-        n = 15
-        ts = [(-1.0 + 2.0 * i / (n - 1)) for i in range(n)]
-        for (cx, cy) in centers:                             # the LID skin (covers the eye down to the margin)
-            corner_y = (cy - 9) + close * 6.0                # CORNERS barely descend (pinned)
-            mid_y = (cy - 9) + close * 18.0                  # MIDDLE descends to meet the lower lid
-            margin = [(cx + t * AW, corner_y + (mid_y - corner_y) * (1 - t * t)) for t in ts]
-            lid = img.getpixel((cx, min(H - 1, cy + bot_h + 5)))   # local cheek skin so the lid matches the face
+        for (cx, cy) in centers:
+            x0, y0, x1, y1 = cx - half_w, cy - top_h, cx + half_w, cy + bot_h
+            nh = max(2, round((y1 - y0) * eo))
+            squ = img.crop((x0, y0, x1, y1)).resize((x1 - x0, nh), Image.BILINEAR)
+            lid = img.getpixel((cx, min(H - 1, cy + bot_h + 5)))   # local cheek skin so the cleared lid matches
             if not (isinstance(lid, tuple) and len(lid) == 4 and lid[3] > 200):
                 lid = skin
-            d.polygon([(cx - half_w, cy - top_h), (cx + half_w, cy - top_h)] + margin[::-1], fill=lid)
-
-    if lashes is not None:
-        if _blinking:
-            import numpy as _np
-            la = _np.asarray(lashes)
-            W = la.shape[1]
-            dy_col = _np.zeros(W, dtype=int)
-            for (cx, cy) in centers:                         # per-column descent = the pinned margin curve
-                for x in range(max(0, cx - AW), min(W, cx + AW + 1)):
-                    t = (x - cx) / AW
-                    dy_col[x] = round(close * (6.0 + 12.0 * max(0.0, 1.0 - t * t)))
-            warped = _np.zeros_like(la)
-            for x in range(W):
-                dy = int(dy_col[x])
-                warped[dy:, x] = la[:H - dy, x] if dy > 0 else la[:, x]
-            img.alpha_composite(Image.fromarray(warped))     # the WARPED real lashes, on top of the lid
-        else:
-            img.alpha_composite(lashes)                      # open: real lashes at rest
+            d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=lid)
+            img.alpha_composite(squ, (x0, (y0 + y1) // 2 - nh // 2))   # re-seat CENTRED → squeezes in place
 
     # HAPPY ^ ARC: a STRONG happy squint (laughing) closes into an upward ^_^ rather than a flat lid.
     if not show_shape and arc > 0.5 and blink_c < 0.3:
