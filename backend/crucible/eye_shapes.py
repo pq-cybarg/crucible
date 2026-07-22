@@ -173,16 +173,21 @@ def draw_dots(img, cx, cy, r, amt=1.0):
     d.ellipse([cx - r * 0.2, cy - r * 0.2, cx + r * 0.2, cy + r * 0.2], fill=(42, 32, 32, 255))     # tiny pupil
 
 
+TEAR = (196, 226, 248, 225)        # pale watery blue for the shine + streaks
+
+
 def draw_tears(img, cx, cy, r, amt=1.0):
-    """Welling tears — glossy eyes brimming, a drop falling (crying)."""
+    """Crying — her NORMAL brown eye, WET: big glossy welling highlights + thin tears streaming down.
+    (Keeps her eye colour; the water is the light, not a recolour.)"""
     d = ImageDraw.Draw(img, "RGBA")
-    d.ellipse([cx - r, cy - r * 0.86, cx + r, cy + r * 0.86], fill=(138, 152, 176, 255))            # glossy iris
-    d.ellipse([cx - r * 0.4, cy - r * 0.18, cx + r * 0.4, cy + r * 0.5], fill=(58, 70, 92, 255))    # pupil
-    d.ellipse([cx - r * 0.46, cy - r * 0.5, cx - r * 0.08, cy - r * 0.12], fill=(255, 255, 255, 245))  # welling shine
-    tx, ty = cx + r * 0.1, cy + r * 0.98
-    d.ellipse([tx - r * 0.24, ty - r * 0.06, tx + r * 0.24, ty + r * 0.36], fill=(150, 202, 240, 220))
-    d.polygon([(tx - r * 0.22, ty + r * 0.02), (tx + r * 0.22, ty + r * 0.02), (tx, ty - r * 0.4)],
-              fill=(150, 202, 240, 220))                                                            # tear drop
+    d.ellipse([cx - r, cy - r * 0.86, cx + r, cy + r * 0.86], fill=IRIS)                    # her brown iris
+    d.ellipse([cx - r * 0.4, cy - r * 0.15, cx + r * 0.4, cy + r * 0.55], fill=PUPIL)       # pupil
+    d.ellipse([cx - r * 0.52, cy - r * 0.55, cx + r * 0.02, cy], fill=(255, 255, 255, 245))  # BIG teary shine
+    d.ellipse([cx + r * 0.2, cy + r * 0.18, cx + r * 0.5, cy + r * 0.48], fill=(255, 255, 255, 220))  # 2nd shine
+    d.arc([cx - r, cy + r * 0.4, cx + r, cy + r * 1.1], 200, 340, fill=TEAR, width=2)       # water welling at lid
+    for sx in (cx - r * 0.55, cx + r * 0.5):                                                # thin tears streaming
+        d.line([(sx, cy + r * 0.75), (sx - r * 0.06, cy + r * 2.7)], fill=TEAR, width=2, joint="curve")
+        d.ellipse([sx - r * 0.13, cy + r * 2.5, sx + r * 0.13, cy + r * 2.9], fill=TEAR)    # bead at the tip
 
 
 SHAPES = {
