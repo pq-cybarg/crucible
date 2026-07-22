@@ -162,60 +162,49 @@ def draw_mouth(draw, cx: int, cy: int, p: dict, s: float = 1.0,
             draw.line([(x, y + 1.6 * s) for x, y in upper[3:-3]], fill=LO, width=1)
 
 
-def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
+def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None, lashes=None,
               skin=(219, 179, 147, 255), half_w: int = 15, top_h: int = 19, bot_h: int = 11):
-    """CONTINUOUS eye close by DEFORMING the real eye art. Each eye box (whose frame + lashes have
-    been separated into their own layers, pre-composited by the caller) is squashed vertically
-    toward the lower lid by `eye_open` — the eyeball + the pre-composited lashes compress down as
-    one — and the RIGID glasses (`glasses`, same-size RGBA) are re-composited on top AFTER, so they
-    never deform. `blink` (0..1) closes on top. `centers` = [(cx,cy), …]."""
+    """Eye close = the upper EYELID coming DOWN over the eye (a real blink), NOT the eyeball squishing.
+    The full-size iris/whites stay put; a local-skin LID descends from the eye-top to its lower edge and
+    OCCLUDES the eye top-down, and the separate `lashes` (same-size RGBA, passed in — not pre-composited)
+    ride that lower edge (translated down). `eye_open`/`blink` set how far the lid is down; the RIGID
+    `glasses` re-composite on top last. `centers` = [(cx,cy), …]."""
     from PIL import Image, ImageDraw
     eo = _clamp(p.get("eye_open", 1.0) * (1.0 - _clamp(blink, 0.0, 1.0)), 0.06, 1.15)
-    # SPECIAL EYE SHAPE (heart/star/cat/…): when a strong shape mood is active and she's not mid-blink,
-    # show OPEN eyes carrying that shape instead of squashing/^-arcing. Gated on intensity so it's a beat,
-    # not a permanent state. (Morphing under a blink is orchestrated by the caller — swap during the shut
-    # frame so it "reopens as new eyes".)
     blink_c = _clamp(blink, 0.0, 1.0)
     _shape = p.get("eye_shape", "")
     _samt = _clamp(p.get("eye_shape_amt", 0.0), 0.0, 1.0)
-    # MORPH (continuous): the special shape forms OUT of the normal eye and back as its mood eases in/out —
-    # 0 → round eye, 1 → full shape. The frontend eases the mood weight, so `_samt` (and this morph) ramp
-    # smoothly. Suppressed mid-blink so a blink shows the normal close, then it re-forms ("under the lid").
+    # MORPH (continuous): a special shape forms OUT of the eye and back as its mood eases in/out; it fades
+    # with the closing lids (open_f) so a blink shows the normal lid close, then it re-forms on reopen.
     morph = _clamp((_samt - 0.3) * 1.8, 0.0, 1.0) if _shape else 0.0
-    # As the eye CLOSES (eo→0), the shape fades out WITH the lids instead of a hard blink<0.5 cutoff (that
-    # cutoff made the squash engage suddenly → the lashes jumped/"detached" mid-blink). open_f: 1 open → 0 shut.
     open_f = _clamp((eo - 0.3) / 0.6, 0.0, 1.0)
     shape_alpha = morph * open_f
     show_shape = shape_alpha > 0.02
-
-    # eye CLOSE by squashing the real art toward the lower lid — CONTINUOUS (every frame eo<1), so the eye
-    # and the pre-composited lashes always squash together and never desync. Shape moods sit at eo>=1 when
-    # open (no squash) and squash smoothly as a blink lowers eo.
-    if eo < 1.0:
-        d = ImageDraw.Draw(img, "RGBA")
-        H = img.height
-        for (cx, cy) in centers:
-            x0, y0, x1, y1 = cx - half_w, cy - top_h, cx + half_w, cy + bot_h
-            bw, bh = x1 - x0, y1 - y0
-            region = img.crop((x0, y0, x1, y1))
-            nh = max(2, round(bh * eo))
-            squ = region.resize((bw, nh), Image.BILINEAR)     # squash the eye toward the lower lid
-            lid = img.getpixel((cx, min(H - 1, cy + bot_h + 5)))   # LOCAL cheek skin (the fixed constant
-            if not (isinstance(lid, tuple) and len(lid) == 4 and lid[3] > 200):   # mismatched the face shade)
-                lid = skin
-            d.rectangle([x0, y0, x1 - 1, y1 - 1], fill=lid)   # clear to lid skin (matched to the local face)
-            img.alpha_composite(squ, (x0, y1 - nh))           # re-seat, anchored at the bottom lid
-
-    # HAPPY ^ ARC: a STRONG happy squint (laughing) reads as an upward ^_^, not a flat top-down line. Driven
-    # by the MOOD's openness (eye_open), NOT blink — so a blink does the normal close and the ^ re-forms on
-    # reopen (it never renders as a second pair over the animating eye). Sized to the eye, always clears.
     eop = _clamp(p.get("eye_open", 1.0), 0.0, 1.3)
     eh = _clamp(p.get("eye_happy", 0.0), 0.0, 1.0)
     arc = eh * _clamp((1.0 - eop) * 1.5, 0.0, 1.0)
+
+    # BLINK / CLOSE — the upper LID descends and covers the eye from the top; the iris (full size) is
+    # occluded top-down (never squished). `close`: 0 open … 1 shut. `lid_dy` = how far the lid + lashes drop.
+    close = _clamp(1.0 - eo, 0.0, 1.0)
+    lid_dy = round(close * (top_h - 3))
+    if not show_shape and arc <= 0.5 and close > 0.02:
+        d = ImageDraw.Draw(img, "RGBA")
+        H = img.height
+        for (cx, cy) in centers:
+            edge = (cy - 9) + close * 18.0                   # lid lower edge: iris-top (open) → past shut
+            lid = img.getpixel((cx, min(H - 1, cy + bot_h + 5)))   # local cheek skin so the lid matches the face
+            if not (isinstance(lid, tuple) and len(lid) == 4 and lid[3] > 200):
+                lid = skin
+            d.rectangle([cx - half_w, cy - top_h, cx + half_w, int(edge)], fill=lid)   # the descending lid
+
+    if lashes is not None:                                   # lashes ride the lid's lower edge (translate down)
+        img.alpha_composite(lashes, (0, lid_dy)) if lid_dy > 0 else img.alpha_composite(lashes)
+
+    # HAPPY ^ ARC: a STRONG happy squint (laughing) closes into an upward ^_^ rather than a flat lid.
     if not show_shape and arc > 0.5 and blink_c < 0.3:
         d = ImageDraw.Draw(img, "RGBA")
-        aw = 13                                              # match the eye width (not the squash box)
-        peak = 8.0
+        aw, peak = 13, 8.0
         for (cx, cy) in centers:
             base_y = cy + 4
             n = 15
@@ -227,21 +216,6 @@ def draw_eyes(img, centers, p: dict, blink: float = 0.0, glasses=None,
             d.rectangle([cx - half_w, cy - top_h, cx + half_w, cy + bot_h + 1], fill=lid)   # hide the eyeball
             d.line(pts, fill=(52, 40, 40, 255), width=3, joint="curve")
             d.line([(x, y + 1.6) for x, y in pts[3:-3]], fill=(72, 55, 53, 255), width=1)
-
-    # CLOSED-LID line: the squash alone nearly VANISHES at full close (she "blinks out of existence"), so as
-    # the eye nears shut draw the lash line meeting the lower lid — a natural closed EYELID, fading in by how
-    # closed it is. Skipped when the ^ or a special shape is drawn (those handle their own close).
-    arc_drawn = arc > 0.5 and blink_c < 0.3
-    close_amt = _clamp((0.42 - eo) / 0.42, 0.0, 1.0)
-    if not show_shape and not arc_drawn and close_amt > 0.06:
-        d = ImageDraw.Draw(img, "RGBA")
-        lw = 13
-        for (cx, cy) in centers:
-            ly = cy + 5
-            n = 13
-            ts = [(-1.0 + 2.0 * i / (n - 1)) for i in range(n)]
-            pts = [(cx + t * lw, ly + 1.8 * (1 - t * t)) for t in ts]   # gentle ‿ lower-lid line
-            d.line(pts, fill=(52, 40, 40, int(235 * close_amt)), width=2, joint="curve")
 
     if show_shape:
         from crucible.eye_shapes import SHAPES

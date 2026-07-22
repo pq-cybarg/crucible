@@ -3694,12 +3694,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             _glass = None if "glasses" in _hide else _eyepart("glasses.png")
             # LASHES translate/squash with the closing lid; hidden by the lash or eyes group.
             _lash = None if ("eyelashes" in _hide or _eyes_hidden) else _eyepart("lashes.png")
-            if _lash is not None:
-                below_img.alpha_composite(_lash)              # merged pre-squash → deforms with the eye
             if "eyes" not in _hidden:
-                # half_w=22 so the squash box spans the FULL lash width (curls reach ±20 from centre).
+                # lashes are PASSED IN (not pre-composited): draw_eyes rides them on the descending lid, so a
+                # blink is the upper LID coming down over the eye (not the eyeball squishing). half_w=22 spans
+                # the full lash width.
                 draw_eyes(below_img, [(70, 127), (134, 127)], fparams,
-                          blink=max(0.0, min(1.0, blink)), glasses=_glass, half_w=22)
+                          blink=max(0.0, min(1.0, blink)), glasses=_glass, lashes=_lash, half_w=22)
             elif _glass is not None:                          # glasses independent when eyes are hidden
                 below_img.alpha_composite(_glass)
             if "brows" not in _hide:
