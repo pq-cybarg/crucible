@@ -3736,9 +3736,12 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     # ATTACHED feel: strong anchor + chain + heavy damping so the hair tracks the head with
                     # only a subtle tip jiggle (not a loose container the head phases through), pinned firmly
                     # near the roots (pin_exp high) and sharing the head-bob pivot.
-                    rig = HairLayerRig(_np.array(hair_band), rows=12, pin_exp=2.2,
+                    # a touch looser than before (damp 0.45→0.36, anchor 0.22→0.17, pin_exp 2.2→1.9) so the
+                    # SIDE hair swings/lags naturally with head motion instead of reading as pinned — but still
+                    # anchored enough at the roots that it tracks the head (not a loose container).
+                    rig = HairLayerRig(_np.array(hair_band), rows=12, pin_exp=1.9,
                                        pivot_override=(a.size[0] / 2, neck),
-                                       k_anchor=0.22, k_anchor_gain=0.5, k_chain=0.5, damp=0.45)
+                                       k_anchor=0.17, k_anchor_gain=0.5, k_chain=0.55, damp=0.36)
                     if len(_hair_rigs) > 32:
                         _hair_rigs.pop(next(iter(_hair_rigs)))
                     _hair_rigs[_rk] = rig

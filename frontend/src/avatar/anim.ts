@@ -51,11 +51,11 @@ export function expressionAnim(name: string, now: number):
     case "love":      return { talk: 0, bob: s(520) * 1.0, tilt: s(760) * 1.6, ...hug(10, 3, 520) };                              // hands drawn in, dreamy
     case "happy":     return { talk: 0, bob: s(440) * 0.9, tilt: s(900) * 0.7, ...spread(8, 4, 440) };                            // gentle spread
     case "surprised": return { talk: 0, bob: -1 + s(230) * 0.7, tilt: 0, armL: -22, armR: 22 };                                   // arms flung out
-    // trembling moods: TILT drives the hair-side sway, so a tiny tilt (old 0.8-0.9) left the sides dead while
-    // the heavy hair damping filtered it out. Give them a followable sway (bigger, > laughing's tilt) PLUS a
-    // fast micro-shudder for the tense read — the sway moves the side hair, the shudder sells the trembling.
-    case "scared":    return { talk: 0, bob: s(60) * 0.9 + s(22) * 0.4, tilt: s(72) * 1.5 + s(20) * 0.5, ...hug(15, 3, 70) };     // hugging self, trembling
-    case "angry":     return { talk: 0, bob: s(70) * 0.9 + s(26) * 0.4, tilt: s(85) * 1.7 + s(24) * 0.5, ...spread(11, 5, 95) };  // tense, shaking
+    // tense moods: a SLOW, small sway the (heavily-damped) hair can actually FOLLOW — NOT a fast shudder,
+    // which shook the head distractingly AND desynced the hair (the damping filtered the fast motion, so the
+    // head moved while the hair sat still = "pinned"). The tension reads through the drawn-in / spread arms.
+    case "scared":    return { talk: 0, bob: s(150) * 0.5, tilt: s(200) * 0.6, ...hug(15, 3, 70) };      // hugging self, tense
+    case "angry":     return { talk: 0, bob: s(170) * 0.4, tilt: s(230) * 0.55, ...spread(11, 5, 95) };  // tense, mostly still
     case "sad":       return { talk: 0, bob: 1.0 + s(1000) * 0.5, tilt: -1 + s(1200) * 0.5, ...hug(6, 2, 1200) };                // limp, drawn in
     default:          return { talk: 0, bob: s(1500) * 0.5, tilt: 0, armL: -3 + s(1500) * 2.5, armR: 3 - s(1500) * 2.5 };         // quiet breathing sway
   }
