@@ -3747,6 +3747,28 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                     _hair_rigs[_rk] = rig
                 img.alpha_composite(Image.fromarray(rig.deform(t, b), "RGBA"))   # physics hair
             img.alpha_composite(upper)
+            # CAT EARS — appear in cat mode; FLOP UP as cat engages (the tip eases from drooped-out to
+            # upright by the cat intensity, so entering/leaving cat mode flops the ears up/down).
+            _cat = float(fparams.get("cat", 0.0)) if isinstance(fparams, dict) else 0.0
+            if _cat > 0.05:
+                from PIL import ImageDraw as _ID
+                ears = Image.new("RGBA", a.size, (0, 0, 0, 0))
+                ed = _ID.Draw(ears, "RGBA")
+                FUR, INNER = (46, 38, 35, 255), (226, 150, 160, 255)
+                cxh = a.size[0] // 2
+                topy = 22 - int(round(b))                                  # head-top; follow the vertical bob
+                for side in (-1, 1):
+                    ex = cxh + side * 30
+                    bl, br = (ex - 11, topy), (ex + 11, topy)              # ear base on the crown
+                    up = (ex + side * 2, topy - 26)                        # UPRIGHT tip
+                    droop = (ex + side * 24, topy - 2)                     # DROOPED-out tip
+                    tip = (up[0] + (droop[0] - up[0]) * (1 - _cat), up[1] + (droop[1] - up[1]) * (1 - _cat))
+                    tri = [bl, br, tip]
+                    ctr = (sum(x for x, _ in tri) / 3, sum(y for _, y in tri) / 3)
+                    inner = [(ctr[0] + (x - ctr[0]) * 0.5, ctr[1] + (y - ctr[1]) * 0.5) for x, y in tri]
+                    ed.polygon(tri, fill=FUR)
+                    ed.polygon(inner, fill=INNER)
+                img.alpha_composite(ears)
         else:
             img = blend_expressions(a, weights, overrides=overrides, gaze=gaze).convert("RGBA")
             img = _head_move(img)

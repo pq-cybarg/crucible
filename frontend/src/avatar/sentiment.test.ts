@@ -25,4 +25,5 @@ describe("moodFromText — context-free chat sentiment → companion mood", () =
   it("shock → dot eyes", () => expect(moodFromText("Wait what?! oh no")?.mood).toBe("shock"));
   it("grief → crying", () => expect(moodFromText("that's so sad 😭")?.mood).toBe("crying"));
   it("dead-tired → ko", () => expect(moodFromText("I'm so done, exhausted 💀")?.mood).toBe("ko"));
+  it("cat vibes → cat mode", () => expect(moodFromText("meow~ 🐱")?.mood).toBe("cat"));
 });

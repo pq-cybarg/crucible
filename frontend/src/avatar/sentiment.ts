@@ -18,6 +18,8 @@ export function moodFromText(text: string): MoodHit | null {
   if (has(/❤️|💕|💖|😍|🥰/) || (has(/\blove(d|s|ly)?\b|adorable|sweetheart|precious/) && exclaims >= 1)) {
     return { mood: "lovestruck", weight: 0.9 };
   }
+  // cat vibes → cat mode (slit eyes, ω mouth, ears)
+  if (has(/🐱|🐈|😺|😸|\bmeow\b|\bnya+\b|\bpurr|kitty|catgirl|=\^/)) return { mood: "cat", weight: 0.9 };
   // admiration → sparkle/kirakira eyes
   if (has(/gorgeous|beautiful|stunning|magnificent|so pretty|perfect!|flawless/)) return { mood: "sparkly", weight: 0.85 };
   // wonder / hype → star eyes

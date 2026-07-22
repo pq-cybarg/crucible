@@ -21,6 +21,7 @@ DEFAULTS = {
     "eye_happy": 0.0,      # 0 normal … 1 happy ^ arc
     "brow": 0.0,           # -1 furrowed … +1 raised
     "blush": 0.0,          # 0 … 1
+    "cat": 0.0,            # 0 human … 1 CAT MODE (ω mouth + cat ears; pairs with eye_shape "cat")
 }
 
 # named expression → parameter targets (only the non-default keys)
@@ -51,6 +52,10 @@ EXPRESSION_PARAMS = {
     "greedy":     {"mouth_curve": 0.5, "mouth_width": 0.9, "eye_open": 1.05, "eye_shape": "money"},
     "shock":      {"mouth_open": 0.5, "mouth_width": 0.7, "eye_open": 1.2, "brow": 0.7, "eye_shape": "dots"},
     "crying":     {"mouth_curve": -0.5, "mouth_open": 0.25, "eye_open": 0.95, "brow": -0.2, "eye_shape": "tears"},
+    # CAT MODE — slit eyes + ω mouth + cat ears. Variants for cat emotions.
+    "cat":        {"mouth_curve": 0.35, "eye_open": 1.0, "eye_shape": "cat", "cat": 1.0},
+    "cat_meow":   {"mouth_open": 0.6, "mouth_curve": 0.2, "eye_open": 0.9, "eye_shape": "cat", "cat": 1.0},
+    "cat_smug":   {"mouth_curve": 0.55, "mouth_width": 0.9, "eye_open": 0.65, "eye_happy": 0.3, "brow": -0.2, "eye_shape": "cat", "cat": 1.0},
 }
 
 
@@ -102,6 +107,7 @@ def blend_params(weights: dict) -> dict:
     p["eye_happy"] = _clamp(p["eye_happy"], 0.0, 1.0)
     p["brow"] = _clamp(p["brow"], -1.2, 1.2)
     p["blush"] = _clamp(p["blush"], 0.0, 1.0)
+    p["cat"] = _clamp(p["cat"], 0.0, 1.0)
 
     # ---- EYE-SHAPE (categorical): the strongest active mood that declares an `eye_shape` wins; its weight
     # is the INTENSITY, so special eyes (heart/star/cat/…) only show when that mood is strong, not always.
@@ -115,12 +121,33 @@ def blend_params(weights: dict) -> dict:
     return p
 
 
+def _draw_cat_mouth(draw, cx, cy, p, s=1.0):
+    """The cat ω / :3 mouth — two humps meeting at a centre peak; opens into a meow with a little tongue."""
+    op = _clamp(p.get("mouth_open", 0.0), 0.0, 1.0)
+    cv = _clamp(p.get("mouth_curve", 0.0), -1.0, 1.0)
+    DK, TONGUE, INN = (74, 40, 36, 255), (214, 116, 120, 255), (120, 54, 56, 255)
+    w = 6.0 * s
+    base = cy - cv * 1.5 * s                                # a smile lifts the whole ω
+    # the ω outline: corner → dip → CENTRE PEAK → dip → corner (a rounded W = the cat mouth)
+    omega = [(cx - w, base - 0.5 * s), (cx - w * 0.5, base + 3.0 * s), (cx, base - 2.6 * s),
+             (cx + w * 0.5, base + 3.0 * s), (cx + w, base - 0.5 * s)]
+    if op > 0.22:                                           # MEOW — open mouth under the ω
+        mh = op * 8.0 * s
+        draw.polygon([(cx - w * 0.5, base + 1.0 * s), (cx + w * 0.5, base + 1.0 * s),
+                      (cx + w * 0.32, base + mh), (cx - w * 0.32, base + mh)], fill=INN)
+        draw.ellipse([cx - w * 0.3, base + mh * 0.45, cx + w * 0.3, base + mh * 1.05], fill=TONGUE)
+    draw.line(omega, fill=DK, width=max(1, int(2 * s)), joint="curve")
+
+
 def draw_mouth(draw, cx: int, cy: int, p: dict, s: float = 1.0,
                lips: bool = True, inside: bool = True, teeth: bool = True, tongue: bool = True):
     """Draw a MORPHING mouth from params (continuous frown↔smile, shut↔open) in the
     avatar's simple-lip style. `s` scales for the sprite size (native ~1.0). `lips`/`inside`
     toggle the lip outline / inner-mouth cavity; `teeth`/`tongue` add a subtle upper-teeth band
     and a soft tongue that only appear once the mouth is CLEARLY open (part-hierarchy toggles)."""
+    if _clamp(p.get("cat", 0.0), 0.0, 1.0) > 0.5:          # CAT MODE → the ω / :3 cat mouth
+        _draw_cat_mouth(draw, cx, cy, p, s)
+        return
     w = 7.0 * s * p.get("mouth_width", 1.0)
     op = _clamp(p.get("mouth_open", 0.0), 0.0, 1.0)
     cv = _clamp(p.get("mouth_curve", 0.0), -1.0, 1.0)
