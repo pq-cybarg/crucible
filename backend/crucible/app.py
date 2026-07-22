@@ -3716,10 +3716,22 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
             upper = _head_move(above_img)
             img = lower
             if "hair" not in _hidden:     # the physics rig is CACHED, so gate the composite on the hide flag
-                hair_band = _band({"hair"})
                 import numpy as _np
                 from crucible.mesh_deform import HairLayerRig
-                rig = _hair_rigs.get(sid)
+                # SUBSECTIONS (#26 groundwork): build the physics hair from the non-hidden hair subsections
+                # (hair_crown/bangs/left/right) if they exist, so each can be toggled; else the whole hair.png.
+                _hsubs = ("crown", "bangs", "left", "right")
+                _hair_hidden = tuple(s for s in _hsubs if f"hair-{s}" in _hide)
+                _sub_ok = bool(_adir) and all(_os2.path.exists(_os2.path.join(_adir, f"hair_{s}.png")) for s in _hsubs)
+                if _sub_ok:
+                    hair_band = Image.new("RGBA", a.size, (0, 0, 0, 0))
+                    for s in _hsubs:
+                        if s not in _hair_hidden:
+                            hair_band.alpha_composite(Image.open(_os2.path.join(_adir, f"hair_{s}.png")).convert("RGBA"))
+                else:
+                    hair_band = _band({"hair"})
+                _rk = (sid, _hair_hidden)                        # rebuild the rig when the visible subset changes
+                rig = _hair_rigs.get(_rk)
                 if rig is None:
                     # ATTACHED feel: strong anchor + chain + heavy damping so the hair tracks the head with
                     # only a subtle tip jiggle (not a loose container the head phases through), pinned firmly
@@ -3729,7 +3741,7 @@ def create_app(registry: Registry | None = None, agent_root: Path | None = None,
                                        k_anchor=0.22, k_anchor_gain=0.5, k_chain=0.5, damp=0.45)
                     if len(_hair_rigs) > 32:
                         _hair_rigs.pop(next(iter(_hair_rigs)))
-                    _hair_rigs[sid] = rig
+                    _hair_rigs[_rk] = rig
                 img.alpha_composite(Image.fromarray(rig.deform(t, b), "RGBA"))   # physics hair
             img.alpha_composite(upper)
         else:
