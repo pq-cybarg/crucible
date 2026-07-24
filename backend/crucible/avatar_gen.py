@@ -774,9 +774,38 @@ def build_anime_companion(name: str, out_dir: str, seed: int = 7, size: int = 38
         imagegen.unload()
 
 
+def _seed_from_default(active: str):
+    """Seed the active dir from the repo's VENDORED default avatar (crucible/avatars/default — the real
+    cute-anime companion, checked into the repo so a fresh clone HAS her). Copies the sprites in and writes
+    an avatar.json whose state paths point at the now-populated active dir. Returns None if not vendored."""
+    import json
+    import shutil
+    default = os.path.join(os.path.dirname(__file__), "avatars", "default")
+    dspec = os.path.join(default, "avatar.json")
+    if not os.path.exists(dspec):
+        return None
+    os.makedirs(active, exist_ok=True)
+    for f in os.listdir(default):
+        if f.endswith(".png"):
+            shutil.copy2(os.path.join(default, f), os.path.join(active, f))
+    spec = json.loads(open(dspec).read())
+    for lyr in spec.get("layers", []):                      # relative filenames → absolute active-dir paths
+        st = lyr.get("states") or {}
+        for k, v in list(st.items()):
+            if isinstance(v, str):
+                st[k] = os.path.join(active, os.path.basename(v))
+    with open(os.path.join(active, "avatar.json"), "w") as fh:
+        json.dump(spec, fh, indent=2)
+    try:
+        return Avatar.load(os.path.join(active, "avatar.json"))
+    except (OSError, ValueError):
+        return None
+
+
 def ensure_default_avatar(data_dir: str) -> Avatar:
-    """Load the active avatar from <data_dir>/avatars/active, generating a default procedural one the
-    first time so the TUI face box always has something to show."""
+    """Load the active avatar from <data_dir>/avatars/active. On first run SEED it from the vendored default
+    companion (checked into the repo) so a fresh clone shows the real avatar; only if that's missing do we
+    fall back to generating a bare procedural one."""
     active = os.path.join(data_dir, "avatars", "active")
     spec = os.path.join(active, "avatar.json")
     if os.path.exists(spec):
@@ -784,6 +813,9 @@ def ensure_default_avatar(data_dir: str) -> Avatar:
             return Avatar.load(spec)
         except (OSError, ValueError):
             pass
+    seeded = _seed_from_default(active)
+    if seeded is not None:
+        return seeded
     return generate_avatar("kiri", active)
 
 

@@ -1,0 +1,191 @@
+{
+  "name": "kiri",
+  "kind": "sprites",
+  "model_path": null,
+  "size": [
+    200,
+    548
+  ],
+  "layers": [
+    {
+      "id": "base",
+      "part": "skin",
+      "protected": true,
+      "z": 2,
+      "states": {
+        "base": "base.png"
+      },
+      "default_state": "base",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": ""
+    },
+    {
+      "id": "eyes",
+      "part": "eyes",
+      "protected": false,
+      "z": 5,
+      "states": {
+        "open": "eyes_open.png",
+        "closed": "eyes_closed.png",
+        "blink": "eyes_blink.png",
+        "half": "eyes_half.png"
+      },
+      "default_state": "open",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 5,
+      "clip": ""
+    },
+    {
+      "id": "pupils",
+      "part": "pupils",
+      "protected": false,
+      "z": 6,
+      "states": {
+        "on": "pupils.png",
+        "off": "pupils_off.png"
+      },
+      "default_state": "on",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": "eyes"
+    },
+    {
+      "id": "bangs",
+      "part": "hair",
+      "protected": true,
+      "z": 7,
+      "states": {
+        "base": "hair.png"
+      },
+      "default_state": "base",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": ""
+    },
+    {
+      "id": "mouth",
+      "part": "mouth",
+      "protected": false,
+      "z": 8,
+      "states": {
+        "neutral": "mouth_neutral.png",
+        "closed": "mouth_closed.png",
+        "talk": "mouth_talk.png",
+        "smile": "mouth_smile.png",
+        "open": "mouth_open.png",
+        "frown": "mouth_frown.png"
+      },
+      "default_state": "neutral",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": ""
+    },
+    {
+      "id": "body",
+      "part": "clothes_front",
+      "protected": true,
+      "z": 4,
+      "states": {
+        "base": "body.png"
+      },
+      "default_state": "base",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": ""
+    },
+    {
+      "id": "headphones",
+      "part": "accessory",
+      "protected": true,
+      "z": 10,
+      "states": {
+        "base": "headphones.png"
+      },
+      "default_state": "base",
+      "pos": [
+        0,
+        0
+      ],
+      "mirror": false,
+      "spacing": 0,
+      "clip": ""
+    }
+  ],
+  "expressions": {
+    "neutral": {
+      "eyes": "open",
+      "pupils": "on",
+      "mouth": "neutral"
+    },
+    "happy": {
+      "eyes": "open",
+      "pupils": "on",
+      "mouth": "smile"
+    },
+    "laughing": {
+      "eyes": "closed",
+      "pupils": "off",
+      "mouth": "open"
+    },
+    "surprised": {
+      "eyes": "open",
+      "pupils": "on",
+      "mouth": "open"
+    },
+    "sad": {
+      "mouth": "frown"
+    },
+    "angry": {
+      "eyes": "open",
+      "pupils": "on",
+      "mouth": "frown"
+    },
+    "love": {
+      "eyes": "closed",
+      "pupils": "off",
+      "mouth": "smile"
+    },
+    "curious": {
+      "eyes": "open",
+      "pupils": "on",
+      "mouth": "neutral"
+    }
+  },
+  "meta": {
+    "rigged": true,
+    "from_parts": true,
+    "face_box": [
+      26,
+      48,
+      178,
+      173
+    ],
+    "gaze_px": 3,
+    "neck_y": 200
+  }
+}
