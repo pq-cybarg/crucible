@@ -116,6 +116,24 @@ frontend/src/       App + components (Agent/Guardrails/Uncensor/Weights/Benchmar
 docs/superpowers/   specs/ + plans/ (design + per-phase implementation plans)
 ```
 
+## Companion avatar
+
+The **companion** (the `companion` tab, and a small live face in the chat window) is a modular,
+server-rendered sprite rig — separated parts (eyes → whites/irises/pupils/lashes, glasses, nose,
+hair → crown/bangs/left/right, …), parametric expressions, a multi-shape eye-morph rig
+(heart / star / cat / swirl / … forming under a blink), and spring-physics hair.
+
+- **Where the art lives.** Crucible keeps per-user data (avatar, memory, settings) under
+  **`~/.crucible/`**. The avatar sprites + `avatar.json` live in **`~/.crucible/avatars/active/`** —
+  that's your editable copy; sprite edits hot-reload on the next render.
+- **The default is checked in.** The core companion sprites + a relative-path `avatar.json` ship in
+  **`backend/crucible/avatars/default/`**, so the repo is self-contained. On first run,
+  `ensure_default_avatar` **seeds** `~/.crucible/avatars/active/` from that default — a fresh clone
+  renders the real companion out of the box, not a placeholder.
+- **Customize.** Drop your own PNGs into the active dir (or edit the vendored default and delete your
+  active dir to re-seed). The rig's part/expression/eye-shape code is in `backend/crucible/face_params.py`,
+  `eye_shapes.py`, and `mesh_deform.py`; the extraction tools are in `backend/tools/`.
+
 ## Live demo & wiki
 - App (static demo, real sample data): **https://pq-cybarg.github.io/crucible/**
 - Wiki: **https://pq-cybarg.github.io/crucible/docs/**
